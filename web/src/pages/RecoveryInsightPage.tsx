@@ -8,7 +8,7 @@ import { RecoveryMeter } from "../components/RecoveryMeter";
 import { StatTile } from "../components/StatTile";
 import { STATUS_TEXT_COLORS } from "../lib/chartPalette";
 import type { DayStatus, RecoveryInsight } from "../lib/types";
-import { PageHead } from "../components/ui";
+import { PageHead, Panel } from "../components/ui";
 import { Money, formatMoney } from "../components/Money";
 
 // Text-variant colors: these are used both as small type and as pill
@@ -87,23 +87,38 @@ export function RecoveryInsightPage() {
         <p className="text-sm text-ink-500">Loading…</p>
       ) : (
         <div className="space-y-6">
-          <div className="rounded-2xl bg-paper p-5 border border-paper-200 shadow-sm">
-            <h2 className="mb-4 text-sm font-semibold text-ink-700">Inputs</h2>
+          <Panel title="Inputs">
             <div className="grid gap-4 sm:grid-cols-3">
-              <StatTile label="Expected monthly expenses" value={formatMoney(data.expectedMonthlyExpenses)} />
-              <StatTile label="Operating days / month" value={String(data.operatingDays)} />
-              <StatTile label="Daily needed target" value={formatMoney(data.dailyNeededTarget)} />
+              <StatTile
+                label="Expected monthly expenses"
+                value={formatMoney(data.expectedMonthlyExpenses)}
+                sublabel="Owner-entered reference"
+              />
+              <StatTile
+                label="Operating days / month"
+                value={String(data.operatingDays)}
+                sublabel="Owner-entered reference"
+              />
+              <StatTile
+                label="Daily needed target"
+                value={formatMoney(data.dailyNeededTarget)}
+                sublabel="Computed from the two figures beside it"
+              />
             </div>
             <p className="mt-3 text-xs text-ink-400">
               Daily needed target = expected monthly expenses ÷ operating days. This is a target-based
               recovery guide using your sales reference records — it does not calculate formal financial
               results.
             </p>
-          </div>
+          </Panel>
 
           <div className="grid gap-4 sm:grid-cols-4">
             <StatTile label="Today's target" value={formatMoney(data.todaysTarget)} />
-            <StatTile label="Sales reference today" value={formatMoney(data.todaysSales)} />
+            <StatTile
+              label="Sales reference today"
+              value={formatMoney(data.todaysSales)}
+              sublabel="From your records"
+            />
             <StatTile
               label="Today's gap"
               value={formatMoney(Math.abs(data.todaysGap))}
@@ -120,17 +135,22 @@ export function RecoveryInsightPage() {
             />
           </div>
 
-          <div className="rounded-2xl bg-paper p-5 border border-paper-200 shadow-sm">
-            <h2 className="mb-4 text-sm font-semibold text-ink-700">Month-to-date pace</h2>
+          <Panel title="Month-to-date pace">
             <RecoveryMeter recoveryStatus={data} />
-          </div>
+          </Panel>
 
-          <div className="rounded-2xl bg-paper p-5 border border-paper-200 shadow-sm">
-            <h2 className="text-sm font-semibold text-ink-700">Remaining recovery target</h2>
-            <p className="mb-4 text-xs text-ink-400">Recalculated across your remaining operating days</p>
+          <Panel title="Remaining recovery target" eyebrow="Recalculated across your remaining operating days">
             <div className="grid gap-4 sm:grid-cols-3">
-              <StatTile label="Sales reference so far this month" value={formatMoney(data.salesThisMonth)} />
-              <StatTile label="Remaining target" value={formatMoney(data.remainingTarget)} />
+              <StatTile
+                label="Sales reference so far this month"
+                value={formatMoney(data.salesThisMonth)}
+                sublabel="From your records"
+              />
+              <StatTile
+                label="Remaining target"
+                value={formatMoney(data.remainingTarget)}
+                sublabel="Computed from your records"
+              />
               <StatTile
                 label="Remaining operating days"
                 value={`≈ ${data.remainingOperatingDays}`}
@@ -152,7 +172,7 @@ export function RecoveryInsightPage() {
                 month is left.
               </p>
             ) : null}
-          </div>
+          </Panel>
 
           <div className="overflow-x-auto rounded-2xl bg-paper border border-paper-200 shadow-sm">
             <div className="flex items-center justify-between px-5 pt-5">

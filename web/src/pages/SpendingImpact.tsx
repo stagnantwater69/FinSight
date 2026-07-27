@@ -6,7 +6,7 @@ import { ExplainButton } from "../components/ExplainButton";
 import { AskFinSightButton, AskFinSightDrawer } from "../components/AskFinSightDrawer";
 import { OTHER_COLOR, STATUS_COLORS } from "../lib/chartPalette";
 import type { ImpactBand, SpendingImpact as SpendingImpactData } from "../lib/types";
-import { Callout, PageHead, Panel, Pill, type PillTone } from "../components/ui";
+import { Callout, InfoNote, PageHead, Panel, Pill, type PillTone } from "../components/ui";
 import { Field, MoneyInput, SelectInput, TextInput } from "../components/Field";
 import { Money } from "../components/Money";
 
@@ -220,12 +220,15 @@ export function SpendingImpact() {
               ) : null}
 
               <div>
-                <div className="flex items-baseline justify-between">
+                <div className="flex items-baseline justify-between gap-2">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500">
                     Available business funds
                   </h3>
                   <span className="text-xs text-ink-500">{percentText(data)} used</span>
                 </div>
+                {/* Provenance: this figure is the owner's own, not something
+                    FinSight derived. Same treatment as Dashboard's KPI meta. */}
+                <p className="mt-0.5 text-xs text-ink-400">Owner-entered reference</p>
                 <BeforeAfterBars
                   before={data.funds.before}
                   after={data.funds.after}
@@ -238,11 +241,35 @@ export function SpendingImpact() {
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500">
                   Recorded expenses (last {data.periodDays} day{data.periodDays === 1 ? "" : "s"})
                 </h3>
-                <BeforeAfterBars
-                  before={data.periodExpenses.before}
-                  after={data.periodExpenses.after}
-                  afterColor={STATUS_COLORS[bandStatus!]}
-                />
+                <p className="mt-0.5 text-xs text-ink-400">Computed from your records</p>
+                {/*
+                  The one genuinely thin figure on this page.
+
+                  The impact band above is arithmetic on funds the owner
+                  entered, so it holds regardless of how much history exists.
+                  This comparison is not: with nothing recorded in the period,
+                  the "before" bar is empty and the "after" bar fills the width,
+                  which reads as a dramatic increase when it is really a single
+                  data point against no baseline. Saying so is cheaper than
+                  letting the owner draw the wrong conclusion — and item 19 is
+                  lost precisely by claiming confidence that isn't there.
+                */}
+                {data.periodExpenses.before === 0 ? (
+                  <div className="mt-2">
+                    <InfoNote>
+                      You have no expenses recorded in the last {data.periodDays} day
+                      {data.periodDays === 1 ? "" : "s"}, so there's nothing to compare this against yet.
+                      The funds figure above is still accurate — this comparison gets useful once you've
+                      recorded a few days.
+                    </InfoNote>
+                  </div>
+                ) : (
+                  <BeforeAfterBars
+                    before={data.periodExpenses.before}
+                    after={data.periodExpenses.after}
+                    afterColor={STATUS_COLORS[bandStatus!]}
+                  />
+                )}
               </div>
 
               <p className="text-xs text-ink-500">
