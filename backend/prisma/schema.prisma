@@ -1,0 +1,244 @@
+// FinSight — Prisma schema
+//
+// Modeled directly from the project's Data Dictionary (9 tables). Model/field
+// names use Prisma/TS conventions (camelCase); @map/@@map preserve the exact
+// physical column/table names from the dictionary so the DB matches the ERD.
+//
+// Deliberate deviations from the dictionary (flagged per project convention
+// — do not "fix" these back to the dictionary without checking with the
+// project owner first):
+//   1. User_Type (Owner/Admin) is DROPPED. This project is single-role only
+//      (Small Business Owner) — see CLAUDE-CODE-PROMPT.md section 1.
+//   2. User_Password is DROPPED. Supabase Auth is the system of record for
+//      credentials (see tech stack); duplicating a password hash here would
+//      be redundant and could drift out of sync with the real one.
+//   3. User.authId [ADDED] — bridges a User row to its Supabase Auth user
+//      (UUID). Required because Supabase Auth issues UUIDs, not the
+//      dictionary's INT User_ID.
+//   4. ReceiptScan.businessProfileId [ADDED] — the dictionary has no FK from
+//      ReceiptScan to BusinessProfile, only ExpenseRecord -> ReceiptScan.
+//      Without it, a scanned-but-not-yet-confirmed receipt has no way to
+//      know which of an owner's business profiles it belongs to. Nullable
+//      until confirmed, at which point ExpenseRecord.receiptScanId links it.
+//   5. BusinessProfile.largeExpenseThresholdPercent [ADDED] — not in the
+//      dictionary at all. Records Management originally hardcoded a 25%
+//      global threshold for the ExpenseRecord.largeExpenseFlag rule; a
+//      single global number is wrong for a meaningful share of businesses,
+//      so it's now a per-profile setting (default 20%) alongside the
+//      other configurable profile parameters (funds, expenses, days).
+//      Still a placeholder default, not an adviser-confirmed number.
+//   6. Notification.businessProfileId [ADDED] — the dictionary only links
+//      Notification to User, not BusinessProfile. An owner with multiple
+//      businesses would have one business's duplicate/large-expense/
+//      needs-review alerts bleeding into every other business's Dashboard
+//      without this — every notification this app creates originates from
+//      a specific business-profile-scoped event, so it's NOT NULL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum ExpenseRecordSource {
+  MANUAL_ENTRY @map("Manual Entry")
+  CSV_UPLOAD   @map("CSV Upload")
+  RECEIPT_SCAN @map("Receipt Scan")
+
+  @@map("ExpenseRecordSource")
+}
+
+enum SalesRecordSource {
+  MANUAL_ENTRY @map("Manual Entry")
+  CSV_UPLOAD   @map("CSV Upload")
+
+  @@map("SalesRecordSource")
+}
+
+model User {
+  id          Int      @id @default(autoincrement()) @map("User_ID")
+  authId      String   @unique @map("User_AuthID") @db.Uuid
+  firstName   String   @map("User_FirstName") @db.VarChar(100)
+  middleName  String?  @map("User_MiddleName") @db.VarChar(100)
+  lastName    String   @map("User_LastName") @db.VarChar(100)
+  email       String   @unique @map("User_Email") @db.VarChar(150)
+  phoneNumber String?  @map("User_PhoneNumber") @db.VarChar(20)
+  status      String   @default("Active") @map("User_Status") @db.VarChar(50)
+  createdAt   DateTime @default(now()) @map("User_CreatedAt")
+
+  businessProfiles BusinessProfile[]
+  notifications    Notification[]
+  aiInteractions   AIInteraction[]
+
+  @@map("User")
+}
+
+model BusinessProfile {
+  id                           Int      @id @default(autoincrement()) @map("BusinessProfile_ID")
+  userId                       Int      @map("User_ID")
+  name                         String   @map("BusinessProfile_Name") @db.VarChar(150)
+  type                         String   @map("BusinessProfile_Type") @db.VarChar(100)
+  availableFunds               Decimal  @map("BusinessProfile_AvailableFunds") @db.Decimal(12, 2)
+  expectedMonthlyExpenses      Decimal  @map("BusinessProfile_ExpectedMonthlyExpenses") @db.Decimal(12, 2)
+  operatingDays                Int      @map("BusinessProfile_OperatingDays")
+  largeExpenseThresholdPercent Decimal  @default(20) @map("BusinessProfile_LargeExpenseThresholdPercent") @db.Decimal(5, 2) // [ADDED] see schema header note
+  createdAt                    DateTime @default(now()) @map("BusinessProfile_CreatedAt")
+  // [ADDED] Soft delete. Null = active. Archiving hides a profile from the
+  // switcher without touching its records, insights or AI history. A hard
+  // delete would cascade and destroy the owner's entire financial history for
+  // that business — too destructive to expose as an accidental click in a tool
+  // whose whole value is the history it holds.
+  archivedAt                   DateTime? @map("BusinessProfile_ArchivedAt")
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categories            ExpenseCategory[]
+  expenseRecords        ExpenseRecord[]
+  salesReferenceRecords SalesReferenceRecord[]
+  receiptScans          ReceiptScan[]
+  csvImportBatches      CSVImportBatch[]
+  aiInteractions        AIInteraction[]
+  notifications         Notification[]
+
+  @@index([userId])
+  @@map("BusinessProfile")
+}
+
+model ExpenseCategory {
+  id                Int      @id @default(autoincrement()) @map("Category_ID")
+  businessProfileId Int      @map("BusinessProfile_ID")
+  name              String   @map("Category_Name") @db.VarChar(100)
+  description       String?  @map("Category_Description") @db.VarChar(255)
+  createdAt         DateTime @default(now()) @map("Category_CreatedAt")
+
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  expenseRecords  ExpenseRecord[]
+
+  @@index([businessProfileId])
+  @@map("ExpenseCategory")
+}
+
+model ExpenseRecord {
+  id                  Int                 @id @default(autoincrement()) @map("ExpenseRecord_ID")
+  businessProfileId   Int                 @map("BusinessProfile_ID")
+  categoryId          Int                 @map("Category_ID")
+  receiptScanId       Int?                @unique @map("ReceiptScan_ID")
+  importBatchId       Int?                @map("ImportBatch_ID")
+  duplicateOfRecordId Int?                @map("DuplicateOf_RecordID")
+  date                DateTime            @map("ExpenseRecord_Date") @db.Date
+  description         String              @map("ExpenseRecord_Description") @db.VarChar(255)
+  vendor              String?             @map("ExpenseRecord_Vendor") @db.VarChar(150)
+  amount              Decimal             @map("ExpenseRecord_Amount") @db.Decimal(12, 2)
+  source              ExpenseRecordSource @map("ExpenseRecord_Source")
+  reviewStatus        String              @default("Needs Review") @map("ExpenseRecord_ReviewStatus") @db.VarChar(50)
+  duplicateStatus     String              @default("Not a Duplicate") @map("ExpenseRecord_DuplicateStatus") @db.VarChar(50)
+  largeExpenseFlag    Boolean             @default(false) @map("ExpenseRecord_LargeExpenseFlag")
+  createdAt           DateTime            @default(now()) @map("ExpenseRecord_CreatedAt")
+
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  category        ExpenseCategory @relation(fields: [categoryId], references: [id])
+  receiptScan     ReceiptScan?    @relation(fields: [receiptScanId], references: [id])
+  importBatch     CSVImportBatch? @relation(fields: [importBatchId], references: [id])
+  duplicateOf     ExpenseRecord?  @relation("ExpenseRecordDuplicates", fields: [duplicateOfRecordId], references: [id])
+  duplicates      ExpenseRecord[] @relation("ExpenseRecordDuplicates")
+
+  @@index([businessProfileId])
+  @@index([categoryId])
+  @@index([importBatchId])
+  @@map("ExpenseRecord")
+}
+
+model SalesReferenceRecord {
+  id                  Int               @id @default(autoincrement()) @map("SalesReferenceRecord_ID")
+  businessProfileId   Int               @map("BusinessProfile_ID")
+  importBatchId       Int?              @map("ImportBatch_ID")
+  duplicateOfRecordId Int?              @map("DuplicateOf_RecordID")
+  date                DateTime          @map("SalesReferenceRecord_Date") @db.Date
+  description         String            @map("SalesReferenceRecord_Description") @db.VarChar(255)
+  amount              Decimal           @map("SalesReferenceRecord_Amount") @db.Decimal(12, 2)
+  source              SalesRecordSource @map("SalesReferenceRecord_Source")
+  reviewStatus        String            @default("Needs Review") @map("SalesReferenceRecord_ReviewStatus") @db.VarChar(50)
+  duplicateStatus     String            @default("Not a Duplicate") @map("SalesReferenceRecord_DuplicateStatus") @db.VarChar(50)
+  createdAt           DateTime          @default(now()) @map("SalesReferenceRecord_CreatedAt")
+
+  businessProfile BusinessProfile        @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  importBatch     CSVImportBatch?        @relation(fields: [importBatchId], references: [id])
+  duplicateOf     SalesReferenceRecord?  @relation("SalesRecordDuplicates", fields: [duplicateOfRecordId], references: [id])
+  duplicates      SalesReferenceRecord[] @relation("SalesRecordDuplicates")
+
+  @@index([businessProfileId])
+  @@index([importBatchId])
+  @@map("SalesReferenceRecord")
+}
+
+model ReceiptScan {
+  id                   Int       @id @default(autoincrement()) @map("ReceiptScan_ID")
+  businessProfileId    Int?      @map("BusinessProfile_ID") // [ADDED] see schema header note
+  imageFile            String    @map("ReceiptScan_ImageFile") @db.VarChar(255)
+  extractedDate        DateTime? @map("ReceiptScan_ExtractedDate") @db.Date
+  extractedVendor      String?   @map("ReceiptScan_ExtractedVendor") @db.VarChar(150)
+  extractedDescription String?   @map("ReceiptScan_ExtractedDescription") @db.VarChar(255)
+  extractedAmount      Decimal?  @map("ReceiptScan_ExtractedAmount") @db.Decimal(12, 2)
+  confirmationStatus   String    @default("Pending") @map("ReceiptScan_ConfirmationStatus") @db.VarChar(50)
+  createdAt            DateTime  @default(now()) @map("ReceiptScan_CreatedAt")
+
+  businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+  expenseRecord   ExpenseRecord?
+
+  @@index([businessProfileId])
+  @@map("ReceiptScan")
+}
+
+model CSVImportBatch {
+  id                Int      @id @default(autoincrement()) @map("ImportBatch_ID")
+  businessProfileId Int      @map("BusinessProfile_ID")
+  title             String   @map("ImportBatch_Title") @db.VarChar(150)
+  uploadDate        DateTime @map("ImportBatch_UploadDate") @db.Date
+  fileReference     String   @map("ImportBatch_FileReference") @db.VarChar(255)
+  status            String   @default("Needs Review") @map("ImportBatch_Status") @db.VarChar(50)
+  createdAt         DateTime @default(now()) @map("ImportBatch_CreatedAt")
+
+  businessProfile       BusinessProfile        @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  expenseRecords        ExpenseRecord[]
+  salesReferenceRecords SalesReferenceRecord[]
+
+  @@index([businessProfileId])
+  @@map("CSVImportBatch")
+}
+
+model Notification {
+  id                Int      @id @default(autoincrement()) @map("Notification_ID")
+  userId            Int      @map("User_ID")
+  businessProfileId Int      @map("BusinessProfile_ID") // [ADDED] see schema header note
+  message           String   @map("Notification_Message") @db.VarChar(255)
+  type              String   @map("Notification_Type") @db.VarChar(50)
+  dateCreated       DateTime @default(now()) @map("Notification_DateCreated")
+  readStatus        Boolean  @default(false) @map("Notification_ReadStatus")
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([businessProfileId])
+  @@map("Notification")
+}
+
+model AIInteraction {
+  id                Int      @id @default(autoincrement()) @map("Interaction_ID")
+  userId            Int      @map("User_ID")
+  businessProfileId Int      @map("BusinessProfile_ID")
+  module            String   @map("Interaction_Module") @db.VarChar(50)
+  question          String   @map("Interaction_Question") @db.VarChar(500)
+  aiResponse        String   @map("Interaction_AIResponse") @db.VarChar(1000)
+  timestamp         DateTime @default(now()) @map("Interaction_Timestamp")
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([businessProfileId])
+  @@map("AIInteraction")
+}

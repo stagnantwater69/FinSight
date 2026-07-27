@@ -1,0 +1,231 @@
+[
+  {
+    "id": "real-01-ph-pos-photo",
+    "file": "real-01-ph-pos-photo.jpeg",
+    "kind": "real",
+    "conditions": "Real phone photo, PH POS thermal receipt, on wooden table, slight crumple, store name cropped out of frame",
+    "expected": {
+      "date": "2026-07-11",
+      "vendor": null,
+      "amount": 188.0
+    },
+    "vendor_note": "Store name is not present in the image (top cropped). No extractable ground truth."
+  },
+  {
+    "id": "real-02-clean-digital",
+    "file": "real-02-clean-digital.jpg",
+    "kind": "real",
+    "conditions": "Clean digitally-generated receipt, high contrast, US layout, vendor at top, no TOTAL keyword (uses AMT/BALANCE)",
+    "expected": {
+      "date": "2019-12-27",
+      "vendor": "AROMA CAFE",
+      "amount": 8.7
+    }
+  },
+  {
+    "id": "syn-01-vendor-top-iso-date",
+    "file": "syn-01-vendor-top-iso-date.png",
+    "kind": "synthetic",
+    "conditions": "Printed, vendor at top, ISO date (YYYY-MM-DD), TOTAL keyword, no thousands separator",
+    "expected": {
+      "date": "2026-07-20",
+      "vendor": "ALING NENA SARI-SARI STORE",
+      "amount": 1220.0
+    }
+  },
+  {
+    "id": "syn-02-vendor-bottom",
+    "file": "syn-02-vendor-bottom.png",
+    "kind": "synthetic",
+    "conditions": "Printed, vendor at BOTTOM of receipt (known layout weakness), ISO date",
+    "expected": {
+      "date": "2026-07-18",
+      "vendor": "TINDAHAN NI MANG JOSE",
+      "amount": 845.5
+    }
+  },
+  {
+    "id": "syn-03-ambiguous-slash-date",
+    "file": "syn-03-ambiguous-slash-date.png",
+    "kind": "synthetic",
+    "conditions": "Printed, ambiguous numeric date 03/09/2026 (both components <= 12) \u2014 read as DD/MM per PH convention",
+    "expected": {
+      "date": "2026-09-03",
+      "vendor": "CEBU MINI GROCERY",
+      "amount": 2340.75
+    },
+    "known_ambiguous": true
+  },
+  {
+    "id": "syn-04-month-name-date",
+    "file": "syn-04-month-name-date.png",
+    "kind": "synthetic",
+    "conditions": "Printed, month-name date (Jul 05, 2026)",
+    "expected": {
+      "date": "2026-07-05",
+      "vendor": "BARANGAY SUPPLY DEPOT",
+      "amount": 675.0
+    }
+  },
+  {
+    "id": "syn-05-thousands-separator",
+    "file": "syn-05-thousands-separator.png",
+    "kind": "synthetic",
+    "conditions": "Printed, amount with thousands separator (12,450.00)",
+    "expected": {
+      "date": "2026-07-12",
+      "vendor": "METRO WHOLESALE TRADING",
+      "amount": 12450.0
+    }
+  },
+  {
+    "id": "syn-06-subtotal-then-total",
+    "file": "syn-06-subtotal-then-total.png",
+    "kind": "synthetic",
+    "conditions": "Printed, SUBTOTAL present before TOTAL (must not pick subtotal)",
+    "expected": {
+      "date": "2026-07-14",
+      "vendor": "SARI-SARI EXPRESS",
+      "amount": 1120.0
+    }
+  },
+  {
+    "id": "syn-07-no-total-keyword",
+    "file": "syn-07-no-total-keyword.png",
+    "kind": "synthetic",
+    "conditions": "Printed, NO 'TOTAL' keyword at all (uses 'Amount Due') \u2014 tests the max-value fallback",
+    "expected": {
+      "date": "2026-07-16",
+      "vendor": "JAH GENERAL MERCHANDISE",
+      "amount": 3400.0
+    }
+  },
+  {
+    "id": "syn-08-peso-sign",
+    "file": "syn-08-peso-sign.png",
+    "kind": "synthetic",
+    "conditions": "Printed, peso sign prefixes every amount",
+    "expected": {
+      "date": "2026-07-19",
+      "vendor": "VISAYAS FOOD SUPPLY",
+      "amount": 980.25
+    }
+  },
+  {
+    "id": "syn-09-two-digit-year",
+    "file": "syn-09-two-digit-year.png",
+    "kind": "synthetic",
+    "conditions": "Printed, two-digit year (07/22/26)",
+    "expected": {
+      "date": "2026-07-22",
+      "vendor": "QUICK MART APAS",
+      "amount": 455.0
+    }
+  },
+  {
+    "id": "syn-10-dd-mm-yyyy",
+    "file": "syn-10-dd-mm-yyyy.png",
+    "kind": "synthetic",
+    "conditions": "Printed, DD/MM/YYYY date (25/07/2026) \u2014 resolvable by validity, since 25 cannot be a month",
+    "expected": {
+      "date": "2026-07-25",
+      "vendor": "MANDAUE DRY GOODS",
+      "amount": 1875.0
+    }
+  },
+  {
+    "id": "syn-11-long-header",
+    "file": "syn-11-long-header.png",
+    "kind": "synthetic",
+    "conditions": "Printed, several administrative lines before the vendor name (TIN/permit block first)",
+    "expected": {
+      "date": "2026-07-21",
+      "vendor": "LAPU-LAPU TRADING CO",
+      "amount": 5600.0
+    },
+    "known_layout_risk": true
+  },
+  {
+    "id": "syn-12-tiny-amount",
+    "file": "syn-12-tiny-amount.png",
+    "kind": "synthetic",
+    "conditions": "Printed, very small amount (single-digit pesos)",
+    "expected": {
+      "date": "2026-07-23",
+      "vendor": "CORNER STORE APAS",
+      "amount": 8.5
+    }
+  },
+  {
+    "id": "deg-01-blur",
+    "file": "deg-01-blur.png",
+    "kind": "degraded",
+    "derived_from": "syn-01-vendor-top-iso-date",
+    "conditions": "Synthetic + Gaussian blur r=1.6 (simulates out-of-focus capture)",
+    "expected": {
+      "date": "2026-07-20",
+      "vendor": "ALING NENA SARI-SARI STORE",
+      "amount": 1220.0
+    }
+  },
+  {
+    "id": "deg-02-low-contrast",
+    "file": "deg-02-low-contrast.png",
+    "kind": "degraded",
+    "derived_from": "syn-01-vendor-top-iso-date",
+    "conditions": "Synthetic + contrast reduced to 35% (simulates faded thermal print)",
+    "expected": {
+      "date": "2026-07-20",
+      "vendor": "ALING NENA SARI-SARI STORE",
+      "amount": 1220.0
+    }
+  },
+  {
+    "id": "deg-03-rotated",
+    "file": "deg-03-rotated.png",
+    "kind": "degraded",
+    "derived_from": "syn-05-thousands-separator",
+    "conditions": "Synthetic + rotated 4 degrees (simulates handheld skew)",
+    "expected": {
+      "date": "2026-07-12",
+      "vendor": "METRO WHOLESALE TRADING",
+      "amount": 12450.0
+    }
+  },
+  {
+    "id": "deg-04-low-resolution",
+    "file": "deg-04-low-resolution.png",
+    "kind": "degraded",
+    "derived_from": "syn-05-thousands-separator",
+    "conditions": "Synthetic + downscaled to 45% then back up (simulates a distant/low-res photo)",
+    "expected": {
+      "date": "2026-07-12",
+      "vendor": "METRO WHOLESALE TRADING",
+      "amount": 12450.0
+    }
+  },
+  {
+    "id": "deg-05-dark",
+    "file": "deg-05-dark.png",
+    "kind": "degraded",
+    "derived_from": "syn-06-subtotal-then-total",
+    "conditions": "Synthetic + brightness reduced to 45% (simulates poor lighting)",
+    "expected": {
+      "date": "2026-07-14",
+      "vendor": "SARI-SARI EXPRESS",
+      "amount": 1120.0
+    }
+  },
+  {
+    "id": "deg-06-jpeg-artifacts",
+    "file": "deg-06-jpeg-artifacts.jpg",
+    "kind": "degraded",
+    "derived_from": "syn-06-subtotal-then-total",
+    "conditions": "Synthetic + heavy JPEG compression (quality 12)",
+    "expected": {
+      "date": "2026-07-14",
+      "vendor": "SARI-SARI EXPRESS",
+      "amount": 1120.0
+    }
+  }
+]

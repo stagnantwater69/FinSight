@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.mcp.json
+*.log
+.DS_Store
+coverage/
+.vscode/
+web/dist/
+backend/dist/
+
+# OCR corpus images — one is a real receipt photograph (personal data), and the
+# synthetic ones are regenerable via tests/ocr-accuracy/generate-corpus.py.
+# ground-truth.json and the generated reports ARE tracked.
+backend/tests/ocr-accuracy/images/
+backend/tests/ocr-accuracy/.html-tmp/

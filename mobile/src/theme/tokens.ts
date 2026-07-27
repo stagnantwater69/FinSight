@@ -1,0 +1,135 @@
+/**
+ * Design tokens, mirrored from the web app.
+ *
+ * Deliberately a hand-kept mirror of web/tailwind.config.js and
+ * web/src/lib/chartPalette.ts rather than a shared package: the two apps have
+ * no build-time relationship, and introducing a workspace just to share ~80
+ * lines of constants would couple their release cycles for very little.
+ *
+ * The tradeoff is that these must be updated in both places. Anything that can
+ * drift silently and matters is called out where it appears.
+ */
+
+export const brand = {
+  50: "#effcf9",
+  100: "#c8f7ec",
+  200: "#92eeda",
+  300: "#5adcc4",
+  400: "#2ec2ac",
+  500: "#149e8d",
+  600: "#0d7f72",
+  700: "#0e655c",
+  800: "#0f504b",
+  900: "#0f423f",
+  950: "#052624",
+} as const;
+
+/**
+ * The amber accent. Same two-places-only rule as web:
+ *   1. the Recovery Meter's adjusted daily target
+ *   2. primary calls to action
+ * Never status or progress elements — amber-as-warning is a different idea and
+ * lives in `status` below.
+ */
+export const accent = {
+  50: "#fff9ed",
+  100: "#fdedcc",
+  200: "#fbd894",
+  300: "#f8bd55",
+  400: "#f5a524",
+  500: "#e08c0b",
+  600: "#b96c06",
+  700: "#94520b",
+  800: "#7a4210",
+  900: "#683810",
+} as const;
+
+/**
+ * Measured on web: white text on amber fails contrast until accent-700 (which
+ * reads brown). Dark ink on accent-400 is 8.08:1. So a primary CTA is an amber
+ * fill with DARK ink, never white ink — the same rule, carried over.
+ */
+export const ACCENT = {
+  fill: accent[400],
+  fillStrong: accent[500],
+  onFill: "#1a2022",
+  text: accent[700],
+  surface: accent[50],
+} as const;
+
+export const ink = {
+  50: "#f6f8f8",
+  100: "#eceff0",
+  200: "#d5dbdd",
+  300: "#b0bbbe",
+  400: "#7f8f94", // decorative / placeholder only — 3.36:1, not for body text
+  500: "#5d6d72",
+  600: "#4a585c",
+  700: "#3d4749",
+  800: "#2c3436",
+  900: "#1a2022",
+} as const;
+
+export const paper = {
+  DEFAULT: "#ffffff",
+  50: "#fbfdfc",
+  100: "#f4f8f7",
+  200: "#e8efed",
+} as const;
+
+/** Fills for bars and meters. Not safe to put text on — see statusText. */
+export const status = {
+  good: "#0ca30c",
+  warning: "#fab219",
+  serious: "#ec835a",
+  critical: "#d03b3b",
+} as const;
+
+/** Darkened steps: safe as small text, and safe under white text on a badge. */
+export const statusText = {
+  good: "#0a7d0a",
+  warning: "#8a5a00",
+  serious: "#a8442a",
+  critical: "#c02f2f",
+} as const;
+
+/** Validated categorical palette — fixed order, never cycled or reassigned. */
+export const categorical = [
+  "#2a78d6",
+  "#eb6834",
+  "#1baf7a",
+  "#eda100",
+  "#e87ba4",
+  "#008300",
+  "#4a3aa7",
+  "#e34948",
+] as const;
+
+/**
+ * Font families. Same three typefaces as web (Inter / IBM Plex Sans / IBM Plex
+ * Mono), but delivered via @expo-google-fonts rather than @fontsource.
+ *
+ * DEVIATION, flagged: @fontsource ships only .woff/.woff2 and expo-font needs
+ * .ttf/.otf, so the web font FILES cannot be reused directly. Same typefaces,
+ * different packages — visually identical, different delivery mechanism.
+ */
+export const font = {
+  sans: "Inter_400Regular",
+  sansMedium: "Inter_500Medium",
+  sansSemibold: "Inter_600SemiBold",
+  display: "IBMPlexSans_600SemiBold",
+  displayBold: "IBMPlexSans_700Bold",
+  mono: "IBMPlexMono_400Regular",
+  monoMedium: "IBMPlexMono_500Medium",
+  monoSemibold: "IBMPlexMono_600SemiBold",
+} as const;
+
+export const radius = { sm: 8, md: 12, lg: 16, xl: 20, full: 999 } as const;
+export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 } as const;
+
+/**
+ * Minimum touch target. React Native's hit handling is more forgiving than the
+ * web's, but the guidance is the same and `hitSlop` is used where a control is
+ * visually smaller than this.
+ */
+export const TAP = 44;
