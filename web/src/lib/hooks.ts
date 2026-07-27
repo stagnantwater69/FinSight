@@ -120,6 +120,66 @@ export function useDebounced<T>(value: T, delay = 220) {
 }
 
 /**
+ * Keeps Tab inside an open overlay.
+ *
+ * `useDismiss` handles outside-click and Escape, but neither stops Tab walking
+ * out of a drawer and into the page behind it — where the user is now operating
+ * controls they cannot see, with the overlay still open on top of them.
+ *
+ * Attach `ref` to the overlay's own element. On open it focuses the first
+ * control inside; while open, Tab and Shift+Tab wrap at the ends.
+ *
+ * The `<dialog>` in ConfirmDialog gets all of this from the platform and must
+ * NOT use this hook — this exists for the surfaces that cannot be a <dialog>,
+ * like the AI drawer that has to leave the page behind it readable.
+ */
+export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(open: boolean) {
+  const ref = useRef<T>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const node = ref.current;
+    if (!node) return;
+
+    const SELECTOR =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    // Queried fresh on each Tab rather than cached: the contents of these
+    // overlays change while they are open (the AI drawer grows a message list),
+    // and a stale list would trap focus on elements that no longer exist.
+    const focusable = () =>
+      Array.from(node.querySelectorAll<HTMLElement>(SELECTOR)).filter(
+        (el) => el.offsetParent !== null || el === document.activeElement,
+      );
+
+    focusable()[0]?.focus();
+
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) return;
+
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+
+      if (e.shiftKey && (active === first || !node!.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return ref;
+}
+
+/**
  * Roving focus for a list of menu items, driven by ArrowUp / ArrowDown.
  *
  * Returns a keydown handler to put on the menu container. Home and End jump

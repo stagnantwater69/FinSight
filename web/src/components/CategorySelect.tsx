@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useExpenseCategories } from "../context/ExpenseCategoryContext";
 import { SelectInput, TextInput } from "./Field";
 import { Button } from "./Button";
+import { useToast } from "./Toast";
 
 interface Props {
   value: number | "";
@@ -16,10 +17,36 @@ interface Props {
 
 export function CategorySelect({ value, onChange, id }: Props) {
   const { categories, createCategory, loading } = useExpenseCategories();
+  const toast = useToast();
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  /**
+   * Focus has to be put back deliberately on the way out of create mode.
+   *
+   * Entering swaps the <select> for an inline form and the name input takes
+   * focus, which is right. Leaving used to swap the form back and drop focus on
+   * <body>, so the next Tab restarted from the top of the document — the same
+   * failure useDismiss exists to prevent for popovers. `returnFocus` runs after
+   * the select is back in the DOM.
+   */
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const returnFocus = useRef(false);
+
+  useEffect(() => {
+    if (!creating && returnFocus.current) {
+      returnFocus.current = false;
+      selectRef.current?.focus();
+    }
+  }, [creating]);
+
+  function leaveCreateMode() {
+    returnFocus.current = true;
+    setCreating(false);
+    setError(null);
+  }
 
   async function handleCreate() {
     if (!newName.trim()) return;
@@ -28,7 +55,10 @@ export function CategorySelect({ value, onChange, id }: Props) {
     try {
       const category = await createCategory({ name: newName.trim() });
       onChange(category.id);
-      setCreating(false);
+      // Announce it: the select re-renders with the new value already chosen,
+      // which is easy to miss and impossible to perceive without sight.
+      toast(`Category "${category.name}" created`);
+      leaveCreateMode();
       setNewName("");
     } catch {
       setError("Couldn't create category. Try again.");
@@ -53,7 +83,7 @@ export function CategorySelect({ value, onChange, id }: Props) {
           <Button type="button" onClick={handleCreate} disabled={submitting || !newName.trim()}>
             Add
           </Button>
-          <Button type="button" variant="secondary" onClick={() => setCreating(false)}>
+          <Button type="button" variant="secondary" onClick={leaveCreateMode}>
             Cancel
           </Button>
         </div>
@@ -68,6 +98,7 @@ export function CategorySelect({ value, onChange, id }: Props) {
 
   return (
     <SelectInput
+      ref={selectRef}
       id={id}
       required
       value={value}

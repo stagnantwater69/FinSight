@@ -8,6 +8,7 @@ import {
   type AriaAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type Ref,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
@@ -187,11 +188,17 @@ export function TextInput({ className = "", ...rest }: InputHTMLAttributes<HTMLI
   );
 }
 
-export function SelectInput({ className = "", children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function SelectInput({
+  className = "",
+  children,
+  ref,
+  ...rest
+}: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement> }) {
   const { id, describedBy, invalid } = useFieldWiring(rest);
   return (
     <select
       {...rest}
+      ref={ref}
       id={id}
       aria-describedby={describedBy}
       aria-invalid={invalid}

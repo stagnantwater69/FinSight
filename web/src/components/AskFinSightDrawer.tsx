@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { SkeletonBubble } from "./Skeleton";
 import type { AIInteraction, AskResponse, InteractionModule } from "../lib/types";
+import { useFocusTrap } from "../lib/hooks";
 
 // One drawer component, parameterized by module, used from all four
 // trigger points (Dashboard + the three Insights screens). It sends only
@@ -105,6 +106,8 @@ export function AskFinSightDrawer({ businessProfileId, module, open, onClose }: 
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  const trapRef = useFocusTrap<HTMLElement>(open);
+
   async function send(text: string) {
     const question = text.trim();
     if (!question || sending) return;
@@ -135,7 +138,22 @@ export function AskFinSightDrawer({ businessProfileId, module, open, onClose }: 
           open ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
+      {/*
+        The drawer stays mounted and slides out of view rather than unmounting,
+        so the transition has something to animate. Two consequences had to be
+        handled explicitly:
+
+        `inert` when closed — otherwise every control in here (the question box,
+        the send button, the suggestion chips) stayed in the tab order while
+        parked off-screen, so Tab from the page walked into a panel nobody could
+        see.
+
+        A focus trap when open — it declares aria-modal="true", and a modal that
+        lets Tab wander out into the page behind it is lying about being one.
+      */}
       <aside
+        ref={trapRef}
+        inert={!open}
         role="dialog"
         aria-modal="true"
         aria-label={copy.title}

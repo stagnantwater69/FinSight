@@ -1,8 +1,8 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
-import { usePersistentState, useDismiss, useMenuKeys } from "../lib/hooks";
+import { usePersistentState, useDismiss, useFocusTrap, useMenuKeys } from "../lib/hooks";
 import { BusinessSwitcher } from "./BusinessSwitcher";
 import { GlobalSearch } from "./GlobalSearch";
 import { NotificationBell } from "./NotificationBell";
@@ -134,6 +134,24 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+/**
+ * A human name for a path, for the route announcement.
+ *
+ * Derived from the nav config rather than a second hand-written table, so a
+ * renamed nav item cannot end up announced under its old name. Longest match
+ * wins, so /records/categories resolves to Categories rather than Records.
+ */
+function pageTitleFor(pathname: string): string {
+  const candidates = [
+    ...NAV_GROUPS.flatMap((g) => g.items.flatMap((i) => [i, ...(i.children ?? [])])),
+    ...INSIGHTS_LINKS,
+  ];
+  const match = candidates
+    .filter((i) => pathname === i.to || pathname.startsWith(`${i.to}/`))
+    .sort((a, b) => b.to.length - a.to.length)[0];
+  return match?.label ?? "FinSight";
+}
+
 /** The four bottom-nav destinations on mobile. Mirrors the mobile app's tabs. */
 const BOTTOM_NAV: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", Icon: IconDashboard },
@@ -219,12 +237,41 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const { ref: addRef, triggerRef: addTriggerRef } = useDismiss(addOpen, () => setAddOpen(false));
   const onMenuKeys = useMenuKeys();
+  const addTrapRef = useFocusTrap<HTMLDivElement>(addOpen);
 
   // Close transient chrome on navigation, or a menu lingers over the new page.
   useEffect(() => {
     setAddOpen(false);
     setMobileSearch(false);
     if (location.pathname.startsWith("/insights")) setInsightsOpen(true);
+  }, [location.pathname]);
+
+  /**
+   * Route changes, for people not using a mouse.
+   *
+   * <main> is keyed on pathname, so React tears down the old page and builds
+   * the new one — but focus stays wherever it was, which after clicking a
+   * sidebar link means it is still on the sidebar, and after a programmatic
+   * navigation means it is on <body> and the next Tab restarts from the top of
+   * the document. Moving focus to <main> puts the user at the start of the new
+   * page, which is what the visual change already did for everyone else.
+   *
+   * The announcement is separate: focusing a container does not reliably make a
+   * screen reader say where you now are, so the page name goes through a polite
+   * live region. `isFirstRoute` suppresses it on initial load, where the page
+   * title has just been read anyway and an announcement would be noise.
+   */
+  const mainRef = useRef<HTMLElement>(null);
+  const [routeAnnouncement, setRouteAnnouncement] = useState("");
+  const isFirstRoute = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRoute.current) {
+      isFirstRoute.current = false;
+      return;
+    }
+    mainRef.current?.focus();
+    setRouteAnnouncement(`${pageTitleFor(location.pathname)} page loaded`);
   }, [location.pathname]);
 
   // A collapsed rail has no room for the Insights disclosure, so it is forced
@@ -244,6 +291,31 @@ export function AppShell({ children }: { children: ReactNode }) {
         gridTemplateColumns: collapsed ? "4.5rem 1fr" : "16rem 1fr",
       }}
     >
+      {/*
+        Skip link — the first focusable thing in the document.
+
+        Without it a keyboard user tabs the entire sidebar on every single page:
+        seven nav links, the business switcher, the collapse control and the
+        insights disclosure, before reaching any page content. It is visually
+        hidden until focused, which is the point — it costs sighted users
+        nothing and saves everyone else ten keystrokes per navigation.
+      */}
+      <a
+        href="#main-content"
+        className="sr-only rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[300] focus:inline-flex focus:min-h-tap focus:items-center"
+      >
+        Skip to main content
+      </a>
+
+      {/*
+        Route announcement. <main> remounts on navigation (see the key below),
+        but a remount is silent: a screen-reader user got no signal that the
+        page had changed. This polite live region names the new page.
+      */}
+      <span aria-live="polite" className="sr-only">
+        {routeAnnouncement}
+      </span>
+
       {/* ============================ SIDEBAR ============================ */}
       <aside
         className={`surface-sidebar sticky top-0 hidden h-screen flex-col lg:flex ${
@@ -520,7 +592,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <span className="sr-only sm:hidden">Quick add</span>
                   </button>
                   {addOpen ? (
+                    // useDismiss closes this on Escape and outside click, and
+                    // useMenuKeys drives the arrow keys — but neither stopped
+                    // Tab from leaving the menu while it stayed open over the
+                    // page. useFocusTrap also puts focus on the first item when
+                    // it opens, which is what a menu is expected to do.
                     <div
+                      ref={addTrapRef}
                       role="menu"
                       aria-label="Add a record"
                       onKeyDown={onMenuKeys}
@@ -571,8 +649,18 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* `pb-24` keeps the bottom nav from covering the last element on
             mobile. `animate-fade-up` keyed on pathname gives each route a
-            short entrance rather than a hard swap. */}
-        <main key={location.pathname} className="shell flex-1 animate-fade-up pb-24 pt-6 lg:pb-12">
+            short entrance rather than a hard swap.
+
+            `tabIndex={-1}` makes this focusable by script but not by Tab, which
+            is what lets both the skip link and the route change move focus here
+            without adding a stop to the tab order. */}
+        <main
+          key={location.pathname}
+          id="main-content"
+          ref={mainRef}
+          tabIndex={-1}
+          className="shell flex-1 animate-fade-up pb-24 pt-6 outline-none lg:pb-12"
+        >
           {children}
         </main>
       </div>

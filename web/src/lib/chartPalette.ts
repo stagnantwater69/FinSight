@@ -80,6 +80,22 @@ export const STATUS_COLORS = {
 //
 // Status is never carried by color alone anywhere these are used — each
 // site pairs them with an icon and a written label.
+//
+// The complete set of surfaces that paint one of these as a SOLID with white
+// ink, so the "is this measured?" question has one answer:
+//
+//   Alert.tsx        the severity bar, the glyph disc, and AlertBadge
+//   RecoveryMeter    the month-coverage solid
+//   RecoveryInsight  the per-day status pill
+//
+// Spending Impact's impact-band chip used to be a fourth. It painted
+// STATUS_TEXT_COLORS through an inline style with white text on it, which was
+// measured, but it was also the only status chip in the app that did not go
+// through the themed tint/tone/edge tokens — so it kept a white-on-saturated
+// look on a dark card where every neighbouring chip had inverted. It now uses
+// <Pill>, whose tones clear 4.5:1 on their own tints in all three themes by
+// construction (see index.css). Nothing needs re-measuring here; the surface
+// that needed it stopped being a solid.
 export const STATUS_TEXT_COLORS = {
   good: "#0a7d0a",
   warning: "#8a5a00",
