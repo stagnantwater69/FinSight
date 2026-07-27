@@ -73,14 +73,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         role={hasAction ? "group" : "status"}
         aria-live="polite"
         aria-label={hasAction ? "Notifications" : undefined}
-        className={`fixed inset-x-0 bottom-24 z-[200] flex flex-col items-center gap-2 px-4 md:bottom-6 ${
-          hasAction ? "" : "pointer-events-none"
-        }`}
+        // The viewport spans the full width, so it stays click-through and each
+        // toast re-enables pointer events on itself. Making the container
+        // clickable to support the Undo button would block a horizontal strip
+        // of the page underneath it.
+        className="pointer-events-none fixed inset-x-0 bottom-24 z-[200] flex flex-col items-center gap-2 px-4 md:bottom-6"
       >
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="flex max-w-full animate-toast-in items-center gap-2.5 rounded-full bg-ink-900 py-2.5 pl-4 pr-2.5 text-sm font-medium text-white shadow-lg"
+            className="pointer-events-auto flex max-w-full animate-toast-in items-center gap-2.5 rounded-full bg-ink-900 py-2.5 pl-4 pr-2.5 text-sm font-medium text-white shadow-lg"
           >
             <span aria-hidden className="text-brand-300">
               ✓
