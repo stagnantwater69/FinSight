@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { useExpenseCategories } from "../context/ExpenseCategoryContext";
@@ -14,6 +14,7 @@ import { RECORD_SOURCE_LABELS, type RecordItem, type RecordSource } from "../lib
 import { PageHead, Pill, Tag } from "../components/ui";
 import { SelectInput, TextInput } from "../components/Field";
 import { useConfirm } from "../components/ConfirmDialog";
+import { useDebounced } from "../lib/hooks";
 import { useToast } from "../components/Toast";
 
 interface Filters {
@@ -39,47 +40,90 @@ function activeAdvancedCount(f: Filters) {
   return [f.categoryId, f.dateFrom, f.dateTo, f.source].filter(Boolean).length;
 }
 
+/**
+ * The filter <-> URL mapping, in one pair of functions so the two directions
+ * cannot drift.
+ *
+ * Only non-default values are written, so an unfiltered /records stays a clean
+ * URL rather than carrying six empty parameters.
+ */
+function filtersToParams(f: Filters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (f.type !== "all") params.set("type", f.type);
+  if (f.categoryId) params.set("categoryId", f.categoryId);
+  if (f.keyword) params.set("keyword", f.keyword);
+  if (f.dateFrom) params.set("dateFrom", f.dateFrom);
+  if (f.dateTo) params.set("dateTo", f.dateTo);
+  if (f.source) params.set("source", f.source);
+  return params;
+}
+
+function filtersFromParams(params: URLSearchParams): Filters {
+  return {
+    type: (params.get("type") as Filters["type"]) || "all",
+    categoryId: params.get("categoryId") ?? "",
+    keyword: params.get("keyword") ?? "",
+    dateFrom: params.get("dateFrom") ?? "",
+    dateTo: params.get("dateTo") ?? "",
+    source: (params.get("source") as Filters["source"]) ?? "",
+  };
+}
+
 export function Records() {
   const { selected } = useBusinessProfiles();
   const { categories } = useExpenseCategories();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const confirm = useConfirm();
   const toast = useToast();
 
   // Seeded from the URL so a deep link can arrive pre-filtered — global search
   // sends "category X" here as ?type=expense&categoryId=N, and it would be a
   // dead end if the page ignored it.
-  const [filters, setFilters] = useState<Filters>(() => ({
-    ...emptyFilters,
-    type: (searchParams.get("type") as Filters["type"]) || "all",
-    categoryId: searchParams.get("categoryId") ?? "",
-    keyword: searchParams.get("keyword") ?? "",
-  }));
+  const [filters, setFilters] = useState<Filters>(() => filtersFromParams(searchParams));
 
-  // The initialiser above only runs on mount, and navigating from /records to
-  // /records?categoryId=5 does not remount this component — same route. So a
-  // search result picked while already on this page would change the URL and
-  // nothing else. This applies the query string on every change instead.
-  //
-  // It deliberately resets the other filters rather than merging: arriving via
-  // a link means "show me this", and silently keeping a date range from
-  // earlier would quietly hide most of what the link promised.
+  /**
+   * The search box is debounced; the selects are not.
+   *
+   * Typing fired one /records/search AND one /records/flagged per keystroke,
+   * because the fetch effect depended on the whole `filters` object and its
+   * identity changes on every setFilters. Choosing from a dropdown is a single
+   * deliberate act and should feel immediate, so only the keyword waits.
+   */
+  const debouncedKeyword = useDebounced(filters.keyword, 250);
+
+  // What the URL should say, given the filters that have actually been applied.
+  // The debounced keyword rather than the raw one, so a burst of typing writes
+  // one entry instead of one per character.
+  const appliedFilters: Filters = { ...filters, keyword: debouncedKeyword };
+  const desiredQuery = filtersToParams(appliedFilters).toString();
   const queryKey = searchParams.toString();
-  useEffect(() => {
-    const type = searchParams.get("type") as Filters["type"] | null;
-    const categoryId = searchParams.get("categoryId");
-    const keyword = searchParams.get("keyword");
-    if (!type && !categoryId && !keyword) return;
 
-    setFilters({
-      ...emptyFilters,
-      type: type ?? "all",
-      categoryId: categoryId ?? "",
-      keyword: keyword ?? "",
-    });
-    // `queryKey` is the stable string form of searchParams; the object
-    // identity changes on every render and would loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  /**
+   * Filters -> URL, so a filtered view can be bookmarked, shared and restored
+   * with the back button. The page read filters FROM the URL already but never
+   * wrote any back, so the address bar went stale the moment anything changed.
+   *
+   * `replace` because adjusting a filter is refining one view, not navigating
+   * to a new one — otherwise Back would step through every intermediate state.
+   */
+  const lastWritten = useRef<string | null>(null);
+  useEffect(() => {
+    if (desiredQuery === queryKey) return;
+    lastWritten.current = desiredQuery;
+    setSearchParams(desiredQuery, { replace: true });
+  }, [desiredQuery, queryKey, setSearchParams]);
+
+  /**
+   * URL -> filters, for navigation this page didn't cause: global search while
+   * already on /records, a pasted link, the back button.
+   *
+   * The ref is what stops the two effects looping. A query string this
+   * component just wrote is not new information, so it is ignored; anything
+   * else is an actual navigation and gets applied.
+   */
+  useEffect(() => {
+    if (queryKey === lastWritten.current) return;
+    setFilters(filtersFromParams(new URLSearchParams(queryKey)));
   }, [queryKey]);
 
   const [records, setRecords] = useState<RecordItem[]>([]);
@@ -91,43 +135,78 @@ export function Records() {
   // any of them is already set, so an active filter is never hidden.
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  async function loadRecords() {
+  /**
+   * SCALE CEILING, deliberate: /records/search returns the whole result set and
+   * DataTable paginates it in the browser. That is fine at a few hundred
+   * records and wrong at several thousand.
+   *
+   * It is not fixable from here. The endpoint merges the expense and sales
+   * tables and sorts the combined array in Node (records.controller.ts), so
+   * page N of the merged stream is not page N of either table — adding
+   * skip/take to the two findMany calls would return the wrong rows, not a
+   * slower version of the right ones. Real server-side paging needs a UNION
+   * query or a keyset over the combined set, which is a backend change and out
+   * of scope for this pass.
+   */
+  async function loadRecords(signal?: AbortSignal) {
     if (!selected) return;
     setLoading(true);
     setError(null);
     try {
       const { data } = await api.get<RecordItem[]>("/records/search", {
+        signal,
         params: {
           businessProfileId: selected.id,
-          type: filters.type,
-          categoryId: filters.categoryId || undefined,
-          dateFrom: filters.dateFrom || undefined,
-          dateTo: filters.dateTo || undefined,
-          keyword: filters.keyword || undefined,
-          source: filters.source || undefined,
+          type: appliedFilters.type,
+          categoryId: appliedFilters.categoryId || undefined,
+          dateFrom: appliedFilters.dateFrom || undefined,
+          dateTo: appliedFilters.dateTo || undefined,
+          keyword: appliedFilters.keyword || undefined,
+          source: appliedFilters.source || undefined,
         },
       });
       setRecords(data);
     } catch (err) {
+      // A superseded request is not a failure — reporting it would flash an
+      // error every time the filters change faster than the network.
+      if (signal?.aborted) return;
       setError(getErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }
 
-  async function loadFlaggedCount() {
+  async function loadFlaggedCount(signal?: AbortSignal) {
     if (!selected) return;
-    const { data } = await api.get<RecordItem[]>("/records/flagged", {
-      params: { businessProfileId: selected.id },
-    });
-    setFlaggedCount(data.length);
+    try {
+      const { data } = await api.get<RecordItem[]>("/records/flagged", {
+        signal,
+        params: { businessProfileId: selected.id },
+      });
+      setFlaggedCount(data.length);
+    } catch {
+      // The badge is decoration; a failure here must not take out the page.
+    }
   }
 
+  // Depends on the individual filter values rather than the `filters` object,
+  // whose identity changes on every keystroke — that identity was the reason a
+  // single character re-issued both requests.
   useEffect(() => {
-    loadRecords();
-    loadFlaggedCount();
+    const controller = new AbortController();
+    loadRecords(controller.signal);
+    loadFlaggedCount(controller.signal);
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, filters]);
+  }, [
+    selected?.id,
+    appliedFilters.type,
+    appliedFilters.categoryId,
+    appliedFilters.dateFrom,
+    appliedFilters.dateTo,
+    appliedFilters.keyword,
+    appliedFilters.source,
+  ]);
 
   /**
    * Delete, with the row removed optimistically and an undo offered.
