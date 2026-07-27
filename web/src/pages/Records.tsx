@@ -107,11 +107,22 @@ export function Records() {
    * to a new one — otherwise Back would step through every intermediate state.
    */
   const lastWritten = useRef<string | null>(null);
+  const keywordSettled = debouncedKeyword === filters.keyword;
+
   useEffect(() => {
+    // Wait for the debounce to catch up before touching the URL. This does two
+    // jobs. While typing it holds the write until the keyword stops changing,
+    // so a burst of characters produces one history entry. More importantly it
+    // keeps the Back button working: when the read effect below applies a URL
+    // the user navigated to, `filters` updates immediately but
+    // `debouncedKeyword` still holds the PREVIOUS keyword for another 250ms —
+    // without this guard the stale value would be written straight back and
+    // Back would look broken.
+    if (!keywordSettled) return;
     if (desiredQuery === queryKey) return;
     lastWritten.current = desiredQuery;
     setSearchParams(desiredQuery, { replace: true });
-  }, [desiredQuery, queryKey, setSearchParams]);
+  }, [desiredQuery, queryKey, keywordSettled, setSearchParams]);
 
   /**
    * URL -> filters, for navigation this page didn't cause: global search while
