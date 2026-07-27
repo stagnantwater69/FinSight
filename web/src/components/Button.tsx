@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { Link } from "react-router-dom";
 
 /**
@@ -46,6 +46,12 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: Size;
   fullWidth?: boolean;
   children: ReactNode;
+  /**
+   * Forwarded to the underlying <button>, for the callers that have to move
+   * focus onto it — the confirmation dialog focuses Cancel on open. React 19
+   * takes `ref` as an ordinary prop, so this needs no forwardRef wrapper.
+   */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 export function Button({
@@ -54,10 +60,11 @@ export function Button({
   fullWidth = false,
   className = "",
   children,
+  ref,
   ...rest
 }: ButtonProps) {
   return (
-    <button className={classesFor(variant, size, fullWidth, className)} {...rest}>
+    <button ref={ref} className={classesFor(variant, size, fullWidth, className)} {...rest}>
       {children}
     </button>
   );

@@ -5,11 +5,13 @@ import { getErrorMessage } from "../lib/errors";
 import type { RecordItem } from "../lib/types";
 import { FormPage } from "../components/ui";
 import { Button } from "../components/Button";
+import { useToast } from "../components/Toast";
 import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
 
 export function EditSalesRecord() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const toast = useToast();
   const [record, setRecord] = useState<RecordItem | null>(null);
   const [date, setDate] = useState("");
   const [description, setDescription] = useState("");
@@ -33,6 +35,7 @@ export function EditSalesRecord() {
     setSubmitting(true);
     try {
       await api.patch(`/records/sales/${id}`, { date, description, amount });
+      toast("Changes saved");
       navigate("/records");
     } catch (err) {
       setError(getErrorMessage(err));

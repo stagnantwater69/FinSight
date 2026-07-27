@@ -5,6 +5,7 @@ import { CategorySelect } from "../components/CategorySelect";
 import { Celebration } from "../components/Confirmation";
 import { hasCelebratedFirstRecord, markFirstRecordCelebrated } from "../components/Confirmation";
 import { Button, ButtonLink } from "../components/Button";
+import { useToast } from "../components/Toast";
 import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
 import { Money } from "../components/Money";
 import { api } from "../lib/api";
@@ -19,6 +20,7 @@ function today() {
 export function AddExpense() {
   const { selected } = useBusinessProfiles();
   const navigate = useNavigate();
+  const toast = useToast();
   const [categoryId, setCategoryId] = useState<number | "">("");
   const [date, setDate] = useState(today());
   const [description, setDescription] = useState("");
@@ -49,16 +51,25 @@ export function AddExpense() {
       });
 
       // Only celebrate if this business has never done it before.
-      const existing = await api.get<RecordItem[]>("/records/search", {
-        params: { businessProfileId: selected!.id, type: "expense" },
-      });
-      const isFirst = existing.data.length <= 1 && !hasCelebratedFirstRecord(selected!.id);
+      //
+      // The localStorage check runs FIRST because it is free and it is false
+      // for every save after the first. Previously the /records/search call
+      // came first, so every single save fetched the business's entire expense
+      // history purely to answer a boolean that had already been decided.
+      let isFirst = false;
+      if (!hasCelebratedFirstRecord(selected!.id)) {
+        const existing = await api.get<RecordItem[]>("/records/search", {
+          params: { businessProfileId: selected!.id, type: "expense" },
+        });
+        isFirst = existing.data.length <= 1;
+      }
 
       if (isFirst) {
         markFirstRecordCelebrated(selected!.id);
         setFirstRecord(data);
         return;
       }
+      toast("Expense saved");
       navigate("/records");
     } catch (err) {
       setError(getErrorMessage(err));

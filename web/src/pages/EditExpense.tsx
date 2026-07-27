@@ -6,11 +6,13 @@ import { getErrorMessage } from "../lib/errors";
 import type { RecordItem } from "../lib/types";
 import { FormPage } from "../components/ui";
 import { Button } from "../components/Button";
+import { useToast } from "../components/Toast";
 import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
 
 export function EditExpense() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const toast = useToast();
   const [record, setRecord] = useState<RecordItem | null>(null);
   const [categoryId, setCategoryId] = useState<number | "">("");
   const [date, setDate] = useState("");
@@ -44,6 +46,7 @@ export function EditExpense() {
         vendor: vendor || null,
         amount,
       });
+      toast("Changes saved");
       navigate("/records");
     } catch (err) {
       setError(getErrorMessage(err));

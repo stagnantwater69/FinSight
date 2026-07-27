@@ -8,6 +8,8 @@ import { DataTable, type Column } from "../components/DataTable";
 import { EmptyState } from "../components/EmptyState";
 import { PageHead, Pill } from "../components/ui";
 import { TextInput } from "../components/Field";
+import { useConfirm } from "../components/ConfirmDialog";
+import { useToast } from "../components/Toast";
 import { IconSearch } from "../components/icons";
 import type { BusinessProfile } from "../lib/types";
 
@@ -24,9 +26,21 @@ import type { BusinessProfile } from "../lib/types";
  * archived businesses are deliberately out of the way, and folding them into
  * the main list as a greyed row invites restoring one by accident.
  */
+/**
+ * The one sentence that makes archiving safe to click.
+ *
+ * It appears twice — in the confirmation dialog and on the archived-businesses
+ * panel — and the two must not drift, because an owner who is reassured in the
+ * dialog and then reads something weaker afterwards has been misled.
+ */
+const ARCHIVE_PROMISE =
+  "Nothing is deleted — all its records, insights and conversations are kept.";
+
 export function BusinessProfiles() {
   const { profiles, selected, selectProfile, loading, archiveProfile, restoreProfile, listArchived } =
     useBusinessProfiles();
+  const confirm = useConfirm();
+  const toast = useToast();
 
   const [archived, setArchived] = useState<BusinessProfile[] | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -52,11 +66,21 @@ export function BusinessProfiles() {
     // Archiving is reversible, but it still pulls a business out of the
     // switcher — worth one confirmation, and worth saying plainly that the
     // records survive so it isn't mistaken for a delete.
-    const ok = confirm(
-      `Archive "${profile.name}"?\n\n` +
-        "It will be hidden from your list of businesses. Nothing is deleted — " +
-        "all its records, insights and conversations are kept, and you can restore it at any time.",
-    );
+    //
+    // That promise used to be squeezed into a window.confirm(), where a "\n\n"
+    // was doing the work of a title/body split the OS alert box cannot express.
+    // In a real dialog the title asks and the body reassures.
+    const ok = await confirm({
+      title: `Archive "${profile.name}"?`,
+      body: (
+        <>
+          It will be hidden from your list of businesses. {ARCHIVE_PROMISE} You can restore it at any
+          time.
+        </>
+      ),
+      confirmLabel: "Archive business",
+      tone: "danger",
+    });
     if (!ok) return;
 
     setBusyId(profile.id);
@@ -64,6 +88,7 @@ export function BusinessProfiles() {
     try {
       await archiveProfile(profile.id);
       if (archived) await loadArchived();
+      toast(`Archived "${profile.name}"`);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -134,8 +159,7 @@ export function BusinessProfiles() {
             </ul>
           )}
           <p className="mt-3 text-xs text-ink-400">
-            Archived businesses keep all their records, insights and conversations. Restoring one brings it
-            back exactly as it was.
+            {ARCHIVE_PROMISE} Restoring one brings it back exactly as it was.
           </p>
         </div>
       )}

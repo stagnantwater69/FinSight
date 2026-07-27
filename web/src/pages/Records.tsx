@@ -13,6 +13,8 @@ import { IconSearch } from "../components/icons";
 import { RECORD_SOURCE_LABELS, type RecordItem, type RecordSource } from "../lib/types";
 import { PageHead, Pill, Tag } from "../components/ui";
 import { SelectInput, TextInput } from "../components/Field";
+import { useConfirm } from "../components/ConfirmDialog";
+import { useToast } from "../components/Toast";
 
 interface Filters {
   type: "all" | "expense" | "sales";
@@ -41,6 +43,8 @@ export function Records() {
   const { selected } = useBusinessProfiles();
   const { categories } = useExpenseCategories();
   const [searchParams] = useSearchParams();
+  const confirm = useConfirm();
+  const toast = useToast();
 
   // Seeded from the URL so a deep link can arrive pre-filtered — global search
   // sends "category X" here as ?type=expense&categoryId=N, and it would be a
@@ -125,11 +129,71 @@ export function Records() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, filters]);
 
+  /**
+   * Delete, with the row removed optimistically and an undo offered.
+   *
+   * The optimistic removal is what makes the table feel like it responded; the
+   * undo is what makes the removal safe to be that eager. Restoring re-POSTs
+   * the record rather than un-deleting it, because the API has no soft delete —
+   * so the restored row is a new record with a new id, which is why the list is
+   * reloaded from the server afterwards rather than patched back in memory.
+   */
   async function handleDelete(record: RecordItem) {
-    if (!confirm(`Delete "${record.description}"? This can't be undone.`)) return;
+    const ok = await confirm({
+      title: `Delete "${record.description}"?`,
+      body: (
+        <>
+          This removes the record from your history. You'll get a moment to undo it, but after that it's
+          gone.
+        </>
+      ),
+      confirmLabel: "Delete record",
+      tone: "danger",
+    });
+    if (!ok) return;
+
     const path = record.type === "expense" ? `/records/expenses/${record.id}` : `/records/sales/${record.id}`;
-    await api.delete(path);
-    await Promise.all([loadRecords(), loadFlaggedCount()]);
+    const key = `${record.type}-${record.id}`;
+    const previous = records;
+
+    setRecords((rows) => rows.filter((r) => `${r.type}-${r.id}` !== key));
+
+    try {
+      await api.delete(path);
+      loadFlaggedCount();
+      toast("Record deleted", { actionLabel: "Undo", onAction: () => restoreRecord(record) });
+    } catch (err) {
+      // Put the row back: the server still has it, so leaving it hidden would
+      // be lying about the state of their records.
+      setRecords(previous);
+      setError(getErrorMessage(err));
+    }
+  }
+
+  async function restoreRecord(record: RecordItem) {
+    try {
+      if (record.type === "expense") {
+        await api.post("/records/expenses", {
+          businessProfileId: record.businessProfileId,
+          categoryId: record.categoryId,
+          date: record.date.slice(0, 10),
+          description: record.description,
+          vendor: record.vendor || undefined,
+          amount: record.amount,
+        });
+      } else {
+        await api.post("/records/sales", {
+          businessProfileId: record.businessProfileId,
+          date: record.date.slice(0, 10),
+          description: record.description,
+          amount: record.amount,
+        });
+      }
+      await Promise.all([loadRecords(), loadFlaggedCount()]);
+      toast("Record restored");
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
   }
 
   function categoryName(categoryId?: number) {

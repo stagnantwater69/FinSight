@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthenticatedLayout } from "./components/AuthenticatedLayout";
 import { ToastProvider } from "./components/Toast";
+import { ConfirmProvider } from "./components/ConfirmDialog";
 import { Landing } from "./pages/Landing";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
@@ -50,34 +51,36 @@ function App() {
       <ThemeProvider>
         <AuthProvider>
           <ToastProvider>
-            <Routes>
-              <Route path="/" element={<LandingOrDashboard />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/recover-password" element={<RecoverPassword />} />
+            <ConfirmProvider>
+              <Routes>
+                <Route path="/" element={<LandingOrDashboard />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/recover-password" element={<RecoverPassword />} />
 
-              <Route element={<AuthenticatedLayout />}>
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/notifications" element={<Notifications />} />
-                <Route path="/business-profiles" element={<BusinessProfiles />} />
-                <Route path="/business-profiles/new" element={<CreateBusinessProfile />} />
-                <Route path="/business-profiles/:id/edit" element={<EditBusinessProfile />} />
+                <Route element={<AuthenticatedLayout />}>
+                  <Route path="/profile" element={<Profile />} />
+                  <Route path="/notifications" element={<Notifications />} />
+                  <Route path="/business-profiles" element={<BusinessProfiles />} />
+                  <Route path="/business-profiles/new" element={<CreateBusinessProfile />} />
+                  <Route path="/business-profiles/:id/edit" element={<EditBusinessProfile />} />
 
-                <Route path="/records" element={<Records />} />
-                <Route path="/records/categories" element={<Categories />} />
-                <Route path="/records/expenses/new" element={<AddExpense />} />
-                <Route path="/records/expenses/:id/edit" element={<EditExpense />} />
-                <Route path="/records/sales/new" element={<AddSalesRecord />} />
-                <Route path="/records/sales/:id/edit" element={<EditSalesRecord />} />
-                <Route path="/records/receipts/new" element={<ScanReceipt />} />
-                <Route path="/records/csv-imports/new" element={<ImportCsv />} />
-                <Route path="/records/flagged" element={<FlaggedRecords />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/insights/expense-behavior" element={<ExpenseInsight />} />
-                <Route path="/insights/recovery" element={<RecoveryInsightPage />} />
-                <Route path="/insights/spending-impact" element={<SpendingImpact />} />
-              </Route>
-            </Routes>
+                  <Route path="/records" element={<Records />} />
+                  <Route path="/records/categories" element={<Categories />} />
+                  <Route path="/records/expenses/new" element={<AddExpense />} />
+                  <Route path="/records/expenses/:id/edit" element={<EditExpense />} />
+                  <Route path="/records/sales/new" element={<AddSalesRecord />} />
+                  <Route path="/records/sales/:id/edit" element={<EditSalesRecord />} />
+                  <Route path="/records/receipts/new" element={<ScanReceipt />} />
+                  <Route path="/records/csv-imports/new" element={<ImportCsv />} />
+                  <Route path="/records/flagged" element={<FlaggedRecords />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/insights/expense-behavior" element={<ExpenseInsight />} />
+                  <Route path="/insights/recovery" element={<RecoveryInsightPage />} />
+                  <Route path="/insights/spending-impact" element={<SpendingImpact />} />
+                </Route>
+              </Routes>
+            </ConfirmProvider>
           </ToastProvider>
         </AuthProvider>
       </ThemeProvider>

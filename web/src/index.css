@@ -464,6 +464,29 @@
   }
 
   /* ---------------------------------------------------------------
+     The confirmation dialog.
+     ---------------------------------------------------------------
+     Only two things need styling here, because <dialog> + showModal()
+     supplies the rest — the focus trap, Escape, and inertness behind it.
+
+     The backdrop is the reason this lives in CSS rather than in the
+     component: ::backdrop is a pseudo-element, so no React className can
+     reach it. It reads the same --shadow channel the elevation scale uses,
+     so the scrim deepens with the theme instead of being a fixed black that
+     is too heavy on Classic and too weak on Dark.
+
+     The entrance reuses the existing pop-in timing and is decorative only,
+     so the global prefers-reduced-motion rule switches it off. */
+  .confirm-dialog {
+    margin: auto;
+    animation: pop-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  }
+
+  .confirm-dialog::backdrop {
+    background-color: rgb(var(--shadow) / 0.55);
+  }
+
+  /* ---------------------------------------------------------------
      Eyebrow — the small uppercase kicker above a panel title.
      ---------------------------------------------------------------
      The mockup leans on this to give each panel a two-level heading without

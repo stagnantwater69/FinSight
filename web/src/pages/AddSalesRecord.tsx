@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { FormPage } from "../components/ui";
 import { Button } from "../components/Button";
+import { useToast } from "../components/Toast";
 import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
 
 function today() {
@@ -14,6 +15,7 @@ function today() {
 export function AddSalesRecord() {
   const { selected } = useBusinessProfiles();
   const navigate = useNavigate();
+  const toast = useToast();
   const [date, setDate] = useState(today());
   const [description, setDescription] = useState("Daily sales");
   const [amount, setAmount] = useState<number | "">("");
@@ -34,6 +36,7 @@ export function AddSalesRecord() {
         description,
         amount,
       });
+      toast("Sales reference saved");
       navigate("/records");
     } catch (err) {
       setError(getErrorMessage(err));

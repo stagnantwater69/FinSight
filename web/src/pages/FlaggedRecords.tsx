@@ -10,9 +10,13 @@ import { EmptyState } from "../components/EmptyState";
 import { FormError } from "../components/Field";
 import { Money } from "../components/Money";
 import { SkeletonRows } from "../components/Skeleton";
+import { useConfirm } from "../components/ConfirmDialog";
+import { useToast } from "../components/Toast";
 
 export function FlaggedRecords() {
   const { selected } = useBusinessProfiles();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +52,10 @@ export function FlaggedRecords() {
     try {
       await api.patch(path(record), { duplicateStatus: "Not a Duplicate", reviewStatus: "Reviewed" });
       await load();
+      // Naming the record matters here: the row vanishes from the queue on
+      // success, so without it the owner has no confirmation of WHICH one they
+      // just resolved.
+      toast(`Kept "${record.description}"`);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -56,11 +64,19 @@ export function FlaggedRecords() {
   }
 
   async function handleDiscard(record: RecordItem) {
-    if (!confirm(`Discard "${record.description}"? This deletes the record entirely.`)) return;
+    const ok = await confirm({
+      title: `Discard "${record.description}"?`,
+      body: <>This deletes the record entirely. It won't appear in your history or in any insight.</>,
+      confirmLabel: "Discard record",
+      tone: "danger",
+    });
+    if (!ok) return;
+
     setBusyId(`${record.type}-${record.id}`);
     try {
       await api.delete(path(record));
       await load();
+      toast(`Discarded "${record.description}"`);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
