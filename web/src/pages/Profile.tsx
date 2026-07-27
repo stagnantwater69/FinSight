@@ -2,7 +2,9 @@ import { useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
-import { Card, PageHead } from "../components/ui";
+import { Callout, Card, PageHead } from "../components/ui";
+import { Button } from "../components/Button";
+import { Field, FormError, TextInput } from "../components/Field";
 
 export function Profile() {
   const { profile, updateProfile } = useAuth();
@@ -49,100 +51,73 @@ export function Profile() {
       <div className="max-w-xl space-y-6">
         <Card className="p-6 sm:p-7">
           {editing ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-ink-700">
-                  First name
-                </label>
-                <input
-                  id="firstName"
-                  required
-                  value={form.firstName}
-                  onChange={(e) => update("firstName", e.target.value)}
-                  className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="First name" htmlFor="firstName" required>
+                  <TextInput
+                    required
+                    autoComplete="given-name"
+                    value={form.firstName}
+                    onChange={(e) => update("firstName", e.target.value)}
+                  />
+                </Field>
+                <Field label="Last name" htmlFor="lastName" required>
+                  <TextInput
+                    required
+                    autoComplete="family-name"
+                    value={form.lastName}
+                    onChange={(e) => update("lastName", e.target.value)}
+                  />
+                </Field>
+              </div>
+              <Field label="Middle name" htmlFor="middleName" optional>
+                <TextInput
+                  autoComplete="additional-name"
+                  value={form.middleName}
+                  onChange={(e) => update("middleName", e.target.value)}
                 />
-              </div>
-              <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-ink-700">
-                  Last name
-                </label>
-                <input
-                  id="lastName"
-                  required
-                  value={form.lastName}
-                  onChange={(e) => update("lastName", e.target.value)}
-                  className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
+              </Field>
+              <Field label="Phone number" htmlFor="phoneNumber" optional>
+                <TextInput
+                  type="tel"
+                  autoComplete="tel"
+                  value={form.phoneNumber}
+                  onChange={(e) => update("phoneNumber", e.target.value)}
                 />
+              </Field>
+              {error ? <FormError>{error}</FormError> : null}
+              <div className="flex gap-3">
+                <Button type="submit" variant="primary" disabled={submitting} className="flex-1">
+                  {submitting ? "Saving…" : "Save changes"}
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => setEditing(false)} className="flex-1">
+                  Cancel
+                </Button>
               </div>
+            </form>
+          ) : (
+            <div className="space-y-4">
+              <dl className="space-y-3 text-sm">
+                <div>
+                  <dt className="text-ink-500">Name</dt>
+                  <dd className="break-words font-medium text-ink-900">
+                    {[profile.firstName, profile.middleName, profile.lastName].filter(Boolean).join(" ")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-ink-500">Email</dt>
+                  <dd className="break-all font-medium text-ink-900">{profile.email}</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-500">Phone number</dt>
+                  <dd className="break-words font-medium text-ink-900">{profile.phoneNumber ?? "—"}</dd>
+                </div>
+              </dl>
+              <Button type="button" onClick={() => setEditing(true)} fullWidth>
+                Edit profile
+              </Button>
             </div>
-            <div>
-              <label htmlFor="middleName" className="block text-sm font-medium text-ink-700">
-                Middle name
-              </label>
-              <input
-                id="middleName"
-                value={form.middleName}
-                onChange={(e) => update("middleName", e.target.value)}
-                className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-              />
-            </div>
-            <div>
-              <label htmlFor="phoneNumber" className="block text-sm font-medium text-ink-700">
-                Phone number
-              </label>
-              <input
-                id="phoneNumber"
-                value={form.phoneNumber}
-                onChange={(e) => update("phoneNumber", e.target.value)}
-                className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-              />
-            </div>
-            {error ? <p className="text-sm text-tone-danger">{error}</p> : null}
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="tap flex-1 rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-              >
-                {submitting ? "Saving…" : "Save changes"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className="tap flex-1 rounded-lg border border-ink-200 px-4 text-sm font-medium text-ink-700 hover:bg-paper-100"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        ) : (
-          <div className="space-y-4">
-            <dl className="space-y-3 text-sm">
-              <div>
-                <dt className="text-ink-500">Name</dt>
-                <dd className="break-words font-medium text-ink-900">
-                  {[profile.firstName, profile.middleName, profile.lastName].filter(Boolean).join(" ")}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-ink-500">Email</dt>
-                <dd className="break-all font-medium text-ink-900">{profile.email}</dd>
-              </div>
-              <div>
-                <dt className="text-ink-500">Phone number</dt>
-                <dd className="break-words font-medium text-ink-900">{profile.phoneNumber ?? "—"}</dd>
-              </div>
-            </dl>
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="tap w-full rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700"
-            >
-              Edit profile
-            </button>
-          </div>
-        )}
+          )}
         </Card>
 
         <SecurityPanel />
@@ -196,73 +171,53 @@ function SecurityPanel() {
   }
 
   return (
-    <div className="rounded-2xl border border-paper-200 bg-paper p-6 shadow-sm sm:p-7">
+    <Card className="p-6 sm:p-7">
       <h2 className="mb-1 text-lg font-semibold text-ink-900">Security</h2>
       <p className="mb-6 text-xs text-ink-500">
         Change your password. You'll need your current password to confirm it's you.
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="currentPassword" className="block text-sm font-medium text-ink-700">
-            Current password
-          </label>
-          <input
-            id="currentPassword"
+        <Field label="Current password" htmlFor="currentPassword" required>
+          <TextInput
             type="password"
             required
             autoComplete="current-password"
             value={form.currentPassword}
             onChange={(e) => update("currentPassword", e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
-        <div>
-          <label htmlFor="newPassword" className="block text-sm font-medium text-ink-700">
-            New password
-          </label>
-          <input
-            id="newPassword"
+        </Field>
+        <Field label="New password" htmlFor="newPassword" required hint="At least 8 characters.">
+          <TextInput
             type="password"
             required
             minLength={8}
             autoComplete="new-password"
             value={form.newPassword}
             onChange={(e) => update("newPassword", e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-          <p className="mt-1 text-xs text-ink-400">At least 8 characters.</p>
-        </div>
-        <div>
-          <label htmlFor="confirmPassword" className="block text-sm font-medium text-ink-700">
-            Confirm new password
-          </label>
-          <input
-            id="confirmPassword"
+        </Field>
+        <Field label="Confirm new password" htmlFor="confirmPassword" required>
+          <TextInput
             type="password"
             required
             autoComplete="new-password"
             value={form.confirmPassword}
             onChange={(e) => update("confirmPassword", e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
+        </Field>
 
-        {error ? <p className="text-sm text-tone-danger">{error}</p> : null}
+        {error ? <FormError>{error}</FormError> : null}
         {success ? (
-          <p className="rounded-lg bg-tint-brand p-3 text-sm text-tone-brand">
-            <span aria-hidden>✓ </span>Password changed. Use your new password next time you log in.
-          </p>
+          <Callout tone="brand">
+            Password changed. Use your new password next time you log in.
+          </Callout>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="tap w-full rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-        >
+        <Button type="submit" variant="primary" fullWidth disabled={submitting}>
           {submitting ? "Changing…" : "Change password"}
-        </button>
+        </Button>
       </form>
-    </div>
+    </Card>
   );
 }

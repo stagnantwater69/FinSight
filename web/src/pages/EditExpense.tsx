@@ -5,6 +5,8 @@ import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import type { RecordItem } from "../lib/types";
 import { FormPage } from "../components/ui";
+import { Button } from "../components/Button";
+import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
 
 export function EditExpense() {
   const { id } = useParams<{ id: string }>();
@@ -57,71 +59,30 @@ export function EditExpense() {
   return (
     <FormPage eyebrow="Records" title="Edit expense">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-ink-700">Category</label>
-          <div className="mt-1">
-            <CategorySelect value={categoryId} onChange={setCategoryId} />
-          </div>
-        </div>
-        <div>
-          <label htmlFor="date" className="block text-sm font-medium text-ink-700">
-            Date
-          </label>
-          <input
-            id="date"
-            type="date"
-            required
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-          />
-        </div>
-        <div>
-          <label htmlFor="description" className="block text-sm font-medium text-ink-700">
-            Description
-          </label>
-          <input
-            id="description"
-            required
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-          />
-        </div>
-        <div>
-          <label htmlFor="vendor" className="block text-sm font-medium text-ink-700">
-            Vendor <span className="text-ink-400">(optional)</span>
-          </label>
-          <input
-            id="vendor"
-            value={vendor}
-            onChange={(e) => setVendor(e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-          />
-        </div>
-        <div>
-          <label htmlFor="amount" className="block text-sm font-medium text-ink-700">
-            Amount (PHP)
-          </label>
-          <input
-            id="amount"
-            type="number"
+        <Field label="Category" htmlFor="category" required>
+          <CategorySelect id="category" value={categoryId} onChange={setCategoryId} />
+        </Field>
+        <Field label="Date" htmlFor="date" required>
+          <TextInput type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="Description" htmlFor="description" required>
+          <TextInput required value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        <Field label="Vendor" htmlFor="vendor" optional>
+          <TextInput value={vendor} onChange={(e) => setVendor(e.target.value)} />
+        </Field>
+        <Field label="Amount" htmlFor="amount" required>
+          <MoneyInput
             min={0.01}
-            step="0.01"
             required
             value={amount}
             onChange={(e) => setAmount(e.target.value === "" ? "" : Number(e.target.value))}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
-        {error ? <p className="text-sm text-tone-danger">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="tap w-full rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-        >
+        </Field>
+        {error ? <FormError>{error}</FormError> : null}
+        <Button type="submit" variant="primary" fullWidth disabled={submitting}>
           {submitting ? "Saving…" : "Save changes"}
-        </button>
+        </Button>
       </form>
     </FormPage>
   );

@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { AuthLayout } from "../components/AuthLayout";
+import { Button } from "../components/Button";
+import { Field, FormError, TextInput } from "../components/Field";
 import { getErrorMessage } from "../lib/errors";
 
 export function Login() {
@@ -43,48 +45,40 @@ export function Login() {
       ]}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-ink-700">
-            Email
-          </label>
-          <input
-            id="email"
+        <Field label="Email" htmlFor="email" required>
+          <TextInput
             type="email"
             required
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
-        <div>
-          <div className="flex items-center justify-between">
-            <label htmlFor="password" className="block text-sm font-medium text-ink-700">
-              Password
-            </label>
+        </Field>
+        <Field
+          label="Password"
+          htmlFor="password"
+          required
+          labelAction={
             <Link
               to="/recover-password"
               className="tap-inline text-xs font-medium text-brand-700 hover:text-brand-800"
             >
               Forgot password?
             </Link>
-          </div>
-          <input
-            id="password"
+          }
+        >
+          <TextInput
             type="password"
             required
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
-        {error ? <p className="text-sm text-tone-danger">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="tap w-full rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-        >
+        </Field>
+        {error ? <FormError>{error}</FormError> : null}
+        <Button type="submit" variant="primary" fullWidth disabled={submitting}>
           {submitting ? "Logging in…" : "Log in"}
-        </button>
+        </Button>
       </form>
       <p className="mt-6 text-center text-sm text-ink-500">
         Don't have an account?{" "}

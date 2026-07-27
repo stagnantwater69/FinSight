@@ -1,5 +1,8 @@
 import { useState, type FormEvent } from "react";
 import type { BusinessProfileInput } from "../lib/types";
+import { Button } from "./Button";
+import { Field, FormError, MoneyInput, TextInput } from "./Field";
+import { InfoNote } from "./ui";
 
 interface Props {
   initialValues?: BusinessProfileInput;
@@ -40,108 +43,112 @@ export function BusinessProfileForm({ initialValues, submitLabel, onSubmit }: Pr
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label htmlFor="name" className="block text-sm font-medium text-ink-700">
-          Business name
-        </label>
-        <input
-          id="name"
+      <Field label="Business name" htmlFor="name" required>
+        <TextInput
           required
           value={form.name}
           onChange={(e) => update("name", e.target.value)}
           placeholder="e.g. Aling Nena Sari-Sari Store"
-          className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
         />
-      </div>
-      <div>
-        <label htmlFor="type" className="block text-sm font-medium text-ink-700">
-          Business type
-        </label>
-        <input
-          id="type"
+      </Field>
+      <Field label="Business type" htmlFor="type" required>
+        <TextInput
           required
           value={form.type}
           onChange={(e) => update("type", e.target.value)}
           placeholder="e.g. Sari-sari store, food business, tire shop"
-          className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
         />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor="availableFunds" className="block text-sm font-medium text-ink-700">
-            Available funds (PHP)
-          </label>
-          <input
-            id="availableFunds"
-            type="number"
+      </Field>
+
+      {/*
+        These three figures drive every downstream insight — the recovery
+        target, the daily target, and the large-expense threshold all derive
+        from them. An owner who misreads one gets wrong numbers everywhere and
+        has no way to tell, so each says plainly what it is asking for and what
+        it affects. Plain language, not accounting language: the target user is
+        a sari-sari store owner, not a bookkeeper.
+      */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="Available business funds"
+          htmlFor="availableFunds"
+          required
+          hint="Roughly how much cash the business has to work with right now. You'll update this as things change — FinSight doesn't read your bank."
+        >
+          <MoneyInput
             min={0}
-            step="0.01"
             required
             value={form.availableFunds}
             onChange={(e) => update("availableFunds", Number(e.target.value))}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
-        <div>
-          <label htmlFor="expectedMonthlyExpenses" className="block text-sm font-medium text-ink-700">
-            Expected monthly expenses (PHP)
-          </label>
-          <input
-            id="expectedMonthlyExpenses"
-            type="number"
+        </Field>
+        <Field
+          label="Expected monthly expenses"
+          htmlFor="expectedMonthlyExpenses"
+          required
+          hint="What a normal month costs you — rent, stock, wages, utilities. FinSight uses this to work out how much you need to sell."
+        >
+          <MoneyInput
             min={0}
-            step="0.01"
             required
             value={form.expectedMonthlyExpenses}
             onChange={(e) => update("expectedMonthlyExpenses", Number(e.target.value))}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
+        </Field>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor="operatingDays" className="block text-sm font-medium text-ink-700">
-            Operating days per month
-          </label>
-          <input
-            id="operatingDays"
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="Operating days per month"
+          htmlFor="operatingDays"
+          required
+          hint="How many days a month the business is actually open. Used to spread your target across the days you can actually sell."
+        >
+          <TextInput
             type="number"
+            inputMode="numeric"
             min={1}
             max={31}
             required
             value={form.operatingDays}
             onChange={(e) => update("operatingDays", Number(e.target.value))}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
-        <div>
-          <label htmlFor="largeExpenseThresholdPercent" className="block text-sm font-medium text-ink-700">
-            Large expense threshold (%)
-          </label>
-          <input
-            id="largeExpenseThresholdPercent"
+        </Field>
+        <Field
+          label="Large expense threshold (%)"
+          htmlFor="largeExpenseThresholdPercent"
+          required
+          hint="An expense at or above this share of your expected monthly expenses gets flagged for review. Lower it to catch more, raise it if FinSight is flagging ordinary purchases."
+        >
+          <TextInput
             type="number"
+            inputMode="decimal"
             min={0.01}
             max={999.99}
             step="0.01"
             required
             value={form.largeExpenseThresholdPercent}
             onChange={(e) => update("largeExpenseThresholdPercent", Number(e.target.value))}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-          <p className="mt-1 text-xs text-ink-400">
-            Expenses at or above this % of your expected monthly expenses get flagged as large.
-          </p>
-        </div>
+        </Field>
       </div>
-      {error ? <p className="text-sm text-tone-danger">{error}</p> : null}
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60 sm:w-auto"
-      >
+
+      {/*
+        The worked example uses the same figures as the Landing page's live
+        RecoveryMeter demo (DEMO_BASE in pages/Landing.tsx), so what an owner
+        was shown before signing up and what they are told here agree.
+      */}
+      <InfoNote>
+        <b className="font-semibold text-ink-700">How these fit together.</b> If a normal month costs
+        you <span className="figure">PHP 125,000</span> and you're open{" "}
+        <span className="figure">25</span> days, FinSight works out a daily target of{" "}
+        <span className="figure">PHP 5,000</span> — that's the number that tells you what today needs
+        to look like.
+      </InfoNote>
+
+      {error ? <FormError>{error}</FormError> : null}
+      <Button type="submit" variant="primary" disabled={submitting} className="w-full sm:w-auto">
         {submitting ? "Saving…" : submitLabel}
-      </button>
+      </Button>
     </form>
   );
 }

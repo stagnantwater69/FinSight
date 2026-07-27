@@ -6,7 +6,8 @@ import { getErrorMessage } from "../lib/errors";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { EmptyState } from "../components/EmptyState";
-import { PageHead } from "../components/ui";
+import { Card, PageHead } from "../components/ui";
+import { Field, FormError, TextInput } from "../components/Field";
 import { IconArrowRight, IconSearch } from "../components/icons";
 import type { ExpenseCategory } from "../lib/types";
 
@@ -118,12 +119,12 @@ export function Categories() {
           aria-hidden
           className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
         />
-        <input
+        <TextInput
           id="cat-search"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           placeholder="Search categories…"
-          className="min-h-tap w-full rounded-lg border border-ink-200 bg-paper pl-9 pr-3 text-sm text-ink-900 placeholder:text-ink-400"
+          className="pl-9 pr-3"
         />
       </div>
       <p className="text-sm text-ink-500">
@@ -148,45 +149,32 @@ export function Categories() {
       />
 
       {adding ? (
-        <form
-          onSubmit={handleCreate}
-          className="mb-4 animate-slide-up rounded-2xl border border-paper-200 bg-paper p-4 shadow-sm"
-        >
+        <Card as="form" onSubmit={handleCreate} className="mb-4 animate-slide-up p-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label htmlFor="cat-name" className="block text-xs font-medium text-ink-500">
-                Name
-              </label>
-              <input
-                id="cat-name"
+            <Field label="Name" htmlFor="cat-name" required>
+              <TextInput
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
                 maxLength={100}
                 autoFocus
                 placeholder="e.g. Rent, Supplies, Utilities"
-                className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 bg-paper px-3 text-sm text-ink-900 placeholder:text-ink-400"
               />
-            </div>
-            <div>
-              <label htmlFor="cat-desc" className="block text-xs font-medium text-ink-500">
-                Description <span className="font-normal text-ink-400">(optional)</span>
-              </label>
-              <input
-                id="cat-desc"
+            </Field>
+            <Field label="Description" htmlFor="cat-desc" optional>
+              <TextInput
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 maxLength={255}
                 placeholder="What belongs in here"
-                className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 bg-paper px-3 text-sm text-ink-900 placeholder:text-ink-400"
               />
-            </div>
+            </Field>
           </div>
 
           {error ? (
-            <p className="mt-3 rounded-lg bg-tint-danger px-3 py-2 text-sm text-tone-danger ring-1 ring-edge-danger">
-              {error}
-            </p>
+            <div className="mt-3">
+              <FormError>{error}</FormError>
+            </div>
           ) : null}
 
           <div className="mt-3 flex flex-wrap gap-2">
@@ -205,7 +193,7 @@ export function Categories() {
               Cancel
             </Button>
           </div>
-        </form>
+        </Card>
       ) : null}
 
       <DataTable

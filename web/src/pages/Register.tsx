@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { AuthLayout } from "../components/AuthLayout";
+import { Button } from "../components/Button";
+import { Field, FormError, TextInput } from "../components/Field";
 import { getErrorMessage } from "../lib/errors";
 
 export function Register() {
@@ -58,89 +60,61 @@ export function Register() {
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="firstName" className="block text-sm font-medium text-ink-700">
-              First name
-            </label>
-            <input
-              id="firstName"
+          <Field label="First name" htmlFor="firstName" required>
+            <TextInput
               required
+              autoComplete="given-name"
               value={form.firstName}
               onChange={(e) => update("firstName", e.target.value)}
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
             />
-          </div>
-          <div>
-            <label htmlFor="lastName" className="block text-sm font-medium text-ink-700">
-              Last name
-            </label>
-            <input
-              id="lastName"
+          </Field>
+          <Field label="Last name" htmlFor="lastName" required>
+            <TextInput
               required
+              autoComplete="family-name"
               value={form.lastName}
               onChange={(e) => update("lastName", e.target.value)}
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
             />
-          </div>
+          </Field>
         </div>
-        <div>
-          <label htmlFor="middleName" className="block text-sm font-medium text-ink-700">
-            Middle name <span className="text-ink-400">(optional)</span>
-          </label>
-          <input
-            id="middleName"
+        <Field label="Middle name" htmlFor="middleName" optional>
+          <TextInput
+            autoComplete="additional-name"
             value={form.middleName}
             onChange={(e) => update("middleName", e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-ink-700">
-            Email
-          </label>
-          <input
-            id="email"
+        </Field>
+        <Field label="Email" htmlFor="email" required>
+          <TextInput
             type="email"
             required
+            autoComplete="email"
             value={form.email}
             onChange={(e) => update("email", e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
-        <div>
-          <label htmlFor="phoneNumber" className="block text-sm font-medium text-ink-700">
-            Phone number <span className="text-ink-400">(optional)</span>
-          </label>
-          <input
-            id="phoneNumber"
+        </Field>
+        <Field label="Phone number" htmlFor="phoneNumber" optional>
+          <TextInput
+            type="tel"
+            autoComplete="tel"
             value={form.phoneNumber}
             onChange={(e) => update("phoneNumber", e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-        </div>
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium text-ink-700">
-            Password
-          </label>
-          <input
-            id="password"
+        </Field>
+        <Field label="Password" htmlFor="password" required hint="At least 8 characters.">
+          <TextInput
             type="password"
             required
             minLength={8}
+            autoComplete="new-password"
             value={form.password}
             onChange={(e) => update("password", e.target.value)}
-            className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
           />
-          <p className="mt-1 text-xs text-ink-400">At least 8 characters.</p>
-        </div>
-        {error ? <p className="text-sm text-tone-danger">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="tap w-full rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-        >
+        </Field>
+        {error ? <FormError>{error}</FormError> : null}
+        <Button type="submit" variant="primary" fullWidth disabled={submitting}>
           {submitting ? "Creating account…" : "Create account"}
-        </button>
+        </Button>
       </form>
       <p className="mt-6 text-center text-sm text-ink-500">
         Already have an account?{" "}

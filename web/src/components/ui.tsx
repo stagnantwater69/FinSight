@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { FormEventHandler, ReactNode } from "react";
 
 /**
  * The shared visual vocabulary, adopted from the approved mockup
@@ -69,10 +69,33 @@ export function Tag({ kind }: { kind: "expense" | "sales" }) {
 // Card / Panel — the base surface and its padded, titled form
 // ============================================================
 
-export function Card({ className = "", children }: { className?: string; children: ReactNode }) {
-  return (
-    <div className={`rounded-2xl border border-paper-200 bg-paper shadow-sm ${className}`}>{children}</div>
-  );
+/**
+ * `as` exists for the one shape a wrapper can't express: a panel that IS a
+ * form. Nesting a <form> inside a Card div works, but it puts the padding on
+ * the wrong element and leaves the card's own class string to be pasted by
+ * hand at the call site — which is the thing this component exists to stop.
+ * Deliberately narrow: div or form, nothing else.
+ */
+export function Card({
+  as = "div",
+  className = "",
+  onSubmit,
+  children,
+}: {
+  as?: "div" | "form";
+  className?: string;
+  onSubmit?: FormEventHandler<HTMLFormElement>;
+  children: ReactNode;
+}) {
+  const classes = `rounded-2xl border border-paper-200 bg-paper shadow-sm ${className}`;
+  if (as === "form") {
+    return (
+      <form className={classes} onSubmit={onSubmit}>
+        {children}
+      </form>
+    );
+  }
+  return <div className={classes}>{children}</div>;
 }
 
 export function Panel({

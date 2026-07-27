@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { SelectInput } from "./Field";
 
 /**
  * Pagination for every data table in the app.
@@ -107,18 +108,18 @@ export function Pagination({
           <label htmlFor={sizeId} className="whitespace-nowrap text-sm text-ink-500">
             Rows
           </label>
-          <select
+          <SelectInput
             id={sizeId}
             value={pageSize}
             onChange={(e) => onPageSizeChange(Number(e.target.value) as PageSize)}
-            className="min-h-tap rounded-lg border border-ink-200 bg-paper px-2 text-sm text-ink-800 transition hover:border-brand-300"
+            className="w-auto px-2 transition hover:border-brand-300"
           >
             {PAGE_SIZES.map((size) => (
               <option key={size} value={size}>
                 {size}
               </option>
             ))}
-          </select>
+          </SelectInput>
         </div>
       </div>
 

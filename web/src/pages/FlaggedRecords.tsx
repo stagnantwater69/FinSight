@@ -3,7 +3,13 @@ import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import type { RecordItem } from "../lib/types";
-import { PageHead } from "../components/ui";
+import { Card, PageHead } from "../components/ui";
+import { AlertBadge } from "../components/Alert";
+import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { FormError } from "../components/Field";
+import { Money } from "../components/Money";
+import { SkeletonRows } from "../components/Skeleton";
 
 export function FlaggedRecords() {
   const { selected } = useBusinessProfiles();
@@ -72,68 +78,70 @@ export function FlaggedRecords() {
         subtitle={`Records FinSight wants a second look at, for ${selected.name}.`}
       />
 
-      {error ? <p className="mb-4 text-sm text-tone-danger">{error}</p> : null}
+      {error ? (
+        <div className="mb-4">
+          <FormError>{error}</FormError>
+        </div>
+      ) : null}
 
       {loading ? (
-        <p className="text-sm text-ink-500">Loading…</p>
+        <Card>
+          <SkeletonRows rows={4} />
+        </Card>
       ) : records.length === 0 ? (
-        <p className="rounded-2xl bg-paper p-6 text-sm text-ink-500 border border-paper-200 shadow-sm">
-          Nothing needs review right now.
-        </p>
+        <EmptyState title="Nothing needs review right now" icon="✓">
+          FinSight flags a record when it looks like a duplicate or is unusually large for your business.
+          When one turns up, it will be waiting here.
+        </EmptyState>
       ) : (
         <div className="space-y-3">
           {records.map((r) => {
             const key = `${r.type}-${r.id}`;
             return (
-              <div key={key} className="rounded-2xl bg-paper p-4 border border-paper-200 shadow-sm">
+              <Card key={key} className="p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-medium text-ink-900">{r.description}</p>
                     <p className="text-xs text-ink-500">
-                      {r.date.slice(0, 10)} · <span className="capitalize">{r.type}</span> · PHP{" "}
-                      {r.amount.toLocaleString()}
+                      {r.date.slice(0, 10)} · <span className="capitalize">{r.type}</span> ·{" "}
+                      <Money value={r.amount} />
                     </p>
+                    {/*
+                      The three flags use the Alert family's badges rather than
+                      pills invented here, so a flag on this page and the same
+                      flag in the notification list are recognisably one thing —
+                      same glyph, same colour, same words.
+                    */}
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {r.duplicateStatus === "Flagged" ? (
-                        <span className="rounded-full bg-tint-accent px-2 py-0.5 text-xs font-medium text-tone-accent">
-                          Possible duplicate
-                          {r.duplicateOfRecordId ? ` of record #${r.duplicateOfRecordId}` : ""}
-                        </span>
-                      ) : null}
-                      {r.largeExpenseFlag ? (
-                        <span className="rounded-full bg-paper-100 px-2 py-0.5 text-xs font-medium text-ink-700">
-                          Large expense
-                        </span>
-                      ) : null}
+                      {r.duplicateStatus === "Flagged" ? <AlertBadge kind="duplicate" /> : null}
+                      {r.largeExpenseFlag ? <AlertBadge kind="large-expense" /> : null}
                       {r.reviewStatus === "Needs Review" &&
                       !r.largeExpenseFlag &&
                       r.duplicateStatus !== "Flagged" ? (
-                        <span className="rounded-full bg-tint-danger px-2 py-0.5 text-xs font-medium text-tone-danger">
-                          Needs review
-                        </span>
+                        <AlertBadge kind="needs-review" />
                       ) : null}
                     </div>
                   </div>
-                  <div className="flex gap-2 text-sm">
-                    <button
-                      type="button"
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
                       disabled={busyId === key}
                       onClick={() => handleKeep(r)}
-                      className="rounded-lg border border-brand-300 px-3 py-1.5 font-medium text-tone-brand hover:bg-tint-brand disabled:opacity-60"
                     >
                       Keep
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
                       disabled={busyId === key}
                       onClick={() => handleDiscard(r)}
-                      className="rounded-lg border border-edge-danger px-3 py-1.5 font-medium text-tone-danger hover:bg-tint-danger disabled:opacity-60"
                     >
                       Discard
-                    </button>
+                    </Button>
                   </div>
                 </div>
-              </div>
+              </Card>
             );
           })}
         </div>

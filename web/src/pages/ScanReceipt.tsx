@@ -1,10 +1,12 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { CategorySelect } from "../components/CategorySelect";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { FormPage } from "../components/ui";
+import { Button } from "../components/Button";
+import { Field, FileInput, FormError, MoneyInput, TextInput } from "../components/Field";
 
 interface ScanResult {
   id: number;
@@ -32,10 +34,6 @@ export function ScanReceipt() {
   const [confirming, setConfirming] = useState(false);
 
   if (!selected) return null;
-
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    setFile(e.target.files?.[0] ?? null);
-  }
 
   async function handleScan(e: FormEvent) {
     e.preventDefault();
@@ -87,27 +85,19 @@ export function ScanReceipt() {
 
       {!scan ? (
         <form onSubmit={handleScan} className="space-y-4">
-          <div>
-            <label htmlFor="file" className="block text-sm font-medium text-ink-700">
-              Receipt image (JPEG, PNG, or WEBP)
-            </label>
-            <input
-              id="file"
-              type="file"
+          <Field label="Receipt image" htmlFor="file" required>
+            <FileInput
               accept="image/jpeg,image/png,image/webp"
-              required
-              onChange={handleFileChange}
-              className="mt-1 w-full text-sm"
+              maxBytes={8 * 1024 * 1024}
+              file={file}
+              onSelect={setFile}
+              hintText="JPEG, PNG or WEBP, up to 8MB. A flat, well-lit photo reads best."
             />
-          </div>
-          {scanError ? <p className="text-sm text-tone-danger">{scanError}</p> : null}
-          <button
-            type="submit"
-            disabled={scanning || !file}
-            className="tap w-full rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-          >
+          </Field>
+          {scanError ? <FormError>{scanError}</FormError> : null}
+          <Button type="submit" variant="primary" fullWidth disabled={scanning || !file}>
             {scanning ? "Reading receipt…" : "Scan receipt"}
-          </button>
+          </Button>
         </form>
       ) : (
         <form onSubmit={handleConfirm} className="space-y-4">
@@ -115,79 +105,34 @@ export function ScanReceipt() {
             Here's what FinSight could read from your receipt — double check and correct anything before
             saving.
           </p>
-          <div>
-            <label className="block text-sm font-medium text-ink-700">Category</label>
-            <div className="mt-1">
-              <CategorySelect value={categoryId} onChange={setCategoryId} />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="date" className="block text-sm font-medium text-ink-700">
-              Date
-            </label>
-            <input
-              id="date"
-              type="date"
-              required
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-            />
-          </div>
-          <div>
-            <label htmlFor="description" className="block text-sm font-medium text-ink-700">
-              Description
-            </label>
-            <input
-              id="description"
-              required
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-            />
-          </div>
-          <div>
-            <label htmlFor="vendor" className="block text-sm font-medium text-ink-700">
-              Vendor <span className="text-ink-400">(optional)</span>
-            </label>
-            <input
-              id="vendor"
-              value={vendor}
-              onChange={(e) => setVendor(e.target.value)}
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-            />
-          </div>
-          <div>
-            <label htmlFor="amount" className="block text-sm font-medium text-ink-700">
-              Amount (PHP)
-            </label>
-            <input
-              id="amount"
-              type="number"
+          <Field label="Category" htmlFor="category" required>
+            <CategorySelect id="category" value={categoryId} onChange={setCategoryId} />
+          </Field>
+          <Field label="Date" htmlFor="date" required>
+            <TextInput type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <Field label="Description" htmlFor="description" required>
+            <TextInput required value={description} onChange={(e) => setDescription(e.target.value)} />
+          </Field>
+          <Field label="Vendor" htmlFor="vendor" optional>
+            <TextInput value={vendor} onChange={(e) => setVendor(e.target.value)} />
+          </Field>
+          <Field label="Amount" htmlFor="amount" required>
+            <MoneyInput
               min={0.01}
-              step="0.01"
               required
               value={amount}
               onChange={(e) => setAmount(e.target.value === "" ? "" : Number(e.target.value))}
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
             />
-          </div>
-          {confirmError ? <p className="text-sm text-tone-danger">{confirmError}</p> : null}
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              disabled={confirming}
-              className="tap flex-1 rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-            >
+          </Field>
+          {confirmError ? <FormError>{confirmError}</FormError> : null}
+          <div className="flex flex-wrap gap-3">
+            <Button type="submit" variant="primary" disabled={confirming} className="flex-1">
               {confirming ? "Saving…" : "Confirm & save expense"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setScan(null)}
-              className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-paper-100"
-            >
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => setScan(null)}>
               Rescan
-            </button>
+            </Button>
           </div>
         </form>
       )}

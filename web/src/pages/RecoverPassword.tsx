@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { AuthLayout } from "../components/AuthLayout";
+import { Button } from "../components/Button";
+import { Field, FormError, TextInput } from "../components/Field";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 
@@ -37,27 +39,19 @@ export function RecoverPassword() {
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-ink-700">
-              Email
-            </label>
-            <input
-              id="email"
+          <Field label="Email" htmlFor="email" required>
+            <TextInput
               type="email"
               required
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
             />
-          </div>
-          {error ? <p className="text-sm text-tone-danger">{error}</p> : null}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="tap w-full rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-          >
+          </Field>
+          {error ? <FormError>{error}</FormError> : null}
+          <Button type="submit" variant="primary" fullWidth disabled={submitting}>
             {submitting ? "Sending…" : "Send reset link"}
-          </button>
+          </Button>
         </form>
       )}
       <p className="mt-6 text-center text-sm text-ink-500">

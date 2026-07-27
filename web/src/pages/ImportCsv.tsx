@@ -1,9 +1,11 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { FormPage } from "../components/ui";
+import { Button } from "../components/Button";
+import { Field, FileInput, FormError, SelectInput, TextInput } from "../components/Field";
 
 interface PreviewResult {
   headers: string[];
@@ -41,9 +43,6 @@ export function ImportCsv() {
 
   if (!selected) return null;
 
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    setFile(e.target.files?.[0] ?? null);
-  }
 
   async function handlePreview(e: FormEvent) {
     e.preventDefault();
@@ -149,50 +148,39 @@ export function ImportCsv() {
 
       {!preview ? (
         <form onSubmit={handlePreview} className="space-y-4">
-          <div>
-            <label htmlFor="file" className="block text-sm font-medium text-ink-700">
-              CSV file
-            </label>
-            <input
-              id="file"
-              type="file"
+          <Field label="CSV file" htmlFor="file" required>
+            <FileInput
               accept=".csv,text/csv"
-              required
-              onChange={handleFileChange}
-              className="mt-1 w-full text-sm"
+              maxBytes={5 * 1024 * 1024}
+              file={file}
+              onSelect={setFile}
+              hintText="A .csv export from your spreadsheet, up to 5MB. The first row should be your column headings."
             />
-          </div>
-          {previewError ? <p className="text-sm text-tone-danger">{previewError}</p> : null}
-          <button
-            type="submit"
-            disabled={previewing || !file}
-            className="tap w-full rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-          >
+          </Field>
+          {previewError ? <FormError>{previewError}</FormError> : null}
+          <Button type="submit" variant="primary" fullWidth disabled={previewing || !file}>
             {previewing ? "Reading file…" : "Preview"}
-          </button>
+          </Button>
         </form>
       ) : (
         <form onSubmit={handleConfirm} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-ink-700">Import as</label>
-            <select
+          <Field label="Import as" htmlFor="csv-record-type" required>
+            <SelectInput
               value={recordType}
               onChange={(e) => setRecordType(e.target.value as "expense" | "sales")}
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
             >
               <option value="expense">Expense records</option>
               <option value="sales">Sales reference records</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-ink-700">Batch title</label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-            />
-          </div>
+            </SelectInput>
+          </Field>
+          <Field
+            label="Batch title"
+            htmlFor="csv-title"
+            required
+            hint="What to call this import in your records, so you can find it again."
+          >
+            <TextInput value={title} onChange={(e) => setTitle(e.target.value)} required />
+          </Field>
 
           <p className="text-xs font-medium text-ink-500">Map your CSV columns:</p>
           <ColumnPicker label="Date column" headers={preview.headers} value={dateCol} onChange={setDateCol} />
@@ -247,22 +235,14 @@ export function ImportCsv() {
             </div>
           </div>
 
-          {confirmError ? <p className="text-sm text-tone-danger">{confirmError}</p> : null}
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              disabled={confirming}
-              className="tap flex-1 rounded-lg bg-accent-400 px-4 text-sm font-semibold text-ink-900 shadow-sm hover:bg-accent-500 disabled:opacity-60"
-            >
+          {confirmError ? <FormError>{confirmError}</FormError> : null}
+          <div className="flex flex-wrap gap-3">
+            <Button type="submit" variant="primary" disabled={confirming} className="flex-1">
               {confirming ? "Importing…" : "Confirm import"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreview(null)}
-              className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-paper-100"
-            >
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => setPreview(null)}>
               Choose a different file
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -282,14 +262,8 @@ function ColumnPicker({
   onChange: (v: string) => void;
 }) {
   return (
-    <div>
-      <label className="block text-xs font-medium text-ink-600">{label}</label>
-      <select
-        required
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-      >
+    <Field label={label} required>
+      <SelectInput required value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="" disabled>
           Select a column
         </option>
@@ -298,7 +272,7 @@ function ColumnPicker({
             {h}
           </option>
         ))}
-      </select>
-    </div>
+      </SelectInput>
+    </Field>
   );
 }

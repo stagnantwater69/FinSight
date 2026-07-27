@@ -12,6 +12,7 @@ import { DataTable, type Column } from "../components/DataTable";
 import { IconSearch } from "../components/icons";
 import { RECORD_SOURCE_LABELS, type RecordItem, type RecordSource } from "../lib/types";
 import { PageHead, Pill, Tag } from "../components/ui";
+import { SelectInput, TextInput } from "../components/Field";
 
 interface Filters {
   type: "all" | "expense" | "sales";
@@ -264,12 +265,12 @@ export function Records() {
             aria-hidden
             className="pointer-events-none absolute left-3 top-[2.1rem] h-4 w-4 text-ink-400"
           />
-          <input
+          <TextInput
             id="rec-search"
             value={filters.keyword}
             onChange={(e) => setFilters((f) => ({ ...f, keyword: e.target.value }))}
             placeholder="Description contains…"
-            className="min-h-tap w-full rounded-lg border border-ink-200 bg-paper pl-9 pr-3 text-sm text-ink-900 placeholder:text-ink-400"
+            className="pl-9 pr-3"
           />
         </div>
 
@@ -277,16 +278,16 @@ export function Records() {
           <label htmlFor="rec-type" className="mb-1 block text-xs font-medium text-ink-500">
             Type
           </label>
-          <select
+          <SelectInput
             id="rec-type"
             value={filters.type}
             onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value as Filters["type"] }))}
-            className="min-h-tap rounded-lg border border-ink-200 bg-paper px-2 text-sm text-ink-900"
+            className="w-auto px-2"
           >
             <option value="all">All</option>
             <option value="expense">Expense</option>
             <option value="sales">Sales</option>
-          </select>
+          </SelectInput>
         </div>
 
         <button
@@ -316,12 +317,12 @@ export function Records() {
             <label htmlFor="rec-cat" className="mb-1 block text-xs font-medium text-ink-500">
               Category
             </label>
-            <select
+            <SelectInput
               id="rec-cat"
               value={filters.categoryId}
               onChange={(e) => setFilters((f) => ({ ...f, categoryId: e.target.value }))}
               disabled={filters.type === "sales"}
-              className="min-h-tap w-full rounded-lg border border-ink-200 bg-paper px-2 text-sm text-ink-900 disabled:bg-paper-100 disabled:text-ink-400"
+              className="px-2 disabled:bg-paper-100 disabled:text-ink-400"
             >
               <option value="">All</option>
               {categories.map((c) => (
@@ -329,17 +330,17 @@ export function Records() {
                   {c.name}
                 </option>
               ))}
-            </select>
+            </SelectInput>
           </div>
           <div>
             <label htmlFor="rec-src" className="mb-1 block text-xs font-medium text-ink-500">
               Source
             </label>
-            <select
+            <SelectInput
               id="rec-src"
               value={filters.source}
               onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value as Filters["source"] }))}
-              className="min-h-tap w-full rounded-lg border border-ink-200 bg-paper px-2 text-sm text-ink-900"
+              className="px-2"
             >
               <option value="">All sources</option>
               {(Object.keys(RECORD_SOURCE_LABELS) as RecordSource[]).map((s) => (
@@ -347,30 +348,30 @@ export function Records() {
                   {RECORD_SOURCE_LABELS[s]}
                 </option>
               ))}
-            </select>
+            </SelectInput>
           </div>
           <div>
             <label htmlFor="rec-from" className="mb-1 block text-xs font-medium text-ink-500">
               From
             </label>
-            <input
+            <TextInput
               id="rec-from"
               type="date"
               value={filters.dateFrom}
               onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-              className="min-h-tap w-full rounded-lg border border-ink-200 bg-paper px-2 text-sm text-ink-900"
+              className="px-2"
             />
           </div>
           <div>
             <label htmlFor="rec-to" className="mb-1 block text-xs font-medium text-ink-500">
               To
             </label>
-            <input
+            <TextInput
               id="rec-to"
               type="date"
               value={filters.dateTo}
               onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-              className="min-h-tap w-full rounded-lg border border-ink-200 bg-paper px-2 text-sm text-ink-900"
+              className="px-2"
             />
           </div>
         </div>

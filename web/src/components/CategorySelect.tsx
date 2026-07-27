@@ -1,12 +1,20 @@
 import { useState } from "react";
 import { useExpenseCategories } from "../context/ExpenseCategoryContext";
+import { SelectInput, TextInput } from "./Field";
+import { Button } from "./Button";
 
 interface Props {
   value: number | "";
   onChange: (categoryId: number) => void;
+  /**
+   * The id the <select> carries, so an enclosing <Field>'s label resolves to
+   * it. Without this the Category field was the one unlabelled control in the
+   * app: the label had no htmlFor and this component rendered no matching id.
+   */
+  id?: string;
 }
 
-export function CategorySelect({ value, onChange }: Props) {
+export function CategorySelect({ value, onChange, id }: Props) {
   const { categories, createCategory, loading } = useExpenseCategories();
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -32,37 +40,35 @@ export function CategorySelect({ value, onChange }: Props) {
   if (creating) {
     return (
       <div className="space-y-2">
-        <div className="flex gap-2">
-          <input
+        <div className="flex flex-wrap gap-2">
+          <TextInput
+            id={id}
             autoFocus
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="New category name"
-            className="flex-1 rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            aria-label="New category name"
+            className="min-w-0 flex-1"
           />
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={submitting}
-            className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-          >
+          <Button type="button" onClick={handleCreate} disabled={submitting || !newName.trim()}>
             Add
-          </button>
-          <button
-            type="button"
-            onClick={() => setCreating(false)}
-            className="rounded-lg border border-ink-200 px-3 py-2 text-sm text-ink-600 hover:bg-paper-100"
-          >
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => setCreating(false)}>
             Cancel
-          </button>
+          </Button>
         </div>
-        {error ? <p className="text-sm text-tone-danger">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-tone-danger">
+            {error}
+          </p>
+        ) : null}
       </div>
     );
   }
 
   return (
-    <select
+    <SelectInput
+      id={id}
       required
       value={value}
       onChange={(e) => {
@@ -73,7 +79,6 @@ export function CategorySelect({ value, onChange }: Props) {
         onChange(Number(e.target.value));
       }}
       disabled={loading}
-      className="min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
     >
       <option value="" disabled>
         {loading ? "Loading categories…" : "Select a category"}
@@ -84,6 +89,6 @@ export function CategorySelect({ value, onChange }: Props) {
         </option>
       ))}
       <option value="__new__">+ New category…</option>
-    </select>
+    </SelectInput>
   );
 }

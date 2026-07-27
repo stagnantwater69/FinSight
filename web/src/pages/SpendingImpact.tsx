@@ -4,9 +4,11 @@ import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { ExplainButton } from "../components/ExplainButton";
 import { AskFinSightButton, AskFinSightDrawer } from "../components/AskFinSightDrawer";
-import { STATUS_COLORS, STATUS_TEXT_COLORS } from "../lib/chartPalette";
+import { OTHER_COLOR, STATUS_COLORS } from "../lib/chartPalette";
 import type { ImpactBand, SpendingImpact as SpendingImpactData } from "../lib/types";
-import { PageHead } from "../components/ui";
+import { Callout, PageHead, Panel, Pill, type PillTone } from "../components/ui";
+import { Field, MoneyInput, SelectInput, TextInput } from "../components/Field";
+import { Money } from "../components/Money";
 
 const PERIOD_OPTIONS = [
   { label: "Today", days: 1 },
@@ -14,14 +16,25 @@ const PERIOD_OPTIONS = [
   { label: "This month", days: 30 },
 ];
 
-function peso(n: number): string {
-  return `PHP ${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-}
-
 const BAND_STATUS: Record<ImpactBand, keyof typeof STATUS_COLORS> = {
   "Low Impact": "good",
   "Noticeable Impact": "warning",
   "High Impact": "critical",
+};
+
+// The impact band as a themed Pill rather than a white-on-solid chip painted
+// with an inline style. The band glyphs stay: severity must survive greyscale
+// and colourblindness, so the shape carries it as well as the colour.
+const BAND_TONE: Record<ImpactBand, PillTone> = {
+  "Low Impact": "ok",
+  "Noticeable Impact": "warn",
+  "High Impact": "danger",
+};
+
+const BAND_GLYPH: Record<ImpactBand, string> = {
+  "Low Impact": "✓",
+  "Noticeable Impact": "●",
+  "High Impact": "▲",
 };
 
 function percentText(data: SpendingImpactData): string {
@@ -57,7 +70,9 @@ function BeforeAfterBars({
 }) {
   const scale = Math.max(Math.abs(before), Math.abs(after), 1);
   const rows = [
-    { key: "Before", value: before, color: "#94a3b8" },
+    // The neutral "before" bar uses the palette's documented neutral rather
+    // than an arbitrary hex, so it stays in step with the charts.
+    { key: "Before", value: before, color: OTHER_COLOR },
     { key: "After", value: after, color: afterColor },
   ];
   return (
@@ -71,13 +86,12 @@ function BeforeAfterBars({
               style={{ width: `${(Math.abs(r.value) / scale) * 100}%`, backgroundColor: r.color }}
             />
           </div>
-          <span
+          <Money
+            value={r.value}
             className={`w-28 shrink-0 text-right text-xs font-medium ${
               r.key === "After" && afterIsNegative ? "text-tone-danger" : "text-ink-700"
             }`}
-          >
-            {peso(r.value)}
-          </span>
+          />
         </div>
       ))}
     </div>
@@ -125,105 +139,84 @@ export function SpendingImpact() {
         actions={<AskFinSightButton onClick={() => setDrawerOpen(true)} />}
       />
 
-      <div className="mb-4 rounded-lg bg-tint-brand p-3 text-xs text-tone-brand">
-        <b>Two ways to run a scenario.</b> Ask FinSight in plain language (e.g. "What if I spend ₱11,000 on a
-        fridge?"), or use the form below. Either way, FinSight's calculations are structured — they are not
-        invented by AI.
+      <div className="mb-4">
+        <Callout tone="brand">
+          <b className="font-semibold">Two ways to run a scenario.</b> Ask FinSight in plain language (e.g.
+          "What if I spend ₱11,000 on a fridge?"), or use the form below. Either way, FinSight's
+          calculations are structured — they are not invented by AI.
+        </Callout>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl bg-paper p-5 border border-paper-200 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-ink-700">Simulate a planned expense</h2>
-
+        <Panel title="Simulate a planned expense">
           <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label htmlFor="plannedAmount" className="block text-sm font-medium text-ink-700">
-                Planned amount (PHP)
-              </label>
-              <input
-                id="plannedAmount"
-                type="number"
+            <Field label="Planned amount" htmlFor="plannedAmount">
+              <MoneyInput
                 min={0}
-                step="0.01"
                 value={plannedAmount}
                 onChange={(e) => setPlannedAmount(e.target.value === "" ? "" : Number(e.target.value))}
-                placeholder="e.g. 11000"
-                className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
+                placeholder="11000"
               />
-            </div>
-            <div>
-              <label htmlFor="periodDays" className="block text-sm font-medium text-ink-700">
-                Compare against
-              </label>
-              <select
-                id="periodDays"
-                value={periodDays}
-                onChange={(e) => setPeriodDays(Number(e.target.value))}
-                className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-              >
+            </Field>
+            <Field label="Compare against" htmlFor="periodDays">
+              <SelectInput value={periodDays} onChange={(e) => setPeriodDays(Number(e.target.value))}>
                 {PERIOD_OPTIONS.map((o) => (
                   <option key={o.days} value={o.days}>
                     {o.label}
                   </option>
                 ))}
-              </select>
-            </div>
+              </SelectInput>
+            </Field>
           </div>
 
           <div className="mt-3">
-            <label htmlFor="description" className="block text-sm font-medium text-ink-700">
-              Description{" "}
-              <span className="font-normal text-ink-400">(optional, for your own reference)</span>
-            </label>
-            <input
-              id="description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Display fridge for drinks"
-              className="mt-1 min-h-tap w-full rounded-lg border border-ink-200 px-3 text-sm"
-            />
+            <Field
+              label="Description"
+              htmlFor="description"
+              optional
+              hint="For your own reference — this is not saved."
+            >
+              <TextInput
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="e.g. Display fridge for drinks"
+              />
+            </Field>
           </div>
 
-          {error ? <p className="mt-3 text-sm text-tone-danger">{error}</p> : null}
+          {error ? (
+            <p role="alert" className="mt-3 text-sm text-tone-danger">
+              {error}
+            </p>
+          ) : null}
 
-          <p className="mt-4 rounded-lg bg-tint-accent p-3 text-xs text-tone-accent">
-            <span aria-hidden>⚠ </span>
-            This simulation supports spending awareness and does not tell you whether to proceed with the
-            purchase.
-          </p>
-        </div>
+          <div className="mt-4">
+            <Callout tone="warn">
+              This simulation supports spending awareness and does not tell you whether to proceed with the
+              purchase.
+            </Callout>
+          </div>
+        </Panel>
 
-        <div className="rounded-2xl bg-paper p-5 border border-paper-200 shadow-sm">
-          <div className="mb-4 flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-ink-700">Estimated impact</h2>
-            {data && bandStatus ? (
-              <span
-                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-white"
-                style={{ backgroundColor: STATUS_TEXT_COLORS[bandStatus] }}
-              >
-                <span aria-hidden>
-                  {data.impactBand === "High Impact"
-                    ? "▲"
-                    : data.impactBand === "Noticeable Impact"
-                      ? "●"
-                      : "✓"}
-                </span>
+        <Panel
+          title="Estimated impact"
+          action={
+            data ? (
+              <Pill tone={BAND_TONE[data.impactBand]}>
+                <span aria-hidden>{BAND_GLYPH[data.impactBand]}</span>
                 {data.impactBand}
-              </span>
-            ) : null}
-          </div>
-
+              </Pill>
+            ) : null
+          }
+        >
           {!data ? (
             <p className="text-sm text-ink-400">Enter a planned amount to see the impact.</p>
           ) : (
             <div className="space-y-5">
               {data.exceedsFunds ? (
-                <p
-                  className="rounded-lg p-3 text-sm font-medium text-white"
-                  style={{ backgroundColor: STATUS_TEXT_COLORS.critical }}
-                >
-                  <span aria-hidden>⚠ </span>This would exceed your available funds.
-                </p>
+                <Callout tone="warn">
+                  <b className="font-semibold">This would exceed your available funds.</b>
+                </Callout>
               ) : null}
 
               <div>
@@ -253,11 +246,11 @@ export function SpendingImpact() {
               </div>
 
               <p className="text-xs text-ink-500">
-                Spending {peso(data.plannedAmount)}
+                Spending <Money value={data.plannedAmount} />
                 {description ? ` on ${description}` : ""} would use {percentText(data)} of your available
                 funds. You treat anything above {data.thresholdPercent}% of available funds (
-                {peso(data.thresholdAmount)}) as a high-impact expense — you can change that in your business
-                profile.
+                <Money value={data.thresholdAmount} />) as a high-impact expense — you can change that in
+                your business profile.
               </p>
 
               <ExplainButton
@@ -267,7 +260,7 @@ export function SpendingImpact() {
               />
             </div>
           )}
-        </div>
+        </Panel>
       </div>
 
       <AskFinSightDrawer

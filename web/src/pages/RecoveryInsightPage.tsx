@@ -9,10 +9,7 @@ import { StatTile } from "../components/StatTile";
 import { STATUS_TEXT_COLORS } from "../lib/chartPalette";
 import type { DayStatus, RecoveryInsight } from "../lib/types";
 import { PageHead } from "../components/ui";
-
-function peso(n: number): string {
-  return `PHP ${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-}
+import { Money, formatMoney } from "../components/Money";
 
 // Text-variant colors: these are used both as small type and as pill
 // backgrounds under white text, so they need the darker steps.
@@ -93,9 +90,9 @@ export function RecoveryInsightPage() {
           <div className="rounded-2xl bg-paper p-5 border border-paper-200 shadow-sm">
             <h2 className="mb-4 text-sm font-semibold text-ink-700">Inputs</h2>
             <div className="grid gap-4 sm:grid-cols-3">
-              <StatTile label="Expected monthly expenses" value={peso(data.expectedMonthlyExpenses)} />
+              <StatTile label="Expected monthly expenses" value={formatMoney(data.expectedMonthlyExpenses)} />
               <StatTile label="Operating days / month" value={String(data.operatingDays)} />
-              <StatTile label="Daily needed target" value={peso(data.dailyNeededTarget)} />
+              <StatTile label="Daily needed target" value={formatMoney(data.dailyNeededTarget)} />
             </div>
             <p className="mt-3 text-xs text-ink-400">
               Daily needed target = expected monthly expenses ÷ operating days. This is a target-based
@@ -105,11 +102,11 @@ export function RecoveryInsightPage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-4">
-            <StatTile label="Today's target" value={peso(data.todaysTarget)} />
-            <StatTile label="Sales reference today" value={peso(data.todaysSales)} />
+            <StatTile label="Today's target" value={formatMoney(data.todaysTarget)} />
+            <StatTile label="Sales reference today" value={formatMoney(data.todaysSales)} />
             <StatTile
               label="Today's gap"
-              value={peso(Math.abs(data.todaysGap))}
+              value={formatMoney(Math.abs(data.todaysGap))}
               sublabel={statusLabel(data.todaysStatus).toLowerCase()}
             />
             <StatTile
@@ -132,8 +129,8 @@ export function RecoveryInsightPage() {
             <h2 className="text-sm font-semibold text-ink-700">Remaining recovery target</h2>
             <p className="mb-4 text-xs text-ink-400">Recalculated across your remaining operating days</p>
             <div className="grid gap-4 sm:grid-cols-3">
-              <StatTile label="Sales reference so far this month" value={peso(data.salesThisMonth)} />
-              <StatTile label="Remaining target" value={peso(data.remainingTarget)} />
+              <StatTile label="Sales reference so far this month" value={formatMoney(data.salesThisMonth)} />
+              <StatTile label="Remaining target" value={formatMoney(data.remainingTarget)} />
               <StatTile
                 label="Remaining operating days"
                 value={`≈ ${data.remainingOperatingDays}`}
@@ -142,7 +139,7 @@ export function RecoveryInsightPage() {
             </div>
             <div className="mt-4 rounded-lg bg-tint-brand p-4">
               <p className="text-xs font-medium text-brand-700">Adjusted daily target</p>
-              <p className="text-2xl font-semibold text-ink-900">{peso(data.adjustedDailyTarget)}</p>
+              <Money value={data.adjustedDailyTarget} className="block text-2xl font-semibold text-ink-900" />
               <p className="mt-1 text-xs text-brand-700">
                 Remaining target ÷ remaining operating days. This updates as you record more sales references
                 — it's a recovery guide, not a guaranteed outcome.
@@ -178,13 +175,23 @@ export function RecoveryInsightPage() {
                 {data.dailyCoverage.map((d) => (
                   <tr key={d.date} className="border-b border-paper-200 last:border-0">
                     <td className="px-5 py-2.5 whitespace-nowrap font-medium text-ink-700">{d.date}</td>
-                    <td className="px-5 py-2.5 text-right text-ink-600">{peso(d.neededTarget)}</td>
-                    <td className="px-5 py-2.5 text-right text-ink-600">{peso(d.sales)}</td>
+                    <td className="px-5 py-2.5 text-right text-ink-600">
+                      <Money value={d.neededTarget} />
+                    </td>
+                    <td className="px-5 py-2.5 text-right text-ink-600">
+                      <Money value={d.sales} />
+                    </td>
                     <td
                       className="px-5 py-2.5 text-right font-medium"
                       style={{ color: statusColor(d.status) }}
                     >
-                      {d.status === "at" ? peso(0) : `${peso(Math.abs(d.gap))} ${d.status}`}
+                      {d.status === "at" ? (
+                        <Money value={0} />
+                      ) : (
+                        <>
+                          <Money value={Math.abs(d.gap)} /> {d.status}
+                        </>
+                      )}
                     </td>
                     <td className="px-5 py-2.5">
                       <span

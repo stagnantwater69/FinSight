@@ -7,6 +7,7 @@ import { Button, ButtonLink } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { EmptyState } from "../components/EmptyState";
 import { PageHead, Pill } from "../components/ui";
+import { TextInput } from "../components/Field";
 import { IconSearch } from "../components/icons";
 import type { BusinessProfile } from "../lib/types";
 
@@ -265,12 +266,12 @@ export function BusinessProfiles() {
         aria-hidden
         className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
       />
-      <input
+      <TextInput
         id="biz-search"
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
         placeholder="Search businesses…"
-        className="min-h-tap w-full rounded-lg border border-ink-200 bg-paper pl-9 pr-3 text-sm text-ink-900 placeholder:text-ink-400"
+        className="pl-9 pr-3"
       />
     </div>
   );
