@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { Alert, AlertBadge, Card, EmptyState, ErrorNote, Money, Screen, SetupProgress, StatTile, T } from "../components/ui";
+import { Alert, AlertBadge, Button, Card, EmptyState, ErrorNote, Money, Screen, SetupProgress, StatTile, T } from "../components/ui";
 import { RecoveryMeter } from "../components/RecoveryMeter";
 import { AskFinSight, AskFinSightButton } from "../components/AskFinSight";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
@@ -183,6 +183,16 @@ export function DashboardScreen({ navigation }: any) {
                   ))}
                 </View>
               )}
+              {/*
+                The five shown here are read-only. Everything else — the rest
+                of the list, and any way to clear one — lives on the alerts
+                screen, which mobile previously had no route to at all.
+              */}
+              <Button
+                title={summary.alerts.length > 5 ? `See all ${summary.alerts.length} alerts` : "See all alerts"}
+                variant="ghost"
+                onPress={() => navigation.navigate("Notifications")}
+              />
             </Card>
 
             {/* Recency slot. */}

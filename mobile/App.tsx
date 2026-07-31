@@ -18,6 +18,7 @@ import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { BusinessProfileProvider } from "./src/context/BusinessProfileContext";
 import { LoginScreen, RegisterScreen, RecoverPasswordScreen } from "./src/screens/AuthScreens";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
+import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import {
   AddExpenseScreen,
   AddSalesScreen,
@@ -59,6 +60,19 @@ const screenOptions = {
   headerTitleStyle: { fontFamily: font.display, color: brand[900] },
   headerTintColor: brand[700],
 } as const;
+
+/**
+ * The Dashboard needs a stack of its own so it can push the alerts list —
+ * web reaches the same screen from the bell in its header.
+ */
+function DashboardStack() {
+  return (
+    <Stack.Navigator screenOptions={screenOptions}>
+      <Stack.Screen name="DashboardHome" component={DashboardScreen} options={{ title: "Dashboard" }} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: "Alerts" }} />
+    </Stack.Navigator>
+  );
+}
 
 function RecordsStack() {
   return (
@@ -122,7 +136,7 @@ function MainTabs() {
     >
       <Tab.Screen
         name="Dashboard"
-        component={DashboardScreen}
+        component={DashboardStack}
         options={{ tabBarIcon: ({ color }) => <TabIcon glyph="◧" color={color} /> }}
       />
       <Tab.Screen

@@ -134,6 +134,18 @@ describe("mobile -> POST /records/receipts/:id/confirm (itemised)", () => {
    * links it writes come from one grouping; sending both invites them to
    * disagree.
    */
+  it("builds an accepted payload with owner-added lines", () => {
+    const result = confirmSchema.safeParse(
+      buildItemisedConfirmPayload({
+        ...base,
+        itemsTotal: 1440,
+        totalAmount: 1440,
+        additionalItems: [{ name: "Bagged ice", amount: 40, categoryId: 7 }],
+      }),
+    );
+    expect(result.success, JSON.stringify(result.error?.issues)).toBe(true);
+  });
+
   it("sends assignments rather than splits", () => {
     const parsed = confirmSchema.parse(buildItemisedConfirmPayload({ ...base }));
     expect(parsed.itemAssignments).toHaveLength(2);

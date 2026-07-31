@@ -85,6 +85,14 @@ export interface ItemisedConfirmPayload {
   vendor?: string;
   amount: number;
   itemAssignments: { itemId: number; categoryId: number }[];
+  /**
+   * Lines the owner typed in because OCR missed them.
+   *
+   * Stored server-side as real items flagged `addedByOwner`, so they are
+   * grouped and linked like any other line while staying distinguishable from
+   * something FinSight claims to have read.
+   */
+  additionalItems?: { name: string; amount: number; categoryId: number }[];
   reconciliation: Reconciliation;
 }
 
@@ -97,6 +105,8 @@ export interface ItemisedConfirmInput {
   /** What the item lines actually add up to. */
   itemsTotal: number;
   itemAssignments: { itemId: number; categoryId: number }[];
+  /** Lines the owner typed in. Their amounts must already be in `itemsTotal`. */
+  additionalItems?: { name: string; amount: number; categoryId: number }[];
   plan: ReconciliationPlan;
   gapCategoryId?: number | null;
 }
@@ -128,7 +138,9 @@ export function buildItemisedConfirmPayload(input: ItemisedConfirmInput): Itemis
   const gap = gapCentavos(input.totalAmount, input.itemsTotal);
   const shrinking = input.plan === "shrink" && gap !== 0;
 
-  if (input.itemAssignments.length === 0) {
+  const additionalItems = input.additionalItems ?? [];
+
+  if (input.itemAssignments.length === 0 && additionalItems.length === 0) {
     throw new Error("Every item on the receipt needs a category");
   }
   if (input.plan === "category" && input.gapCategoryId == null) {
@@ -141,6 +153,9 @@ export function buildItemisedConfirmPayload(input: ItemisedConfirmInput): Itemis
     ...(vendor ? { vendor } : {}),
     amount: shrinking ? input.itemsTotal : input.totalAmount,
     itemAssignments: input.itemAssignments,
+    // Omitted entirely rather than sent empty — the server treats the field's
+    // absence and an empty list the same, and sending [] says nothing.
+    ...(additionalItems.length > 0 ? { additionalItems } : {}),
     reconciliation:
       gap === 0 || shrinking
         ? // Nothing left to account for: either the items already reconcile,

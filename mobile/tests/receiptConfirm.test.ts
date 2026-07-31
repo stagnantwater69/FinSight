@@ -174,3 +174,43 @@ describe("gap arithmetic", () => {
     expect(gapCentavos(1300, 1400)).toBe(-10000);
   });
 });
+
+describe("lines the owner adds because OCR missed them", () => {
+  const added = [{ name: "Bagged ice", amount: 40, categoryId: 7 }];
+
+  it("sends them alongside the extracted assignments", () => {
+    const out = buildItemisedConfirmPayload({ ...itemised, additionalItems: added });
+    expect(out.additionalItems).toEqual(added);
+    expect(out.itemAssignments).toHaveLength(2);
+  });
+
+  /** Absence and an empty list mean the same thing server-side; [] says nothing. */
+  it("omits the field entirely when there are none", () => {
+    expect(buildItemisedConfirmPayload({ ...itemised })).not.toHaveProperty("additionalItems");
+    expect(buildItemisedConfirmPayload({ ...itemised, additionalItems: [] })).not.toHaveProperty(
+      "additionalItems",
+    );
+  });
+
+  /**
+   * A receipt whose every extracted line was removed as "not a purchase" can
+   * still be saved from hand-typed lines alone.
+   */
+  it("can carry a receipt with no extracted lines left", () => {
+    const out = buildItemisedConfirmPayload({
+      ...itemised,
+      itemAssignments: [],
+      additionalItems: added,
+      itemsTotal: 40,
+      totalAmount: 40,
+    });
+    expect(out.additionalItems).toEqual(added);
+    expect(out.reconciliation).toEqual({ mode: "none" });
+  });
+
+  it("still refuses a receipt with nothing on it at all", () => {
+    expect(() =>
+      buildItemisedConfirmPayload({ ...itemised, itemAssignments: [], additionalItems: [] }),
+    ).toThrow(/category/i);
+  });
+});

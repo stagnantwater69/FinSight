@@ -22,6 +22,7 @@ import {
   type ReconciliationPlan,
 } from "../lib/receiptConfirm";
 import { rowsToApplySuggestionTo, suggestedNewCategory } from "../lib/categorySuggestion";
+import { RecordOriginPanel, type RecordOrigin } from "../components/RecordOrigin";
 import {
   buildExpenseUpdatePayload,
   buildSalesUpdatePayload,
@@ -566,6 +567,17 @@ export function ScanReceiptScreen({ navigation }: any) {
   const [gapCategoryId, setGapCategoryId] = useState<number | null>(null);
   /** The proposed category currently being created, so its row can show progress. */
   const [creatingCategoryFor, setCreatingCategoryFor] = useState<string | null>(null);
+  /**
+   * Lines the owner is adding because OCR missed them.
+   *
+   * Held here until Confirm, like every other answer on this screen — nothing
+   * is written until they accept the whole receipt.
+   */
+  const [addedItems, setAddedItems] = useState<
+    { key: string; name: string; amount: string; categoryId: number | null }[]
+  >([]);
+  /** The extracted line currently being removed, so its row can show progress. */
+  const [removingItemId, setRemovingItemId] = useState<number | null>(null);
 
   if (!selected) return null;
 
@@ -631,10 +643,21 @@ export function ScanReceiptScreen({ navigation }: any) {
    */
   const items = scan?.items ?? [];
   const isItemised = items.length > 1;
-  const itemsTotal = items.reduce((sum, i) => sum + i.amount, 0);
+  /** An added line only counts once it is actually usable. */
+  const usableAddedItems = addedItems.filter(
+    (a) => a.name.trim() !== "" && Number(a.amount) > 0 && a.categoryId != null,
+  );
+  // Added lines count toward the items' total the moment they are complete, so
+  // adding a missed line closes the gap immediately rather than after saving.
+  const itemsTotal =
+    items.reduce((sum, i) => sum + i.amount, 0) +
+    usableAddedItems.reduce((sum, a) => sum + Number(a.amount), 0);
   const totalValue = Number(amount);
   const gap = Number.isFinite(totalValue) ? gapCentavos(totalValue, itemsTotal) : 0;
-  const everyItemHasCategory = items.every((i) => itemCategories[i.id] != null);
+  const everyItemHasCategory =
+    items.every((i) => itemCategories[i.id] != null) &&
+    // A half-typed added row must not enable Confirm.
+    addedItems.length === usableAddedItems.length;
   // A discount can't become its own expense record — that would be a negative
   // expense, which nothing downstream understands. The server refuses it too.
   const canFileGapOnItsOwn = gap > 0;
@@ -668,6 +691,11 @@ export function ScanReceiptScreen({ navigation }: any) {
             totalAmount: value,
             itemsTotal,
             itemAssignments: items.map((i) => ({ itemId: i.id, categoryId: itemCategories[i.id]! })),
+            additionalItems: usableAddedItems.map((a) => ({
+              name: a.name.trim(),
+              amount: Number(a.amount),
+              categoryId: a.categoryId!,
+            })),
             plan,
             gapCategoryId,
           })
@@ -733,16 +761,48 @@ export function ScanReceiptScreen({ navigation }: any) {
     }
   }
 
-  /** Items grouped by the category they are currently in, with a subtotal each. */
+  /**
+   * Drops a line OCR read that was never a purchase.
+   *
+   * Deleted on the SERVER rather than hidden here, because confirmation
+   * requires every stored item to carry a category — a row this screen merely
+   * stopped showing would still be on the scan and would block Confirm with a
+   * message about an item the owner can no longer see.
+   *
+   * Widening the gap against the total is the intended consequence, not a
+   * side effect: the reconciliation question below already exists to answer
+   * exactly that.
+   */
+  async function removeScannedItem(itemId: number) {
+    if (!scan) return;
+    setRemovingItemId(itemId);
+    setError(null);
+    try {
+      const updated = await api.delete<ReceiptScanResult>(`/records/receipts/${scan.id}/items/${itemId}`);
+      setScan(updated);
+      setItemCategories((prev) => {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setRemovingItemId(null);
+    }
+  }
+
+  /** Items and completed added lines, grouped by category with a subtotal each. */
   const itemGroups = (() => {
     const groups = new Map<number | null, { total: number; count: number }>();
-    for (const item of items) {
-      const key = itemCategories[item.id] ?? null;
+    const add = (key: number | null, amount: number) => {
       const g = groups.get(key) ?? { total: 0, count: 0 };
-      g.total += item.amount;
+      g.total += amount;
       g.count += 1;
       groups.set(key, g);
-    }
+    };
+    for (const item of items) add(itemCategories[item.id] ?? null, item.amount);
+    for (const a of usableAddedItems) add(a.categoryId, Number(a.amount));
     return [...groups.entries()];
   })();
 
@@ -835,6 +895,22 @@ export function ScanReceiptScreen({ navigation }: any) {
                         ) : null}
                       </T>
                       <Money value={item.amount} size={14} weight="semibold" />
+                      {/* Removing a line OCR should never have read. */}
+                      <Pressable
+                        onPress={() => removeScannedItem(item.id)}
+                        disabled={removingItemId === item.id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${item.name} — this was not a purchase`}
+                        style={{
+                          minWidth: TAP - 12,
+                          minHeight: TAP - 12,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: removingItemId === item.id ? 0.4 : 1,
+                        }}
+                      >
+                        <T style={{ fontSize: 16, color: ink[400] }}>×</T>
+                      </Pressable>
                     </View>
 
                     {/*
@@ -881,6 +957,80 @@ export function ScanReceiptScreen({ navigation }: any) {
                     ) : null}
                   </View>
                 ))}
+
+                {/*
+                  Lines the owner is adding because OCR missed them.
+
+                  Kept visually distinct from the extracted rows: the text
+                  above claims FinSight READ these items, and that claim must
+                  not quietly extend to a row a human typed. The same
+                  distinction is stored server-side (addedByOwner) so it
+                  survives onto the saved record.
+                */}
+                {addedItems.map((added, i) => (
+                  <View
+                    key={added.key}
+                    style={{
+                      borderTopWidth: 1,
+                      borderTopColor: paper[100],
+                      backgroundColor: paper[50],
+                      paddingVertical: space.sm,
+                      paddingHorizontal: space.sm,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                      <T variant="caption">You're adding this line</T>
+                      <Pressable
+                        onPress={() => setAddedItems((prev) => prev.filter((x) => x.key !== added.key))}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove added item ${i + 1}`}
+                        style={{ minWidth: TAP - 12, minHeight: TAP - 16, alignItems: "flex-end" }}
+                      >
+                        <T style={{ fontSize: 16, color: ink[400] }}>×</T>
+                      </Pressable>
+                    </View>
+                    <Field
+                      label="Item name"
+                      value={added.name}
+                      onChangeText={(v: string) =>
+                        setAddedItems((prev) => prev.map((x) => (x.key === added.key ? { ...x, name: v } : x)))
+                      }
+                    />
+                    <Field
+                      label="Amount (PHP)"
+                      value={added.amount}
+                      keyboardType="decimal-pad"
+                      onChangeText={(v: string) =>
+                        setAddedItems((prev) => prev.map((x) => (x.key === added.key ? { ...x, amount: v } : x)))
+                      }
+                    />
+                    <CategoryChips
+                      categories={categories}
+                      value={added.categoryId}
+                      onChange={(id) =>
+                        setAddedItems((prev) =>
+                          prev.map((x) => (x.key === added.key ? { ...x, categoryId: id } : x)),
+                        )
+                      }
+                      label={added.name || `added item ${i + 1}`}
+                    />
+                  </View>
+                ))}
+
+                <Pressable
+                  onPress={() =>
+                    setAddedItems((prev) => [
+                      ...prev,
+                      { key: `added-${Date.now()}-${prev.length}`, name: "", amount: "", categoryId: null },
+                    ])
+                  }
+                  accessibilityRole="button"
+                  style={{ paddingVertical: space.sm }}
+                >
+                  <T variant="caption" style={{ color: brand[700] }}>
+                    + An item is missing — add it to the list
+                  </T>
+                </Pressable>
 
                 {/* What actually gets saved — one record per category group. */}
                 <View
@@ -1177,6 +1327,39 @@ export function EditRecordScreen({ route, navigation }: any) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /**
+   * Where this record came from.
+   *
+   * Only the single-record endpoint carries it, so it is fetched here rather
+   * than travelling in the route params with the rest of the record. A
+   * failure is silent: the panel is context, and losing it should degrade the
+   * screen rather than block editing.
+   */
+  const [origin, setOrigin] = useState<RecordOrigin | null>(null);
+  const [loadingOrigin, setLoadingOrigin] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const detail = await api.get<{ origin: RecordOrigin | null }>(
+            recordUpdatePath(record.type, record.id),
+          );
+          if (!cancelled) setOrigin(detail.origin ?? null);
+        } catch {
+          // Context only — a record with no visible provenance is still fully
+          // editable, which is what this screen is for.
+        } finally {
+          if (!cancelled) setLoadingOrigin(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [record.type, record.id]),
+  );
+
   if (!selected) return null;
 
   async function save() {
@@ -1252,17 +1435,17 @@ export function EditRecordScreen({ route, navigation }: any) {
           {badges(record)}
 
           {/*
-            A record that came from a receipt has a breakdown behind it that
-            this screen cannot show yet. Editing the amount is still the
-            owner's call — they may well be fixing a figure OCR got wrong —
-            but they should know the two can end up disagreeing.
+            The evidence behind this record — the lines read off the receipt,
+            or the file it was imported from. Fetched rather than passed in
+            route params, because the list endpoint does not carry it.
           */}
-          {record.source === "RECEIPT_SCAN" ? (
+          {origin ? (
             <View style={{ marginTop: space.md }}>
-              <Callout tone="info">
-                This came from a scanned receipt. Changing the amount here won't change the item
-                breakdown stored with it, so the two may no longer add up.
-              </Callout>
+              <RecordOriginPanel origin={origin} recordAmount={record.amount} />
+            </View>
+          ) : loadingOrigin ? (
+            <View style={{ marginTop: space.md }}>
+              <T variant="caption">Loading where this came from…</T>
             </View>
           ) : null}
 

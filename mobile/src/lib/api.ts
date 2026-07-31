@@ -97,7 +97,14 @@ export const api = {
   get: <T>(path: string, query?: Record<string, string | number | boolean | undefined>) =>
     request<T>("GET", path, { query }),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, { body }),
-  patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, { body }),
+  // `query` is exposed here because some PATCH endpoints are scoped by one
+  // rather than by a path id — /notifications/read-all takes the business
+  // profile that way. `request` already supported it.
+  patch: <T>(
+    path: string,
+    body?: unknown,
+    query?: Record<string, string | number | boolean | undefined>,
+  ) => request<T>("PATCH", path, { body, query }),
   delete: <T>(path: string) => request<T>("DELETE", path),
   upload: <T>(path: string, formData: FormData) => request<T>("POST", path, { formData }),
 };
