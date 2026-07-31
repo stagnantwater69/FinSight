@@ -307,6 +307,49 @@ export function SetupProgress({ steps }: { steps: { label: string; done: boolean
   );
 }
 
+/**
+ * A short standing note attached to a form or panel — web's `Callout`.
+ *
+ * Distinct from `Alert`, which reports something that HAPPENED to a record
+ * (a duplicate, a large expense) and carries a severity bar. A callout
+ * explains the screen the owner is currently on.
+ *
+ * The warn tone deliberately uses `statusText.warning` rather than the amber
+ * `accent` ramp: tokens.ts reserves accent for the recovery meter and primary
+ * CTAs, and states that amber-as-warning is a different idea living in
+ * `status`. Same rule as web.
+ */
+const CALLOUT_TONES = {
+  info: { surface: brand[50], ink: brand[700], glyph: "ⓘ" },
+  warn: { surface: "#fffbeb", ink: statusText.warning, glyph: "⚠" },
+} as const;
+
+export function Callout({
+  tone = "info",
+  children,
+}: {
+  tone?: keyof typeof CALLOUT_TONES;
+  children: ReactNode;
+}) {
+  const spec = CALLOUT_TONES[tone];
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        gap: space.sm,
+        backgroundColor: spec.surface,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: spec.ink + "33",
+        padding: space.md,
+      }}
+    >
+      <Text style={{ color: spec.ink, fontSize: 13, fontFamily: font.sansSemibold }}>{spec.glyph}</Text>
+      <T style={{ flex: 1, fontSize: 13, lineHeight: 19, color: spec.ink }}>{children}</T>
+    </View>
+  );
+}
+
 export function ErrorNote({ children }: { children: ReactNode }) {
   return (
     <View style={styles.errorNote}>

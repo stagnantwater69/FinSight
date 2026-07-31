@@ -1,12 +1,26 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert as RNAlert,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  TextInput,
+  View,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { Alert as AlertBanner, AlertBadge, Button, Card, EmptyState, ErrorNote, Money, Screen, T } from "../components/ui";
+import { Alert as AlertBanner, AlertBadge, Button, Callout, Card, EmptyState, ErrorNote, Money, Screen, T } from "../components/ui";
 import { Field } from "./AuthScreens";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
+import { buildReceiptConfirmPayload } from "../lib/receiptConfirm";
+import {
+  buildExpenseUpdatePayload,
+  buildSalesUpdatePayload,
+  recordUpdatePath,
+} from "../lib/recordUpdate";
 import { brand, ink, paper, radius, space, TAP } from "../theme/tokens";
 import { RECORD_SOURCE_LABELS, type ExpenseCategory, type RecordItem, type RecordSource } from "../lib/types";
 
@@ -397,9 +411,37 @@ export function AddSalesScreen({ navigation }: any) {
  * possibly rotated JPEG. That is exactly why the review step below is editable
  * and nothing is saved until the owner confirms.
  */
+/**
+ * What POST /records/receipts returns.
+ *
+ * Typed rather than `any` because `any` is precisely how this screen drifted
+ * off the API contract: the confirm call below sent a field the server had
+ * stopped accepting, and nothing anywhere could tell. Naming the shape is the
+ * cheapest guard against the next round of that.
+ */
+interface ReceiptScanResult {
+  id: number;
+  extractedDate: string | null;
+  extractedVendor: string | null;
+  extractedDescription: string | null;
+  extractedAmount: number | null;
+  /**
+   * True when the server could not read the receipt's TEXT and had a vision
+   * model interpret the photograph instead. These values are a machine's
+   * reading of a picture, and the screen has to say so.
+   */
+  visionAssisted?: boolean;
+  /**
+   * The individual lines the server read. Mobile does not review these per
+   * item yet (web does) — the whole receipt is filed under one category
+   * below. Present here so the count can be mentioned honestly.
+   */
+  items?: { id: number; name: string; amount: number; extractedByVision?: boolean }[];
+}
+
 export function ScanReceiptScreen({ navigation }: any) {
   const { selected, categories, refreshCategories } = useBusinessProfiles();
-  const [scan, setScan] = useState<any | null>(null);
+  const [scan, setScan] = useState<ReceiptScanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -425,7 +467,7 @@ export function ScanReceiptScreen({ navigation }: any) {
         type: asset.mimeType ?? "image/jpeg",
       } as any);
 
-      const result = await api.upload<any>("/records/receipts", form);
+      const result = await api.upload<ReceiptScanResult>("/records/receipts", form);
       setScan(result);
       // Pre-fill from OCR — as a draft the owner checks, never as truth.
       if (result.extractedDate) setDate(String(result.extractedDate).slice(0, 10));
@@ -461,13 +503,12 @@ export function ScanReceiptScreen({ navigation }: any) {
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/records/receipts/${scan.id}/confirm`, {
-        categoryId,
-        date,
-        description: description.trim() || "Receipt purchase",
-        vendor: vendor.trim() || undefined,
-        amount: value,
-      });
+      // Shape and its rationale live in lib/receiptConfirm, where they can be
+      // tested — this call is what silently broke against the server before.
+      await api.post(
+        `/records/receipts/${scan!.id}/confirm`,
+        buildReceiptConfirmPayload({ date, description, vendor, amount: value, categoryId }),
+      );
       navigation.goBack();
     } catch (err) {
       setError(errorMessage(err));
@@ -501,10 +542,29 @@ export function ScanReceiptScreen({ navigation }: any) {
         ) : (
           <Card>
             <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Check the details</T>
-            <T variant="caption" style={{ marginBottom: space.md }}>
-              FinSight filled these in from the photo. Correct anything that's wrong — nothing is saved until you
-              confirm.
-            </T>
+            {/*
+              A receipt whose TEXT could not be read at all is a different
+              claim from one that was read imperfectly, and it gets different
+              words. Normally the server reads characters and parses them by
+              rule; here it could not, so it asked a model what the photograph
+              appeared to show. That is interpretation, not reading, and the
+              owner is entitled to know which produced the numbers they are
+              about to accept — the same warning the web confirm screen shows.
+            */}
+            {scan.visionAssisted ? (
+              <View style={{ marginBottom: space.md, marginTop: space.sm }}>
+                <Callout tone="warn">
+                  FinSight couldn't read this receipt's text. These values were interpreted from the photo
+                  by AI, so treat them as a first guess rather than something read off the paper — check
+                  every one, including the total, against the photo.
+                </Callout>
+              </View>
+            ) : (
+              <T variant="caption" style={{ marginBottom: space.md }}>
+                FinSight filled these in from the photo. Correct anything that's wrong — nothing is saved
+                until you confirm.
+              </T>
+            )}
             <CategoryPicker
               categories={categories}
               value={categoryId}
@@ -662,6 +722,149 @@ export function ImportCsvScreen({ navigation }: any) {
             </View>
           )}
           {error && !file ? <View style={{ marginTop: space.md }}><ErrorNote>{error}</ErrorNote></View> : null}
+        </Card>
+      </ScrollView>
+    </Screen>
+  );
+}
+
+// ---------------------------------------------------------------- Edit a record
+
+/**
+ * Editing and deleting a record the owner already saved.
+ *
+ * This screen was NAVIGATED TO but never existed: every card on the records
+ * list called navigate("EditRecord") while no such screen was registered, so
+ * tapping a record silently did nothing and a typo was permanent on mobile.
+ * The list's tap affordance has been pointing at this for a while.
+ *
+ * The record travels in the route params rather than being re-fetched. The
+ * list already holds the whole object, so refetching would trade an instant
+ * render for a spinner and gain nothing — web fetches only because its URL
+ * carries an id and nothing else.
+ */
+export function EditRecordScreen({ route, navigation }: any) {
+  const { selected, categories, refreshCategories } = useBusinessProfiles();
+  const record: RecordItem = route.params.record;
+  const isExpense = record.type === "expense";
+
+  const [categoryId, setCategoryId] = useState<number | null>(record.categoryId ?? null);
+  const [date, setDate] = useState(record.date.slice(0, 10));
+  const [description, setDescription] = useState(record.description);
+  const [vendor, setVendor] = useState(record.vendor ?? "");
+  const [amount, setAmount] = useState(String(record.amount));
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!selected) return null;
+
+  async function save() {
+    const value = Number(amount);
+    if (!description.trim()) return setError("Give this record a description.");
+    if (!Number.isFinite(value) || value <= 0) return setError("Enter an amount greater than zero.");
+    if (isExpense && !categoryId) return setError("Choose a category first.");
+
+    setError(null);
+    setBusy(true);
+    try {
+      const input = { date, description, amount: value, categoryId, vendor };
+      await api.patch(
+        recordUpdatePath(record.type, record.id),
+        // Expense and sales take DIFFERENT fields — a sales record has no
+        // category and no vendor server-side. Built in lib/recordUpdate so
+        // that distinction is tested rather than remembered.
+        isExpense ? buildExpenseUpdatePayload(input) : buildSalesUpdatePayload(input),
+      );
+      navigation.goBack();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Deleting asks first, through the platform's own dialog.
+   *
+   * Web offers an undo toast instead; mobile has no toast system yet, so the
+   * confirmation comes BEFORE the deletion rather than the reprieve after it.
+   * Either way the owner gets one chance to stop — what must not happen is a
+   * tap that destroys a record with neither.
+   */
+  function confirmDelete() {
+    RNAlert.alert(
+      "Delete this record?",
+      `"${record.description}" will be removed. This cannot be undone.`,
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await api.delete(recordUpdatePath(record.type, record.id));
+              navigation.goBack();
+            } catch (err) {
+              setError(errorMessage(err));
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  return (
+    <Screen>
+      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
+        <Card>
+          <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>
+            {isExpense ? "Edit expense" : "Edit sales"}
+          </T>
+          <T variant="caption" style={{ marginBottom: space.md }}>
+            {RECORD_SOURCE_LABELS[record.source as RecordSource] ?? record.source} ·{" "}
+            {record.date.slice(0, 10)}
+          </T>
+
+          {badges(record)}
+
+          {/*
+            A record that came from a receipt has a breakdown behind it that
+            this screen cannot show yet. Editing the amount is still the
+            owner's call — they may well be fixing a figure OCR got wrong —
+            but they should know the two can end up disagreeing.
+          */}
+          {record.source === "RECEIPT_SCAN" ? (
+            <View style={{ marginTop: space.md }}>
+              <Callout tone="info">
+                This came from a scanned receipt. Changing the amount here won't change the item
+                breakdown stored with it, so the two may no longer add up.
+              </Callout>
+            </View>
+          ) : null}
+
+          <View style={{ marginTop: space.md }}>
+            {isExpense ? (
+              <CategoryPicker
+                categories={categories}
+                value={categoryId}
+                onChange={setCategoryId}
+                onCreated={refreshCategories}
+                businessProfileId={selected.id}
+              />
+            ) : null}
+            <Field label="Date" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />
+            <Field label="Description" value={description} onChangeText={setDescription} />
+            {isExpense ? <Field label="Vendor" value={vendor} onChangeText={setVendor} /> : null}
+            <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+          </View>
+
+          {error ? <ErrorNote>{error}</ErrorNote> : null}
+
+          <Button title="Save changes" variant="primary" onPress={save} loading={busy} style={{ marginTop: space.md }} />
+          <Button title="Delete record" variant="ghost" onPress={confirmDelete} />
         </Card>
       </ScrollView>
     </Screen>

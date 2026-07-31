@@ -21,6 +21,7 @@ import { DashboardScreen } from "./src/screens/DashboardScreen";
 import {
   AddExpenseScreen,
   AddSalesScreen,
+  EditRecordScreen,
   FlaggedRecordsScreen,
   ImportCsvScreen,
   RecordsScreen,
@@ -65,6 +66,12 @@ function RecordsStack() {
       <Stack.Screen name="RecordsList" component={RecordsScreen} options={{ title: "Records" }} />
       <Stack.Screen name="AddExpense" component={AddExpenseScreen} options={{ title: "Add expense" }} />
       <Stack.Screen name="AddSales" component={AddSalesScreen} options={{ title: "Add sales" }} />
+      {/*
+        Tapping a record on the list navigates here. This was missing: the
+        list has always called navigate("EditRecord"), so every tap resolved
+        to nothing and a saved record could not be corrected on mobile at all.
+      */}
+      <Stack.Screen name="EditRecord" component={EditRecordScreen} options={{ title: "Edit record" }} />
       <Stack.Screen name="ScanReceipt" component={ScanReceiptScreen} options={{ title: "Scan receipt" }} />
       <Stack.Screen name="ImportCsv" component={ImportCsvScreen} options={{ title: "Import CSV" }} />
       <Stack.Screen name="FlaggedRecords" component={FlaggedRecordsScreen} options={{ title: "Review" }} />
