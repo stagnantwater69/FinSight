@@ -233,7 +233,31 @@ async function rescueWithVision(
 
   // Never throws — a failed rescue leaves the scan exactly as the
   // deterministic parse left it, which is still a correctable draft.
+  const startedAt = Date.now();
   const vision = await extractReceiptWithVision(input.buffer, input.mimetype);
+  const elapsedMs = Date.now() - startedAt;
+
+  /*
+   * Logged because this call is BILLED and fires more often than the "rescue"
+   * framing suggests.
+   *
+   * The trigger is "no items or no total", which is true of receipts that
+   * legitimately have neither — a shop that prints only a total is a normal
+   * case in this market, not a failure. On those the model is asked, finds
+   * nothing to add, and the deterministic answer stands: correct, but paid
+   * for. The corpus has one such image (syn-17-total-only) against one
+   * genuine rescue (the crumpled thermal photo), so roughly half of all
+   * firings there buy nothing.
+   *
+   * `recovered` is what separates the two. If it stays low in real use, the
+   * trigger is worth tightening; without this line there is no way to know.
+   */
+  const recovered = vision ? (deterministicItems.length === 0 ? vision.items.length : 0) : 0;
+  console.info(
+    `[vision-ocr] business=${input.businessProfileId} reached=${vision !== null} ` +
+      `recoveredItems=${recovered} hadTotal=${parsed.amount !== null} ms=${elapsedMs}`,
+  );
+
   if (!vision) {
     return { ...parsed, items: deterministicItems, visionAssisted: false, itemsFromVision: false };
   }

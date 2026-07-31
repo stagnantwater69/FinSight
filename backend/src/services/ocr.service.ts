@@ -323,7 +323,14 @@ const NOT_AN_ITEM = new RegExp(
     String.raw`\b[vy]at(able)?\b`,
     String.raw`\b(tax|zero\s*-?\s*rated|vat\s*-?\s*exempt|exempt|non\s*-?\s*taxable)\b`,
     // Discounts and adjustments.
-    String.raw`\b(discount|disc\.|less|senior|pwd|rebate|void|refund)\b`,
+    //
+    // The plurals are not decoration. A real receipt prints "Prod. Discounts:
+    // 5.00", and `\bdiscount\b` does not match "Discounts" — the trailing \b
+    // needs a non-word character and hits the "s". That single missing letter
+    // admitted a 5.00 DISCOUNT as a 5.00 PURCHASE, which is the exact failure
+    // this denylist exists to prevent: money coming off the receipt recorded
+    // as money spent. Found on real-03 in the corpus, not hypothesised.
+    String.raw`\b(discounts?|disc\.|less|senior|pwd|rebates?|voids?|refunds?)\b`,
     // Payment-method and authorisation lines. These carry the receipt's own
     // total, so admitting one doubles the receipt — "BDO ATM 371.00" was
     // extracted as a PHP 371 purchase on the Savemore receipt.

@@ -2,7 +2,7 @@
 
 Generated: 2026-07-31
 
-Corpus: **30 receipt images**. Pipeline under test: `extractText()` (tesseract.js) followed by `parseReceiptFields()` and `parseLineItems()` — the same functions the receipt-scan endpoint calls.
+Corpus: **31 receipt images**. Pipeline under test: `extractText()` (tesseract.js) followed by `parseReceiptFields()` and `parseLineItems()` — the same functions the receipt-scan endpoint calls.
 
 A field is **correct** only on an exact match (amounts to the centavo, dates to the day). Vendor matching tolerates light OCR character noise but not a wrong line.
 
@@ -10,11 +10,11 @@ A field is **correct** only on an exact match (amounts to the centavo, dates to 
 
 | Field | Correct | Wrong | Not extracted | Scored | Accuracy |
 |---|---|---|---|---|---|
-| Date | 30 | 0 | 0 | 30 | **100%** |
+| Date | 31 | 0 | 0 | 31 | **100%** |
 | Vendor | 28 | 1 | 0 | 29 | **97%** |
-| Amount | 30 | 0 | 0 | 30 | **100%** |
+| Amount | 30 | 1 | 0 | 31 | **97%** |
 
-All three fields correct on the same receipt: **29 of 30** (97%).
+All three fields correct on the same receipt: **29 of 31** (94%).
 
 `n/a` fields are excluded from the denominator — those are receipts where the information genuinely is not present in the image, so there is nothing to extract.
 
@@ -24,16 +24,18 @@ Scored per ITEM, not per receipt. An extracted item is paired with a ground-trut
 
 | Measure | Count | Of | Rate |
 |---|---|---|---|
-| Items found (price exact to the centavo) | 65 | 67 | **97%** |
+| Items found (price exact to the centavo) | 65 | 75 | **87%** |
 | ...of those, name also correct | 65 | 65 | **100%** |
 | ...of those, quantity also correct | 11 | 12 | **92%** |
-| **False positives** (extracted, not on the receipt) | 0 | — | — |
+| **False positives** (extracted, not on the receipt) | 1 | — | — |
 
 **The false-positive count is the number that matters most.** A missed item costs the owner one row of manual entry; a fabricated item silently puts money in their books that was never on the receipt. The parser is deliberately biased towards missing rather than inventing, and the recall figure above is the price of that choice.
 
+**1 fabricated line on this corpus, and that number was 0 until a third real photograph was added.** It is worth being blunt about what that means: the earlier zero was a property of a corpus that was 90% clean renders, not a property of the parser. One real receipt found two — one a genuine bug (a pluralised `Prod. Discounts:` line slipping past a denylist written as `\bdiscount\b`, now fixed and pinned by a unit test), and one an OCR artefact where two printed lines were merged into one so that an item inherited a neighbouring amount. The second is not something a parsing rule can distinguish from a real line.
+
 > **Read the headline recall figure with the corpus in mind.** Most of these images are rendered receipts, and rendered text OCRs far better than a crumpled thermal one photographed on a table. The single real multi-item PHOTO in the corpus (`real-01-ph-pos-photo`) yields **0 of its 2 items** — Tesseract returns its item block as `Spareribs Keal Res FLV` / `co alle oor 9. 00v`, in which no amount is legible, so the parser correctly extracts nothing. The other real receipt (`real-02-clean-digital`) is a clean digital render and scores 3/3. On the evidence here, item extraction from a **clean or lightly degraded** receipt is reliable; item extraction from a **crumpled thermal phone photo is not**, and the product must treat item extraction as best-effort with a manual fallback rather than as something an owner can depend on. This is the same limitation the corpus note above states for the synthetic set generally.
 
-Multi-item receipts only (15 images, 53 items): **96%** of items found.
+Multi-item receipts only (16 images, 61 items): **84%** of items found.
 
 Receipts with **no itemised lines at all** (1): 1 of 1 correctly extracted nothing, rather than inventing lines. These are the ones that must fall back to the single-total flow.
 
@@ -43,6 +45,7 @@ Receipts with **no itemised lines at all** (1): 1 of 1 correctly extracted nothi
 |---|---|---|---|---|---|
 | `real-01-ph-pos-photo` | 2 | 0 | 0 | — | 0 |
 | `real-02-clean-digital` | 3 | 3 | 3 | 3/3 | 0 |
+| `real-03-ph-sales-invoice` | 8 | 0 | 0 | — | 1 |
 | `syn-01-vendor-top-iso-date` | 2 | 2 | 2 | — | 0 |
 | `syn-02-vendor-bottom` | 2 | 2 | 2 | — | 0 |
 | `syn-03-ambiguous-slash-date` | 1 | 1 | 1 | — | 0 |
@@ -76,7 +79,7 @@ Receipts with **no itemised lines at all** (1): 1 of 1 correctly extracted nothi
 
 | Category | Images | Date | Vendor | Amount |
 |---|---|---|---|---|
-| real | 2 | 100% | 100% | 100% |
+| real | 3 | 100% | 100% | 67% |
 | synthetic | 19 | 100% | 95% | 100% |
 | degraded | 9 | 100% | 100% | 100% |
 
@@ -86,38 +89,47 @@ Receipts with **no itemised lines at all** (1): 1 of 1 correctly extracted nothi
 |---|---|---|---|---|---|
 | 1 | `real-01-ph-pos-photo` | Real phone photo, PH POS thermal receipt, on wooden table, slight crumple, store name cropped out of frame | ✅ | — | ✅ |
 | 2 | `real-02-clean-digital` | Clean digitally-generated receipt, high contrast, US layout, vendor at top, no TOTAL keyword (uses AMT/BALANCE) | ✅ | ✅ | ✅ |
-| 3 | `syn-01-vendor-top-iso-date` | Printed, vendor at top, ISO date (YYYY-MM-DD), TOTAL keyword, no thousands separator | ✅ | ✅ | ✅ |
-| 4 | `syn-02-vendor-bottom` | Printed, vendor at BOTTOM of receipt (known layout weakness), ISO date | ✅ | ❌ | ✅ |
-| 5 | `syn-03-ambiguous-slash-date` | Printed, ambiguous numeric date 03/09/2026 (both components <= 12) — read as DD/MM per PH convention | ✅ | ✅ | ✅ |
-| 6 | `syn-04-month-name-date` | Printed, month-name date (Jul 05, 2026) | ✅ | ✅ | ✅ |
-| 7 | `syn-05-thousands-separator` | Printed, amount with thousands separator (12,450.00) | ✅ | ✅ | ✅ |
-| 8 | `syn-06-subtotal-then-total` | Printed, SUBTOTAL present before TOTAL (must not pick subtotal) | ✅ | ✅ | ✅ |
-| 9 | `syn-07-no-total-keyword` | Printed, NO 'TOTAL' keyword at all (uses 'Amount Due') — tests the max-value fallback | ✅ | ✅ | ✅ |
-| 10 | `syn-08-peso-sign` | Printed, peso sign prefixes every amount | ✅ | ✅ | ✅ |
-| 11 | `syn-09-two-digit-year` | Printed, two-digit year (07/22/26) | ✅ | ✅ | ✅ |
-| 12 | `syn-10-dd-mm-yyyy` | Printed, DD/MM/YYYY date (25/07/2026) — resolvable by validity, since 25 cannot be a month | ✅ | ✅ | ✅ |
-| 13 | `syn-11-long-header` | Printed, several administrative lines before the vendor name (TIN/permit block first) | ✅ | ✅ | ✅ |
-| 14 | `syn-12-tiny-amount` | Printed, very small amount (single-digit pesos) | ✅ | ✅ | ✅ |
-| 15 | `syn-13-many-items` | Printed, 7 plain name+price item lines (a grocery run) — the common multi-item shape | ✅ | ✅ | ✅ |
-| 16 | `syn-14-qty-columns` | Printed, QTY / UNIT PRICE / AMOUNT columns per item line | ✅ | ✅ | ✅ |
-| 17 | `syn-15-vat-flags` | Printed, BIR-style VAT class flag appended to every item amount (129.00V) | ✅ | ✅ | ✅ |
-| 18 | `syn-16-multiplier-prefix` | Printed, '2 x Item' multiplier prefix on each line | ✅ | ✅ | ✅ |
-| 19 | `syn-17-total-only` | Printed, NO itemised lines at all — only a total. Tests the fallback: item extraction must return nothing rather than invent lines | ✅ | ✅ | ✅ |
-| 20 | `syn-19-savemore-payment-and-tax-lines` | Real PH grocery receipt structure: 6 items followed by a VAT summary block, a TOTAL, and a 'BDO ATM' payment line carrying the same total, plus AuthCode/Order ID | ✅ | ✅ | ✅ |
-| 21 | `syn-18-discount-line` | Printed, a DISCOUNT line sits among the items — must not be read as a purchase | ✅ | ✅ | ✅ |
-| 22 | `deg-01-blur` | Synthetic + Gaussian blur r=1.6 (simulates out-of-focus capture) | ✅ | ✅ | ✅ |
-| 23 | `deg-02-low-contrast` | Synthetic + contrast reduced to 35% (simulates faded thermal print) | ✅ | ✅ | ✅ |
-| 24 | `deg-03-rotated` | Synthetic + rotated 4 degrees (simulates handheld skew) | ✅ | ✅ | ✅ |
-| 25 | `deg-04-low-resolution` | Synthetic + downscaled to 45% then back up (simulates a distant/low-res photo) | ✅ | ✅ | ✅ |
-| 26 | `deg-05-dark` | Synthetic + brightness reduced to 45% (simulates poor lighting) | ✅ | ✅ | ✅ |
-| 27 | `deg-06-jpeg-artifacts` | Synthetic + heavy JPEG compression (quality 12) | ✅ | ✅ | ✅ |
-| 28 | `deg-07-many-items-blur` | 7-item receipt + Gaussian blur r=1.6 | ✅ | ✅ | ✅ |
-| 29 | `deg-08-many-items-low-contrast` | 7-item receipt + contrast reduced to 35% | ✅ | ✅ | ✅ |
-| 30 | `deg-09-qty-columns-rotated` | Quantity-column receipt + rotated 4 degrees | ✅ | ✅ | ✅ |
+| 3 | `real-03-ph-sales-invoice` | Real phone photo, PH thermal SALES INVOICE, 8 items with a quantity column and per-item unit prices on a wrapped second line, a discount line, and two emoji stickers overlaid on one item row by whoever shared it | ✅ | — | ❌ |
+| 4 | `syn-01-vendor-top-iso-date` | Printed, vendor at top, ISO date (YYYY-MM-DD), TOTAL keyword, no thousands separator | ✅ | ✅ | ✅ |
+| 5 | `syn-02-vendor-bottom` | Printed, vendor at BOTTOM of receipt (known layout weakness), ISO date | ✅ | ❌ | ✅ |
+| 6 | `syn-03-ambiguous-slash-date` | Printed, ambiguous numeric date 03/09/2026 (both components <= 12) — read as DD/MM per PH convention | ✅ | ✅ | ✅ |
+| 7 | `syn-04-month-name-date` | Printed, month-name date (Jul 05, 2026) | ✅ | ✅ | ✅ |
+| 8 | `syn-05-thousands-separator` | Printed, amount with thousands separator (12,450.00) | ✅ | ✅ | ✅ |
+| 9 | `syn-06-subtotal-then-total` | Printed, SUBTOTAL present before TOTAL (must not pick subtotal) | ✅ | ✅ | ✅ |
+| 10 | `syn-07-no-total-keyword` | Printed, NO 'TOTAL' keyword at all (uses 'Amount Due') — tests the max-value fallback | ✅ | ✅ | ✅ |
+| 11 | `syn-08-peso-sign` | Printed, peso sign prefixes every amount | ✅ | ✅ | ✅ |
+| 12 | `syn-09-two-digit-year` | Printed, two-digit year (07/22/26) | ✅ | ✅ | ✅ |
+| 13 | `syn-10-dd-mm-yyyy` | Printed, DD/MM/YYYY date (25/07/2026) — resolvable by validity, since 25 cannot be a month | ✅ | ✅ | ✅ |
+| 14 | `syn-11-long-header` | Printed, several administrative lines before the vendor name (TIN/permit block first) | ✅ | ✅ | ✅ |
+| 15 | `syn-12-tiny-amount` | Printed, very small amount (single-digit pesos) | ✅ | ✅ | ✅ |
+| 16 | `syn-13-many-items` | Printed, 7 plain name+price item lines (a grocery run) — the common multi-item shape | ✅ | ✅ | ✅ |
+| 17 | `syn-14-qty-columns` | Printed, QTY / UNIT PRICE / AMOUNT columns per item line | ✅ | ✅ | ✅ |
+| 18 | `syn-15-vat-flags` | Printed, BIR-style VAT class flag appended to every item amount (129.00V) | ✅ | ✅ | ✅ |
+| 19 | `syn-16-multiplier-prefix` | Printed, '2 x Item' multiplier prefix on each line | ✅ | ✅ | ✅ |
+| 20 | `syn-17-total-only` | Printed, NO itemised lines at all — only a total. Tests the fallback: item extraction must return nothing rather than invent lines | ✅ | ✅ | ✅ |
+| 21 | `syn-19-savemore-payment-and-tax-lines` | Real PH grocery receipt structure: 6 items followed by a VAT summary block, a TOTAL, and a 'BDO ATM' payment line carrying the same total, plus AuthCode/Order ID | ✅ | ✅ | ✅ |
+| 22 | `syn-18-discount-line` | Printed, a DISCOUNT line sits among the items — must not be read as a purchase | ✅ | ✅ | ✅ |
+| 23 | `deg-01-blur` | Synthetic + Gaussian blur r=1.6 (simulates out-of-focus capture) | ✅ | ✅ | ✅ |
+| 24 | `deg-02-low-contrast` | Synthetic + contrast reduced to 35% (simulates faded thermal print) | ✅ | ✅ | ✅ |
+| 25 | `deg-03-rotated` | Synthetic + rotated 4 degrees (simulates handheld skew) | ✅ | ✅ | ✅ |
+| 26 | `deg-04-low-resolution` | Synthetic + downscaled to 45% then back up (simulates a distant/low-res photo) | ✅ | ✅ | ✅ |
+| 27 | `deg-05-dark` | Synthetic + brightness reduced to 45% (simulates poor lighting) | ✅ | ✅ | ✅ |
+| 28 | `deg-06-jpeg-artifacts` | Synthetic + heavy JPEG compression (quality 12) | ✅ | ✅ | ✅ |
+| 29 | `deg-07-many-items-blur` | 7-item receipt + Gaussian blur r=1.6 | ✅ | ✅ | ✅ |
+| 30 | `deg-08-many-items-low-contrast` | 7-item receipt + contrast reduced to 35% | ✅ | ✅ | ✅ |
+| 31 | `deg-09-qty-columns-rotated` | Quantity-column receipt + rotated 4 degrees | ✅ | ✅ | ✅ |
 
 ✅ correct · ❌ wrong value returned · ⬜ nothing extracted · — not applicable (not present in image)
 
 ## Every failure, with what was returned instead
+
+### `real-03-ph-sales-invoice`
+
+*Real phone photo, PH thermal SALES INVOICE, 8 items with a quantity column and per-item unit prices on a wrapped second line, a discount line, and two emoji stickers overlaid on one item row by whoever shared it*
+
+| Field | Expected | Got | |
+|---|---|---|---|
+| amount | `2180` | `2185` | ❌ |
 
 ### `syn-02-vendor-bottom`
 
@@ -131,11 +143,11 @@ Receipts with **no itemised lines at all** (1): 1 of 1 correctly extracted nothi
 
 | Category | Count | What it tests |
 |---|---|---|
-| real | 2 | Genuine receipt images, one a phone photo of a Philippine thermal POS receipt on a table |
-| synthetic | 12 | Parser robustness across layouts, date formats, amount formats, currency symbols, header styles |
-| degraded | 6 | Synthetic receipts degraded with blur, low contrast, rotation, downscaling, darkness and JPEG artifacts |
+| real | 3 | Genuine receipt photographs, including two Philippine thermal receipts shot on a phone |
+| synthetic | 19 | Parser robustness across layouts, date formats, amount formats, currency symbols, header styles |
+| degraded | 9 | Synthetic receipts degraded with blur, low contrast, rotation, downscaling, darkness and JPEG artifacts |
 
-**This corpus over-states robustness to real-world photo quality.** Only 2 of the 20 images are real photographs. The 6 degraded images are *rendered* receipts with uniform, synthetic degradation applied programmatically — real phone captures have uneven lighting, curled thermal paper, motion blur, shadows and fold creases that are not reproduced here. Tesseract handled every degraded image perfectly, which is a claim about clean-render-plus-filter, **not** about a shopkeeper photographing a crumpled receipt in a dim store.
+**This corpus over-states robustness to real-world photo quality.** Only 3 of the 31 images are real photographs. The 9 degraded images are *rendered* receipts with uniform, synthetic degradation applied programmatically — real phone captures have uneven lighting, curled thermal paper, motion blur, shadows and fold creases that are not reproduced here. Tesseract handled every degraded image perfectly, which is a claim about clean-render-plus-filter, **not** about a shopkeeper photographing a crumpled receipt in a dim store.
 
 **No handwritten receipts are included.** None were available. Handwritten *resibo* are common in sari-sari stores, and tesseract's default model is trained on printed text — accuracy on handwriting should be assumed poor until measured. This is an untested gap, not a passing case.
 

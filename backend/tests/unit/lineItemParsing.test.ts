@@ -410,3 +410,34 @@ describe("receipts with nothing itemisable", () => {
     expect(parseLineItems("")).toEqual([]);
   });
 });
+
+/**
+ * REGRESSION, from a real receipt (real-03 in the corpus).
+ *
+ * The denylist read `\bdiscount\b`, which does not match "Discounts" — the
+ * trailing word boundary needs a non-word character and meets the "s". A real
+ * PH sales invoice printing "Prod. Discounts: 5.00" therefore had its DISCOUNT
+ * recorded as a 5.00 PURCHASE: money coming off the receipt booked as money
+ * spent, which is the precise failure the denylist exists to prevent.
+ */
+describe("plural summary lines are not purchases", () => {
+  it("rejects a pluralised discount line", () => {
+    const items = parseLineItems(
+      ["MY STORE", "Rice 25kg   1050.00", "Prod. Discounts: 5.00", "TOTAL 1045.00"].join("\n"),
+    );
+    expect(items.map((i) => i.name)).not.toContain("Prod. Discounts:");
+    expect(items.map((i) => i.name)).toEqual(["Rice 25kg"]);
+  });
+
+  it("still rejects the singular it always did", () => {
+    const items = parseLineItems(["MY STORE", "Rice 25kg 1050.00", "Discount 5.00"].join("\n"));
+    expect(items).toHaveLength(1);
+  });
+
+  it("rejects pluralised refunds, rebates and voids", () => {
+    for (const line of ["Refunds 5.00", "Rebates 5.00", "Voids 5.00"]) {
+      const items = parseLineItems(["MY STORE", "Rice 25kg 1050.00", line].join("\n"));
+      expect(items, line).toHaveLength(1);
+    }
+  });
+});

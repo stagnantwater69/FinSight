@@ -6,6 +6,13 @@ import { useExpenseCategories } from "../context/ExpenseCategoryContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import type { CategorySuggestion } from "../lib/types";
+/*
+ * The payload builder and the plan type both come from lib/receiptConfirm, so
+ * this screen and the request it sends cannot disagree about either. "shrink"
+ * is the escape hatch for the case where OCR misread the TOTAL rather than
+ * missing an item — there the items are the trustworthy figure.
+ */
+import { buildReceiptConfirmPayload, type GapPlan } from "../lib/receiptConfirm";
 import { Callout, Card, PageHead, FormPage } from "../components/ui";
 import { Button } from "../components/Button";
 import { Field, FileInput, FormError, MoneyInput, TextInput } from "../components/Field";
@@ -71,16 +78,6 @@ interface AddedItem {
   amount: number | "";
   categoryId: number | "";
 }
-
-/**
- * How the owner wants to account for a difference between the items and the
- * receipt total. `null` means they haven't said yet.
- *
- * "shrink" is the pre-existing escape hatch, kept for the genuinely different
- * case where OCR misread the TOTAL rather than missing an item — there the
- * items are the trustworthy figure and the total should follow them.
- */
-type GapPlan = "proportional" | "category" | "shrink" | null;
 
 /**
  * One choice in the "what is this difference" question.
@@ -451,39 +448,32 @@ export function ScanReceipt() {
     setConfirming(true);
     setConfirmError(null);
     try {
-      const records = await api.post(`/records/receipts/${scan.id}/confirm`, {
-        date,
-        description,
-        vendor: vendor || undefined,
-        amount: isItemised ? confirmedAmountCentavos / 100 : amount,
-        // Two shapes, one endpoint. The itemised path sends the owner's
-        // per-item choices and lets the SERVER group them, so the amounts it
-        // writes and the item -> record links it writes come from the same
-        // grouping. The manual path still sends splits; a single category is
-        // just a split of one.
-        ...(isItemised
-          ? {
-              itemAssignments: items.map((i) => ({ itemId: i.id, categoryId: itemCategories[i.id] })),
-              ...(addedItems.length > 0
-                ? {
-                    additionalItems: addedItems.map((a) => ({
-                      name: a.name.trim(),
-                      amount: Number(a.amount),
-                      categoryId: a.categoryId,
-                    })),
-                  }
-                : {}),
-              // "shrink" moves the total to the items, so by the time the
-              // request lands there is nothing left to reconcile.
-              reconciliation:
-                !gapNeedsAPlan || gapPlan === "shrink"
-                  ? { mode: "none" }
-                  : gapPlan === "category"
-                    ? { mode: "category", categoryId: gapCategoryId }
-                    : { mode: "proportional" },
-            }
-          : { splits: splits.map((s) => ({ categoryId: s.categoryId, amount: isSplit ? s.amount : amount })) }),
-      });
+      // Two shapes, one endpoint — both built in lib/receiptConfirm, where
+      // they are tested against the server's real schema. This request is the
+      // one that silently broke against it on mobile.
+      const records = await api.post(
+        `/records/receipts/${scan.id}/confirm`,
+        buildReceiptConfirmPayload({
+          date,
+          description,
+          vendor,
+          amount: Number(amount),
+          isItemised,
+          itemAssignments: items.map((i) => ({ itemId: i.id, categoryId: Number(itemCategories[i.id]) })),
+          additionalItems: addedItems.map((a) => ({
+            name: a.name.trim(),
+            amount: Number(a.amount),
+            categoryId: Number(a.categoryId),
+          })),
+          itemsTotal: itemsTotalCentavos / 100,
+          gapPlan,
+          gapCategoryId: gapCategoryId === "" ? null : gapCategoryId,
+          splits: splits.map((s) => ({
+            categoryId: Number(s.categoryId),
+            amount: Number(isSplit ? s.amount : amount),
+          })),
+        }),
+      );
       const saved = (records.data as unknown[]).length;
       toast(saved === 1 ? "Expense saved from receipt" : `${saved} expenses saved from receipt`);
       navigate("/records");

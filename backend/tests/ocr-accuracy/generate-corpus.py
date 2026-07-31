@@ -56,6 +56,33 @@ REAL_RECEIPTS = [
         "vendor_note": "Store name is not present in the image (top cropped). No extractable ground truth.",
     },
     {
+        "id": "real-03-ph-sales-invoice",
+        "source": "/home/ken/Downloads/q.jpeg",
+        "conditions": "Real phone photo, PH thermal SALES INVOICE, 8 items with a quantity column and per-item unit prices wrapped onto a second line, a discount line, and two emoji stickers overlaid on one item row by whoever shared it",
+        "known_ambiguous": True,
+        # "DATE: 6/4/2026" — both components <= 12, so nothing in the image can
+        # resolve it. Ground truth follows the same convention as syn-03: the
+        # DD/MM reading, which is the Philippine one and this app's default.
+        #
+        # The store's own name is cropped off the top of the photo, so the
+        # first legible line is a partial "... Merchandising". No extractable
+        # vendor, the same situation as real-01.
+        "expected": {
+            "date": "2026-04-06", "vendor": None, "amount": 2180.00,
+            "items": [
+                {"name": "338 CANISTER STUFF EM ALL 1.6L LARGE", "quantity": 2, "amount": 110.00},
+                {"name": "0921 45CM BASIN 555 MAKAPAL", "quantity": 1, "amount": 225.00},
+                {"name": "348 TRAY (HI-TOP)", "quantity": 1, "amount": 65.00},
+                {"name": "804 STOCK BOX W/ HANDLE 10L", "quantity": 8, "amount": 1480.00},
+                {"name": "2010 XL WATER DIPPER MOCHA", "quantity": 1, "amount": 40.00},
+                {"name": "8742 PEELER", "quantity": 1, "amount": 55.00},
+                {"name": "1133 14INCH FOOD TONG (245)", "quantity": 1, "amount": 60.00},
+                {"name": "HX116/CFZ-15 CHOPPING BOARD", "quantity": 1, "amount": 145.00},
+            ],
+        },
+        "vendor_note": "Store name is cropped out of the top of the photo. No extractable ground truth.",
+    },
+    {
         "id": "real-02-clean-digital",
         "source": "/home/ken/Downloads/ItemizedBarcode.jpg",
         "conditions": "Clean digitally-generated receipt, high contrast, US layout, vendor at top, no TOTAL keyword (uses AMT/BALANCE)",

@@ -105,6 +105,84 @@
     "rawText": "AROMA CAFE\n1211 Green Street\nNew York, NY 10005\n\n12/27/2019 08:26 PM\nTAB 8 HOST MAGGIE\nAMEX #########19883\nQTY DESC AMT\n1 Americano $3.19\n1 Almond Scone $1.99\n1 160z Bottle Water $2.99\n\nAMT $8.70\n\nSUBTOTAL $8.17\n\nTAX $0.53\n\nBALANCE $8.70\n"
   },
   {
+    "id": "real-03-ph-sales-invoice",
+    "kind": "real",
+    "conditions": "Real phone photo, PH thermal SALES INVOICE, 8 items with a quantity column and per-item unit prices on a wrapped second line, a discount line, and two emoji stickers overlaid on one item row by whoever shared it",
+    "expected": {
+      "date": "2026-04-06",
+      "vendor": null,
+      "amount": 2180,
+      "items": [
+        {
+          "name": "338 CANISTER STUFF EM ALL 1.6L LARGE",
+          "quantity": 2,
+          "amount": 110
+        },
+        {
+          "name": "0921 45CM BASIN 555 MAKAPAL",
+          "quantity": 1,
+          "amount": 225
+        },
+        {
+          "name": "348 TRAY (HI-TOP)",
+          "quantity": 1,
+          "amount": 65
+        },
+        {
+          "name": "804 STOCK BOX W/ HANDLE 10L",
+          "quantity": 8,
+          "amount": 1480
+        },
+        {
+          "name": "2010 XL WATER DIPPER MOCHA",
+          "quantity": 1,
+          "amount": 40
+        },
+        {
+          "name": "8742 PEELER",
+          "quantity": 1,
+          "amount": 55
+        },
+        {
+          "name": "1133 14INCH FOOD TONG (245)",
+          "quantity": 1,
+          "amount": 60
+        },
+        {
+          "name": "HX116/CFZ-15 CHOPPING BOARD",
+          "quantity": 1,
+          "amount": 145
+        }
+      ]
+    },
+    "actual": {
+      "date": "2026-04-06",
+      "vendor": "iagohoy, Bf 2, tort",
+      "amount": 2185,
+      "items": [
+        {
+          "name": "B742 PEELER BP55.00ea",
+          "quantity": 1,
+          "amount": 5
+        }
+      ]
+    },
+    "verdict": {
+      "date": "correct",
+      "vendor": "n/a",
+      "amount": "wrong"
+    },
+    "itemScore": {
+      "expected": 8,
+      "matched": 0,
+      "nameCorrect": 0,
+      "quantityCorrect": 0,
+      "quantityScored": 0,
+      "falsePositives": 1
+    },
+    "rawText": "iagohoy, Bf 2, tort\nny\nTNs 279-400: 700-0000\nine 20061918480698497\npag, Serial Not KINSPCIZI3F0102000065\n38cua Ridg. National Wighway Poblacion\nBataraza Palavan 5306\nSALES INVOICE\nlH 3\n4: 9503/0463755  TRANN: 3/0463755\nCASHIER: 14-005 HARYIDH: 14-\nAW _ROYO Li\nDATE: 6/4/2026 TINE: 4:11:36 PH\nQTY DESCRIPTION mont 8\n2 338 CANISTER STUFF EX 110.00 EB\nALL 1.6L LARGE BP55,00ea 5\n1 0921 45CH BASIN 555 25.00 88\nNAKAPAL BP225.00ea 5\n1 348 TRAY (KI-TOP) £5.00 |\n765.0082 &\ng 804 STOCK BOX W/ HANDLE 1,480.00~ \"5\n10L 8P185.00ea P\n1 2010 XL WATER DIPPER 0.00 ©\nKOCHA BP40.00e3 |\n1 B742 PEELER BP55.00ea 5.00\n1 1133 14INCH FOOD TONG 80.00 ©\n(245) 8P60. 0023 |\n1 HX118/CFZ-15 CHOPPING uso 8\nk BOARD BP145,00e2 Ts\ni (150.00 - 3.33%) |\niii oooccmcoomzessesmemssssszx\nTotal gross value: 2,185.00 2\nProd. Discounts: 5.00\nAdjust 20 i\nTotal TY:\nANAT DE: LRN\nCash: 2%\nChange: or Ld\n"
+  },
+  {
     "id": "syn-01-vendor-top-iso-date",
     "kind": "synthetic",
     "conditions": "Printed, vendor at top, ISO date (YYYY-MM-DD), TOTAL keyword, no thousands separator",

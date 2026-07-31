@@ -177,6 +177,17 @@ function tally(results: Result[], field: "date" | "vendor" | "amount") {
   lines.push("");
   lines.push("**The false-positive count is the number that matters most.** A missed item costs the owner one row of manual entry; a fabricated item silently puts money in their books that was never on the receipt. The parser is deliberately biased towards missing rather than inventing, and the recall figure above is the price of that choice.");
   lines.push("");
+  if (it.falsePositives === 0) {
+    lines.push("No fabricated lines on this corpus.");
+  } else {
+    lines.push(
+      `**${it.falsePositives} fabricated line${it.falsePositives === 1 ? "" : "s"} on this corpus, and that number was 0 until a third real photograph was added.** ` +
+        "It is worth being blunt about what that means: the earlier zero was a property of a corpus that was 90% clean renders, not a property of the parser. " +
+        "One real receipt found two — one a genuine bug (a pluralised `Prod. Discounts:` line slipping past a denylist written as `\\bdiscount\\b`, now fixed and pinned by a unit test), " +
+        "and one an OCR artefact where two printed lines were merged into one so that an item inherited a neighbouring amount. The second is not something a parsing rule can distinguish from a real line.",
+    );
+  }
+  lines.push("");
   lines.push("> **Read the headline recall figure with the corpus in mind.** Most of these images are rendered receipts, and rendered text OCRs far better than a crumpled thermal one photographed on a table. The single real multi-item PHOTO in the corpus (`real-01-ph-pos-photo`) yields **0 of its 2 items** — Tesseract returns its item block as `Spareribs Keal Res FLV` / `co alle oor 9. 00v`, in which no amount is legible, so the parser correctly extracts nothing. The other real receipt (`real-02-clean-digital`) is a clean digital render and scores 3/3. On the evidence here, item extraction from a **clean or lightly degraded** receipt is reliable; item extraction from a **crumpled thermal phone photo is not**, and the product must treat item extraction as best-effort with a manual fallback rather than as something an owner can depend on. This is the same limitation the corpus note above states for the synthetic set generally.");
   lines.push("");
 
@@ -258,11 +269,14 @@ function tally(results: Result[], field: "date" | "vendor" | "amount") {
   lines.push("");
   lines.push("| Category | Count | What it tests |");
   lines.push("|---|---|---|");
-  lines.push("| real | 2 | Genuine receipt images, one a phone photo of a Philippine thermal POS receipt on a table |");
-  lines.push("| synthetic | 12 | Parser robustness across layouts, date formats, amount formats, currency symbols, header styles |");
-  lines.push("| degraded | 6 | Synthetic receipts degraded with blur, low contrast, rotation, downscaling, darkness and JPEG artifacts |");
+  // Counted rather than hardcoded — the table said "2 real" for some time
+  // after a third real photograph was added.
+  const countOf = (kind: string) => results.filter((r) => r.kind === kind).length;
+  lines.push(`| real | ${countOf("real")} | Genuine receipt photographs, including two Philippine thermal receipts shot on a phone |`);
+  lines.push(`| synthetic | ${countOf("synthetic")} | Parser robustness across layouts, date formats, amount formats, currency symbols, header styles |`);
+  lines.push(`| degraded | ${countOf("degraded")} | Synthetic receipts degraded with blur, low contrast, rotation, downscaling, darkness and JPEG artifacts |`);
   lines.push("");
-  lines.push("**This corpus over-states robustness to real-world photo quality.** Only 2 of the 20 images are real photographs. The 6 degraded images are *rendered* receipts with uniform, synthetic degradation applied programmatically — real phone captures have uneven lighting, curled thermal paper, motion blur, shadows and fold creases that are not reproduced here. Tesseract handled every degraded image perfectly, which is a claim about clean-render-plus-filter, **not** about a shopkeeper photographing a crumpled receipt in a dim store.");
+  lines.push(`**This corpus over-states robustness to real-world photo quality.** Only ${countOf("real")} of the ${results.length} images are real photographs.` + ` The ${countOf("degraded")} degraded images are *rendered* receipts with uniform, synthetic degradation applied programmatically — real phone captures have uneven lighting, curled thermal paper, motion blur, shadows and fold creases that are not reproduced here. Tesseract handled every degraded image perfectly, which is a claim about clean-render-plus-filter, **not** about a shopkeeper photographing a crumpled receipt in a dim store.`);
   lines.push("");
   lines.push("**No handwritten receipts are included.** None were available. Handwritten *resibo* are common in sari-sari stores, and tesseract's default model is trained on printed text — accuracy on handwriting should be assumed poor until measured. This is an untested gap, not a passing case.");
   lines.push("");

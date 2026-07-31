@@ -7,6 +7,8 @@ import {
   buildItemisedConfirmPayload,
   buildReceiptConfirmPayload,
 } from "../../../mobile/src/lib/receiptConfirm";
+// Web's real builder too, for the same reason — not a copy of it.
+import { buildReceiptConfirmPayload as buildWebConfirmPayload } from "../../../web/src/lib/receiptConfirm";
 
 /**
  * Client/server contract tests.
@@ -156,77 +158,94 @@ describe("mobile -> POST /records/receipts/:id/confirm (itemised)", () => {
 /**
  * web -> the same endpoint, in its two shapes.
  *
- * HONEST LIMITATION, so nobody reads more into these than they carry: unlike
- * the mobile cases above, these are hand-written MIRRORS of what
- * web/src/pages/ScanReceipt.tsx builds inline in `handleConfirm`, not the
- * web builder itself. They therefore catch the server changing under web —
- * which is the direction that broke mobile — but they cannot catch web
- * drifting away from them.
- *
- * Closing that gap properly means extracting web's payload into a pure
- * function the way mobile's now is. That was deliberately NOT done in the same
- * pass: `web` has no test script at all, so refactoring a working save path
- * there would be done with no safety net. Worth doing, with tests first.
+ * These now import web's REAL builder, the same way the mobile cases above
+ * do. They previously restated web's payload by hand, which could only ever
+ * catch the server changing under web and never web drifting away from the
+ * fixture. Extracting that builder needed tests on the web side first, since
+ * it is a working save path; those exist now
+ * (web/src/lib/receiptConfirm.test.ts).
  */
 describe("web -> POST /records/receipts/:id/confirm", () => {
-  const common = { date: "2026-07-31", description: "Grocery run", vendor: "Savemore", amount: 1400 };
+  const common = {
+    date: "2026-07-31",
+    description: "Grocery run",
+    vendor: "Savemore",
+    amount: 1400,
+    additionalItems: [],
+    gapCategoryId: null,
+    gapPlan: null,
+  } as const;
+
+  const manual = {
+    ...common,
+    isItemised: false,
+    itemAssignments: [],
+    itemsTotal: 0,
+    splits: [{ categoryId: 7, amount: 1400 }],
+  };
+
+  const itemised = {
+    ...common,
+    isItemised: true,
+    itemsTotal: 1400,
+    itemAssignments: [
+      { itemId: 1, categoryId: 7 },
+      { itemId: 2, categoryId: 8 },
+    ],
+    splits: [],
+  };
+
+  it("accepts the manual split shape", () => {
+    const result = confirmSchema.safeParse(buildWebConfirmPayload(manual));
+    expect(result.success, JSON.stringify(result.error?.issues)).toBe(true);
+  });
+
+  it("accepts a hand-made multi-category split", () => {
+    const result = confirmSchema.safeParse(
+      buildWebConfirmPayload({
+        ...manual,
+        splits: [
+          { categoryId: 7, amount: 1000 },
+          { categoryId: 8, amount: 400 },
+        ],
+      }),
+    );
+    expect(result.success, JSON.stringify(result.error?.issues)).toBe(true);
+  });
 
   it("accepts the itemised shape", () => {
-    const result = confirmSchema.safeParse({
-      ...common,
-      itemAssignments: [
-        { itemId: 1, categoryId: 7 },
-        { itemId: 2, categoryId: 8 },
-      ],
-      reconciliation: { mode: "proportional" },
-    });
+    const result = confirmSchema.safeParse(buildWebConfirmPayload(itemised));
     expect(result.success, JSON.stringify(result.error?.issues)).toBe(true);
   });
 
   it("accepts the itemised shape with owner-added lines", () => {
-    const result = confirmSchema.safeParse({
-      ...common,
-      itemAssignments: [{ itemId: 1, categoryId: 7 }],
-      additionalItems: [{ name: "Bagged ice", amount: 40, categoryId: 7 }],
-      reconciliation: { mode: "none" },
-    });
+    const result = confirmSchema.safeParse(
+      buildWebConfirmPayload({
+        ...itemised,
+        itemsTotal: 1440,
+        amount: 1440,
+        additionalItems: [{ name: "Bagged ice", amount: 40, categoryId: 7 }],
+      }),
+    );
     expect(result.success, JSON.stringify(result.error?.issues)).toBe(true);
   });
 
-  it("accepts every reconciliation mode the screen can send", () => {
-    for (const reconciliation of [
-      { mode: "none" },
-      { mode: "proportional" },
-      { mode: "category", categoryId: 9 },
-    ]) {
-      const result = confirmSchema.safeParse({
-        ...common,
-        itemAssignments: [{ itemId: 1, categoryId: 7 }],
-        reconciliation,
-      });
-      expect(result.success, JSON.stringify(reconciliation)).toBe(true);
+  it("accepts every reconciliation plan the screen can produce", () => {
+    const withGap = { ...itemised, amount: 1568 };
+    const plans = [
+      { ...withGap, gapPlan: "proportional" as const },
+      { ...withGap, gapPlan: "category" as const, gapCategoryId: 9 },
+      { ...withGap, gapPlan: "shrink" as const },
+    ];
+    for (const input of plans) {
+      const result = confirmSchema.safeParse(buildWebConfirmPayload(input));
+      expect(result.success, `${input.gapPlan}: ${JSON.stringify(result.error?.issues)}`).toBe(true);
     }
   });
 
-  it("accepts the manual multi-category split shape", () => {
-    const result = confirmSchema.safeParse({
-      ...common,
-      splits: [
-        { categoryId: 7, amount: 1000 },
-        { categoryId: 8, amount: 400 },
-      ],
-    });
-    expect(result.success, JSON.stringify(result.error?.issues)).toBe(true);
-  });
-
-  /** "category" mode without its category must not be constructible. */
-  it("refuses a category reconciliation with no category", () => {
-    const result = confirmSchema.safeParse({
-      ...common,
-      itemAssignments: [{ itemId: 1, categoryId: 7 }],
-      reconciliation: { mode: "category" },
-    });
-    expect(result.success).toBe(false);
+  it("never sends both shapes at once", () => {
+    expect(confirmSchema.parse(buildWebConfirmPayload(itemised)).splits).toBeUndefined();
+    expect(confirmSchema.parse(buildWebConfirmPayload(manual)).itemAssignments).toBeUndefined();
   });
 });
 

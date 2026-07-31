@@ -52,6 +52,61 @@
     }
   },
   {
+    "id": "real-03-ph-sales-invoice",
+    "file": "real-03-ph-sales-invoice.jpeg",
+    "kind": "real",
+    "conditions": "Real phone photo, PH thermal SALES INVOICE, 8 items with a quantity column and per-item unit prices on a wrapped second line, a discount line, and two emoji stickers overlaid on one item row by whoever shared it",
+    "known_ambiguous": true,
+    "expected": {
+      "date": "2026-04-06",
+      "vendor": null,
+      "amount": 2180.0,
+      "items": [
+        {
+          "name": "338 CANISTER STUFF EM ALL 1.6L LARGE",
+          "quantity": 2,
+          "amount": 110.0
+        },
+        {
+          "name": "0921 45CM BASIN 555 MAKAPAL",
+          "quantity": 1,
+          "amount": 225.0
+        },
+        {
+          "name": "348 TRAY (HI-TOP)",
+          "quantity": 1,
+          "amount": 65.0
+        },
+        {
+          "name": "804 STOCK BOX W/ HANDLE 10L",
+          "quantity": 8,
+          "amount": 1480.0
+        },
+        {
+          "name": "2010 XL WATER DIPPER MOCHA",
+          "quantity": 1,
+          "amount": 40.0
+        },
+        {
+          "name": "8742 PEELER",
+          "quantity": 1,
+          "amount": 55.0
+        },
+        {
+          "name": "1133 14INCH FOOD TONG (245)",
+          "quantity": 1,
+          "amount": 60.0
+        },
+        {
+          "name": "HX116/CFZ-15 CHOPPING BOARD",
+          "quantity": 1,
+          "amount": 145.0
+        }
+      ]
+    },
+    "vendor_note": "Store name is cropped out of the top of the photo. No extractable ground truth."
+  },
+  {
     "id": "syn-01-vendor-top-iso-date",
     "file": "syn-01-vendor-top-iso-date.png",
     "kind": "synthetic",
