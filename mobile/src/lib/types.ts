@@ -14,6 +14,8 @@ export interface Profile {
   email: string;
   phoneNumber: string | null;
   status: string;
+  /** A public URL for the owner's photo, or null if they haven't set one. */
+  avatarUrl: string | null;
   createdAt: string;
 }
 
@@ -52,6 +54,8 @@ export interface BusinessProfile {
   expectedMonthlyExpenses: number;
   operatingDays: number;
   largeExpenseThresholdPercent: number;
+  /** A public URL for the business logo, or null if none was uploaded. */
+  logoUrl: string | null;
   createdAt: string;
   /** Null when active. Archiving hides a business without deleting anything. */
   archivedAt: string | null;

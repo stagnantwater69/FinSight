@@ -22,6 +22,7 @@ import {
   type ReconciliationPlan,
 } from "../lib/receiptConfirm";
 import { rowsToApplySuggestionTo, suggestedNewCategory } from "../lib/categorySuggestion";
+import { useDebounced } from "../lib/useDebounced";
 import { RecordOriginPanel, type RecordOrigin } from "../components/RecordOrigin";
 import {
   buildExpenseUpdatePayload,
@@ -68,6 +69,36 @@ function RecordCard({ r, categoryName, onPress }: { r: RecordItem; categoryName:
   );
 }
 
+/** A filter value that can be turned on and off again. */
+function FilterChip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      style={{
+        minHeight: TAP - 10,
+        justifyContent: "center",
+        paddingHorizontal: space.md,
+        borderRadius: radius.full,
+        borderWidth: 1,
+        borderColor: selected ? brand[600] : ink[200],
+        backgroundColor: selected ? brand[600] : paper.DEFAULT,
+      }}
+    >
+      <T style={{ fontSize: 12, color: selected ? "#fff" : ink[700] }}>{label}</T>
+    </Pressable>
+  );
+}
+
 // ---------------------------------------------------------------- List
 
 export function RecordsScreen({ navigation }: any) {
@@ -75,9 +106,21 @@ export function RecordsScreen({ navigation }: any) {
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [keyword, setKeyword] = useState("");
   const [type, setType] = useState<"all" | "expense" | "sales">("all");
+  // The endpoint has supported these three since before mobile had any UI for
+  // them, so a phone could only ever filter by type and keyword.
+  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [source, setSource] = useState<RecordSource | null>(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Typing "groceries" used to fire nine requests, each racing the last.
+  const searchTerm = useDebounced(keyword);
+  /** Only send a date once it is actually a date, or the server answers 400. */
+  const isCompleteDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
 
   const load = useCallback(
     async (isRefresh = false) => {
@@ -89,7 +132,11 @@ export function RecordsScreen({ navigation }: any) {
           await api.get<RecordItem[]>("/records/search", {
             businessProfileId: selected.id,
             type,
-            keyword: keyword || undefined,
+            keyword: searchTerm || undefined,
+            categoryId: categoryId ?? undefined,
+            source: source ?? undefined,
+            dateFrom: isCompleteDate(dateFrom) ? dateFrom : undefined,
+            dateTo: isCompleteDate(dateTo) ? dateTo : undefined,
           })
         );
       } catch (err) {
@@ -99,8 +146,21 @@ export function RecordsScreen({ navigation }: any) {
         setRefreshing(false);
       }
     },
-    [selected?.id, type, keyword]
+    [selected?.id, type, searchTerm, categoryId, source, dateFrom, dateTo]
   );
+
+  const activeFilters =
+    (categoryId !== null ? 1 : 0) +
+    (source !== null ? 1 : 0) +
+    (isCompleteDate(dateFrom) ? 1 : 0) +
+    (isCompleteDate(dateTo) ? 1 : 0);
+
+  function clearFilters() {
+    setCategoryId(null);
+    setSource(null);
+    setDateFrom("");
+    setDateTo("");
+  }
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -168,6 +228,70 @@ export function RecordsScreen({ navigation }: any) {
               </Pressable>
             ))}
           </View>
+
+          {/*
+            Kept behind a toggle. Four more controls open by default would
+            bury the list they filter on a phone screen; the count keeps an
+            active filter from being invisible while collapsed.
+          */}
+          <Pressable
+            onPress={() => setShowFilters((v) => !v)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showFilters }}
+            style={{ paddingVertical: space.sm }}
+          >
+            <T variant="caption" style={{ color: brand[700] }}>
+              {showFilters ? "Hide filters" : "More filters"}
+              {activeFilters > 0 ? ` (${activeFilters} active)` : ""}
+            </T>
+          </Pressable>
+
+          {showFilters ? (
+            <View style={{ gap: space.sm }}>
+              <View>
+                <T variant="caption" style={{ marginBottom: 4 }}>Category</T>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
+                  <FilterChip label="Any" selected={categoryId === null} onPress={() => setCategoryId(null)} />
+                  {categories.map((c) => (
+                    <FilterChip
+                      key={c.id}
+                      label={c.name}
+                      selected={categoryId === c.id}
+                      onPress={() => setCategoryId(categoryId === c.id ? null : c.id)}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View>
+                <T variant="caption" style={{ marginBottom: 4 }}>How it was added</T>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
+                  <FilterChip label="Any" selected={source === null} onPress={() => setSource(null)} />
+                  {(Object.keys(RECORD_SOURCE_LABELS) as RecordSource[]).map((s) => (
+                    <FilterChip
+                      key={s}
+                      label={RECORD_SOURCE_LABELS[s]}
+                      selected={source === s}
+                      onPress={() => setSource(source === s ? null : s)}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View style={{ flexDirection: "row", gap: space.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Field label="From" value={dateFrom} onChangeText={setDateFrom} placeholder="YYYY-MM-DD" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Field label="To" value={dateTo} onChangeText={setDateTo} placeholder="YYYY-MM-DD" />
+                </View>
+              </View>
+
+              {activeFilters > 0 ? (
+                <Button title="Clear filters" variant="ghost" onPress={clearFilters} />
+              ) : null}
+            </View>
+          ) : null}
         </Card>
 
         {error ? <ErrorNote>{error}</ErrorNote> : null}

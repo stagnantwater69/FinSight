@@ -3,11 +3,12 @@ import { Alert as RNAlert, Pressable, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Button, Card, EmptyState, ErrorNote, Money, Screen, T } from "../components/ui";
 import { Field } from "./AuthScreens";
+import { PhotoUpload } from "../components/PhotoUpload";
 import { useAuth } from "../context/AuthContext";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { errorMessage } from "../lib/api";
 import { brand, ink, radius, space, TAP } from "../theme/tokens";
-import type { BusinessProfile } from "../lib/types";
+import type { BusinessProfile, Profile } from "../lib/types";
 
 // ---------------------------------------------------------------- List / switcher
 
@@ -192,6 +193,9 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The logo is uploaded on its own, immediately, rather than travelling with
+  // the form — so it is held apart from the fields Save writes.
+  const [logoUrl, setLogoUrl] = useState<string | null>(existing?.logoUrl ?? null);
   const set = (k: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   async function submit() {
@@ -230,6 +234,21 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
           <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>
             {existing ? "Edit business" : "Add a business"}
           </T>
+          {/*
+            Only on an existing business: the upload endpoint is scoped to a
+            profile id, which does not exist until the business is created.
+            Offering it on the create form would be a control that cannot work
+            yet.
+          */}
+          {existing ? (
+            <PhotoUpload
+              url={logoUrl}
+              endpoint={`/business-profiles/${existing.id}/logo`}
+              label="Business logo"
+              shape="square"
+              onUploaded={(updated) => setLogoUrl((updated as BusinessProfile).logoUrl)}
+            />
+          ) : null}
           <Field label="Business name" value={form.name} onChangeText={set("name")} placeholder="e.g. Aling Nena's Store" />
           <Field label="Type" value={form.type} onChangeText={set("type")} />
           <Field
@@ -268,7 +287,7 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
 // ---------------------------------------------------------------- Profile / account
 
 export function ProfileScreen() {
-  const { profile, updateProfile, logout, changePassword } = useAuth();
+  const { profile, updateProfile, logout, changePassword, setProfileFromServer } = useAuth();
   const [form, setForm] = useState({
     firstName: profile?.firstName ?? "",
     lastName: profile?.lastName ?? "",
@@ -320,6 +339,18 @@ export function ProfileScreen() {
       <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2, gap: space.lg }}>
         <Card>
           <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>My profile</T>
+          {/*
+            The upload endpoint existed long before mobile had any way to
+            reach it, so a phone could display a photo set on the web app but
+            never set one — the wrong way round, since the phone is where the
+            camera and the photo library are.
+          */}
+          <PhotoUpload
+            url={profile.avatarUrl}
+            endpoint="/auth/me/avatar"
+            label="Profile photo"
+            onUploaded={(updated) => setProfileFromServer(updated as Profile)}
+          />
           <Field label="First name" value={form.firstName} onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))} />
           <Field label="Last name" value={form.lastName} onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))} />
           <Field label="Phone number" value={form.phoneNumber} onChangeText={(v) => setForm((f) => ({ ...f, phoneNumber: v }))} keyboardType="phone-pad" />

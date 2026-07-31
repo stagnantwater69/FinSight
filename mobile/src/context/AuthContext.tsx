@@ -17,6 +17,14 @@ interface AuthValue {
   register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (input: UpdateProfileInput) => Promise<void>;
+  /**
+   * Replaces the cached profile with one the server just returned.
+   *
+   * Used by the avatar upload, which POSTs multipart and gets the updated
+   * profile back — re-fetching /auth/me afterwards would be a second round
+   * trip for data already in hand.
+   */
+  setProfileFromServer: (updated: Profile) => void;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
@@ -111,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ profile, loading, login, register, logout, updateProfile, changePassword }}>
+    <AuthContext.Provider value={{ profile, loading, login, register, logout, updateProfile, changePassword, setProfileFromServer: setProfile }}>
       {children}
     </AuthContext.Provider>
   );
