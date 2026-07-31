@@ -103,6 +103,7 @@ export function DataTable<T>({
   itemNoun = "records",
   storageKey,
   toolbar,
+  rowClassName,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -122,6 +123,13 @@ export function DataTable<T>({
   storageKey?: string;
   /** Search / filter controls, rendered in the table's own header bar. */
   toolbar?: ReactNode;
+  /**
+   * Extra classes for one row — e.g. a highlight ring on the specific record
+   * a notification linked here for. Applied to both the desktop `<tr>` and
+   * the mobile `<li>`, so the two views stay the same row visually
+   * emphasised, not just the same row in the same order.
+   */
+  rowClassName?: (row: T) => string;
 }) {
   const [sort, setSort] = useState<SortState | null>(initialSort ?? null);
   const [page, setPage] = useState(1);
@@ -203,7 +211,7 @@ export function DataTable<T>({
       {/* ---------------- Mobile: stacked cards ---------------- */}
       <ul className="divide-y divide-paper-200 lg:hidden">
         {visible.map((row) => (
-          <li key={getRowKey(row)} className="p-4">
+          <li key={getRowKey(row)} className={`p-4 ${rowClassName?.(row) ?? ""}`}>
             {mobileRow(row)}
           </li>
         ))}
@@ -267,7 +275,7 @@ export function DataTable<T>({
             {visible.map((row) => (
               <tr
                 key={getRowKey(row)}
-                className="border-b border-paper-200 transition-colors last:border-0 hover:bg-paper-100"
+                className={`border-b border-paper-200 transition-colors last:border-0 hover:bg-paper-100 ${rowClassName?.(row) ?? ""}`}
               >
                 {columns.map((column) => (
                   <td
@@ -288,7 +296,12 @@ export function DataTable<T>({
         </table>
       </div>
 
-      {paginate ? (
+      {/* A page-size selector and a "Showing 1-4 of 4" line are both about
+          managing MORE than fits on screen — neither has a job to do below
+          the smallest page size. Rather than showing that chrome the moment
+          there's a second record, it waits until there's a first FULL page
+          (the smallest page size, 10) to actually manage. */}
+      {paginate && totalItems >= 10 ? (
         <Pagination
           page={currentPage}
           pageSize={pageSize}

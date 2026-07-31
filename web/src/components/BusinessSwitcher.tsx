@@ -17,9 +17,12 @@ import { IconBusiness, IconChevronDown, IconPlus, IconSettings } from "./icons";
  * reads (Slack's workspace, Linear's team, Stripe's account), so it is
  * findable without being looked for.
  *
- * Rendered on the dark sidebar, so this is the one component in the app that
- * legitimately uses white-alpha fills rather than paper/ink: the sidebar is
- * deliberately the same deep teal in every theme.
+ * Rendered directly on the rail, so the trigger button below uses the
+ * `sidebar-*` tokens (tailwind.config.js) rather than paper/ink — those
+ * resolve to white-alpha fills on the dark rail (Classic/Dark) and dark-ink
+ * fills on the light one (Light theme). The dropdown MENU itself is a
+ * separate, ordinary `bg-paper` surface once open, so it needs none of this
+ * — only the always-visible trigger row sits on the rail's own surface.
  */
 export function BusinessSwitcher({ collapsed = false }: { collapsed?: boolean }) {
   const { profiles, selected, selectProfile, loading } = useBusinessProfiles();
@@ -30,7 +33,7 @@ export function BusinessSwitcher({ collapsed = false }: { collapsed?: boolean })
   if (loading) {
     return (
       <div className={`mb-3 ${collapsed ? "px-1" : "px-1"}`}>
-        <div className="skeleton h-12 rounded-xl bg-white/10" aria-hidden />
+        <div className="skeleton h-12 rounded-xl bg-sidebar-fg/10" aria-hidden />
         <span className="sr-only">Loading your businesses…</span>
       </div>
     );
@@ -44,7 +47,7 @@ export function BusinessSwitcher({ collapsed = false }: { collapsed?: boolean })
         <Link
           to="/business-profiles/new"
           title="Add a business profile"
-          className="tap mx-auto mb-3 h-10 w-10 min-h-0 min-w-0 rounded-xl bg-white/10 text-white transition hover:bg-white/20"
+          className="tap mx-auto mb-3 h-10 w-10 min-h-0 min-w-0 rounded-xl bg-sidebar-fg/10 text-sidebar-ink transition hover:bg-sidebar-fg/20"
           aria-label="Add a business profile"
         >
           <IconPlus className="h-4 w-4" />
@@ -54,14 +57,14 @@ export function BusinessSwitcher({ collapsed = false }: { collapsed?: boolean })
     return (
       <Link
         to="/business-profiles/new"
-        className="mb-3 flex min-h-tap items-center gap-2.5 rounded-xl border border-dashed border-white/25 px-2.5 text-left transition hover:border-white/50 hover:bg-white/10"
+        className="mb-3 flex min-h-tap items-center gap-2.5 rounded-xl border border-dashed border-sidebar-fg/25 px-2.5 text-left transition hover:border-sidebar-fg/50 hover:bg-sidebar-fg/10"
       >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-fg/10 text-sidebar-ink">
           <IconPlus className="h-4 w-4" />
         </span>
         <span className="min-w-0">
-          <span className="block text-[13px] font-semibold text-white">Add a business</span>
-          <span className="block text-[11px] text-brand-300">Nothing set up yet</span>
+          <span className="block text-[13px] font-semibold text-sidebar-ink">Add a business</span>
+          <span className="block text-[11px] text-sidebar-accent">Nothing set up yet</span>
         </span>
       </Link>
     );
@@ -76,7 +79,7 @@ export function BusinessSwitcher({ collapsed = false }: { collapsed?: boolean })
         aria-expanded={open}
         aria-haspopup="menu"
         title={collapsed ? `${selected.name} — switch business` : undefined}
-        className={`flex min-h-tap w-full items-center rounded-xl border border-white/15 bg-white/10 text-left transition hover:border-white/30 hover:bg-white/15 ${
+        className={`flex min-h-tap w-full items-center rounded-xl border border-sidebar-fg/15 bg-sidebar-fg/10 text-left transition hover:border-sidebar-fg/30 hover:bg-sidebar-fg/15 ${
           collapsed ? "justify-center px-0" : "gap-2.5 px-2.5"
         }`}
       >
@@ -95,14 +98,14 @@ export function BusinessSwitcher({ collapsed = false }: { collapsed?: boolean })
         {!collapsed ? (
           <>
             <span className="min-w-0 flex-1 leading-tight">
-              <b className="block truncate text-[13.5px] font-semibold text-white">{selected.name}</b>
+              <b className="block truncate text-[13.5px] font-semibold text-sidebar-ink">{selected.name}</b>
               <span className="flex items-center gap-1.5">
                 <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-300" />
-                <small className="truncate text-[11px] text-brand-200">Active business</small>
+                <small className="truncate text-[11px] text-sidebar-muted">Active business</small>
               </span>
             </span>
             <IconChevronDown
-              className={`h-4 w-4 shrink-0 text-brand-200 transition-transform ${open ? "rotate-180" : ""}`}
+              className={`h-4 w-4 shrink-0 text-sidebar-muted transition-transform ${open ? "rotate-180" : ""}`}
             />
           </>
         ) : null}

@@ -1,13 +1,14 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { BusinessProfileForm } from "../components/BusinessProfileForm";
+import { AvatarUpload } from "../components/Avatar";
 import { getErrorMessage } from "../lib/errors";
 import type { BusinessProfileInput } from "../lib/types";
 import { FormPage } from "../components/ui";
 
 export function EditBusinessProfile() {
   const { id } = useParams<{ id: string }>();
-  const { profiles, updateProfile } = useBusinessProfiles();
+  const { profiles, updateProfile, uploadLogo } = useBusinessProfiles();
   const navigate = useNavigate();
 
   const profile = profiles.find((p) => p.id === Number(id));
@@ -27,6 +28,14 @@ export function EditBusinessProfile() {
 
   return (
     <FormPage eyebrow="Management" title={`Edit ${profile.name}`} wide>
+      <div className="mb-5">
+        <AvatarUpload
+          photoUrl={profile.logoUrl}
+          label={profile.name}
+          changeLabel="Change logo"
+          onUpload={(file) => uploadLogo(profile.id, file).then(() => undefined)}
+        />
+      </div>
       <BusinessProfileForm
         submitLabel="Save changes"
         initialValues={{

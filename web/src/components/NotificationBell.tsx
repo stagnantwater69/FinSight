@@ -44,19 +44,27 @@ export function relativeTime(iso: string) {
 export function NotificationRow({
   notification,
   onMarkRead,
+  onNavigate,
 }: {
   notification: Notification;
   onMarkRead: (id: number) => void;
+  /** Closes whatever chrome is showing this row (the bell's dropdown) once
+   * the click has actually navigated away. The full /notifications page has
+   * nothing to close, so it simply doesn't pass this. */
+  onNavigate?: () => void;
 }) {
   const kind = alertKindFromType(notification.type);
   const style = KIND_STYLES[kind] ?? KIND_STYLES.info!;
 
-  return (
-    <div
-      className={`flex items-start gap-3 rounded-xl px-2.5 py-2.5 transition ${
-        notification.readStatus ? "opacity-60" : "bg-paper-100/60"
-      }`}
-    >
+  // Only expense-record flags (a possible duplicate, a large expense) have
+  // somewhere specific to send the owner — a batch summary (a finished CSV
+  // import) isn't about one record, so it stays a plain, unclickable row.
+  const target = notification.expenseRecordId
+    ? `/records?highlightRecordId=${notification.expenseRecordId}`
+    : null;
+
+  const body = (
+    <>
       <span
         aria-hidden
         className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs ${style.chip}`}
@@ -68,6 +76,29 @@ export function NotificationRow({
         <p className="mt-0.5 text-[12.5px] leading-snug text-ink-600">{notification.message}</p>
         <p className="mt-1 text-[11px] text-ink-400">{relativeTime(notification.dateCreated)}</p>
       </div>
+    </>
+  );
+
+  return (
+    <div
+      className={`flex items-start gap-3 rounded-xl px-2.5 py-2.5 transition ${
+        notification.readStatus ? "opacity-60" : "bg-paper-100/60"
+      }`}
+    >
+      {target ? (
+        <Link
+          to={target}
+          onClick={() => {
+            if (!notification.readStatus) onMarkRead(notification.id);
+            onNavigate?.();
+          }}
+          className="-m-1 flex min-w-0 flex-1 items-start gap-3 rounded-lg p-1 transition hover:bg-paper-200/60"
+        >
+          {body}
+        </Link>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-start gap-3">{body}</div>
+      )}
       {!notification.readStatus ? (
         <button
           type="button"
@@ -163,7 +194,14 @@ export function NotificationBell() {
                 </p>
               </div>
             ) : (
-              preview.map((n) => <NotificationRow key={n.id} notification={n} onMarkRead={markRead} />)
+              preview.map((n) => (
+                <NotificationRow
+                  key={n.id}
+                  notification={n}
+                  onMarkRead={markRead}
+                  onNavigate={() => setOpen(false)}
+                />
+              ))
             )}
           </div>
 

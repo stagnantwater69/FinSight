@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { useNotifications } from "../context/NotificationContext";
 import { Alert, alertKindFromType } from "../components/Alert";
@@ -142,16 +143,30 @@ export function Notifications() {
                       label={item.type}
                       meta={relativeTime(item.dateCreated)}
                       action={
-                        !item.readStatus ? (
-                          <button
-                            type="button"
-                            onClick={() => markRead(item.id)}
-                            className="tap rounded-lg px-2 text-xs font-medium text-ink-500 transition hover:bg-paper hover:text-ink-800"
-                          >
-                            Mark read
-                            <span className="sr-only"> — {item.message}</span>
-                          </button>
-                        ) : null
+                        <div className="flex items-center gap-1">
+                          {item.expenseRecordId ? (
+                            <Link
+                              to={`/records?highlightRecordId=${item.expenseRecordId}`}
+                              onClick={() => {
+                                if (!item.readStatus) markRead(item.id);
+                              }}
+                              className="tap rounded-lg px-2 text-xs font-semibold text-tone-brand transition hover:bg-tint-brand"
+                            >
+                              Review record
+                              <span className="sr-only"> — {item.message}</span>
+                            </Link>
+                          ) : null}
+                          {!item.readStatus ? (
+                            <button
+                              type="button"
+                              onClick={() => markRead(item.id)}
+                              className="tap rounded-lg px-2 text-xs font-medium text-ink-500 transition hover:bg-paper hover:text-ink-800"
+                            >
+                              Mark read
+                              <span className="sr-only"> — {item.message}</span>
+                            </button>
+                          ) : null}
+                        </div>
                       }
                     >
                       {item.message}

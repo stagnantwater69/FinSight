@@ -3,9 +3,11 @@ import { useNavigate, useParams } from "react-router-dom";
 import { CategorySelect } from "../components/CategorySelect";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
-import type { RecordItem } from "../lib/types";
-import { FormPage } from "../components/ui";
+import type { RecordDetail } from "../lib/types";
+import { Callout, FormPage } from "../components/ui";
 import { Button } from "../components/Button";
+import { RecordOriginPanel } from "../components/RecordOriginPanel";
+import { Money } from "../components/Money";
 import { useToast } from "../components/Toast";
 import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
 
@@ -13,7 +15,7 @@ export function EditExpense() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const toast = useToast();
-  const [record, setRecord] = useState<RecordItem | null>(null);
+  const [record, setRecord] = useState<RecordDetail | null>(null);
   const [categoryId, setCategoryId] = useState<number | "">("");
   const [date, setDate] = useState("");
   const [description, setDescription] = useState("");
@@ -23,7 +25,7 @@ export function EditExpense() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    api.get<RecordItem>(`/records/expenses/${id}`).then(({ data }) => {
+    api.get<RecordDetail>(`/records/expenses/${id}`).then(({ data }) => {
       setRecord(data);
       setCategoryId(data.categoryId ?? "");
       setDate(data.date.slice(0, 10));
@@ -59,8 +61,27 @@ export function EditExpense() {
     return <p className="text-sm text-ink-500">Loading…</p>;
   }
 
+  /*
+    Whether the amount still matches the detail behind it.
+
+    Editing the amount on a scanned record is allowed — the owner may well be
+    correcting a figure OCR got wrong. But it silently breaks the arithmetic
+    the panel above shows, so it is worth saying out loud rather than leaving
+    the two to disagree on screen. A warning, never a block: the record is the
+    owner's, not the scanner's.
+  */
+  const scannedItems = record.origin?.kind === "receipt_scan" ? record.origin : null;
+  const amountDrifted =
+    scannedItems !== null && amount !== "" && Math.round(Number(amount) * 100) !== Math.round(record.amount * 100);
+
   return (
     <FormPage eyebrow="Records" title="Edit expense">
+      {record.origin ? (
+        <div className="mb-4">
+          <RecordOriginPanel origin={record.origin} recordAmount={record.amount} />
+        </div>
+      ) : null}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <Field label="Category" htmlFor="category" required>
           <CategorySelect id="category" value={categoryId} onChange={setCategoryId} />
@@ -82,6 +103,13 @@ export function EditExpense() {
             onChange={(e) => setAmount(e.target.value === "" ? "" : Number(e.target.value))}
           />
         </Field>
+        {amountDrifted ? (
+          <Callout tone="warn">
+            This no longer matches the receipt breakdown above, which comes to{" "}
+            <Money value={record.amount} decimals />. Saving is fine — the breakdown will just no longer
+            add up to the record.
+          </Callout>
+        ) : null}
         {error ? <FormError>{error}</FormError> : null}
         <Button type="submit" variant="primary" fullWidth disabled={submitting}>
           {submitting ? "Saving…" : "Save changes"}

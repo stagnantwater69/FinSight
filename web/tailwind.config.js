@@ -128,6 +128,26 @@ export default {
           info: "rgb(var(--edge-info) / <alpha-value>)",
           neutral: "rgb(var(--edge-neutral) / <alpha-value>)",
         },
+
+        // ============================================================
+        // sidebar — the rail's own text/wash colours, themed
+        // ============================================================
+        // Classic and Dark keep the sidebar the fixed deep teal it always
+        // was — these resolve to plain white/brand values there, identical to
+        // the hardcoded `text-white` / `bg-white/10` classes they replaced.
+        // Light is the one theme where the rail itself goes light, which is
+        // what makes `sidebar-ink` need to flip to a dark value instead of
+        // white staying illegible-on-white. `sidebar-fg` is the wash SOURCE
+        // for hover/active/border states — used with Tailwind's opacity
+        // suffix (`bg-sidebar-fg/10`, `border-sidebar-fg/25`, ...) exactly
+        // like `bg-white/10` was, so every existing opacity step carries over
+        // unchanged.
+        sidebar: {
+          ink: "rgb(var(--sidebar-ink) / <alpha-value>)",
+          muted: "rgb(var(--sidebar-muted) / <alpha-value>)",
+          accent: "rgb(var(--sidebar-accent) / <alpha-value>)",
+          fg: "rgb(var(--sidebar-fg) / <alpha-value>)",
+        },
       },
 
       fontFamily: {

@@ -10,6 +10,7 @@ interface BusinessProfileContextValue {
   selectProfile: (id: number) => void;
   createProfile: (input: BusinessProfileInput) => Promise<BusinessProfile>;
   updateProfile: (id: number, input: Partial<BusinessProfileInput>) => Promise<BusinessProfile>;
+  uploadLogo: (id: number, file: File) => Promise<BusinessProfile>;
   archiveProfile: (id: number) => Promise<void>;
   restoreProfile: (id: number) => Promise<void>;
   /** Fetches archived profiles on demand — they are not kept in `profiles`. */
@@ -63,6 +64,16 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
     return data;
   }
 
+  async function uploadLogo(id: number, file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await api.post<BusinessProfile>(`/business-profiles/${id}/logo`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    setProfiles((prev) => prev.map((p) => (p.id === id ? data : p)));
+    return data;
+  }
+
   // Archiving can remove the currently-selected business, so the list is
   // reloaded and the selection allowed to fall back to whatever remains.
   async function archiveProfile(id: number) {
@@ -97,6 +108,7 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
         selectProfile,
         createProfile,
         updateProfile,
+        uploadLogo,
         archiveProfile,
         restoreProfile,
         listArchived,

@@ -119,6 +119,19 @@ export function CategorySelect({ value, onChange, id }: Props) {
           {c.name}
         </option>
       ))}
+      {/*
+        A placeholder for a value this list doesn't contain.
+
+        Without it, a <select> whose value matches no option silently falls
+        back to displaying the FIRST option — so a stale category list made
+        every receipt item appear to be in the business's first category
+        while the database held something else entirely. A select must never
+        show a category its value does not refer to; if the name can't be
+        resolved, it has to say so rather than name a different one.
+      */}
+      {value !== "" && !loading && !categories.some((c) => c.id === value) ? (
+        <option value={value}>Category unavailable — please choose</option>
+      ) : null}
       <option value="__new__">+ New category…</option>
     </SelectInput>
   );

@@ -1,187 +1,43 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
-import { getErrorMessage } from "../lib/errors";
 import { formatMoney } from "../components/Money";
-import { Button, ButtonLink } from "../components/Button";
-import { DataTable, type Column } from "../components/DataTable";
+import { ButtonLink } from "../components/Button";
+import { StatTile } from "../components/StatTile";
+import { Avatar } from "../components/Avatar";
 import { EmptyState } from "../components/EmptyState";
-import { PageHead, Pill } from "../components/ui";
-import { TextInput } from "../components/Field";
-import { useConfirm } from "../components/ConfirmDialog";
-import { useToast } from "../components/Toast";
-import { IconSearch } from "../components/icons";
-import type { BusinessProfile } from "../lib/types";
+import { PageHead, Panel, Pill } from "../components/ui";
 
 /**
- * Business profiles.
+ * Business profile — the ONE business currently in focus, not a list.
  *
- * Rebuilt onto the shared <DataTable>. It was a grid of cards, which looked
- * fine at two businesses and stopped working at fifteen — no sort, no search,
- * and no way to compare available funds across them without scrolling and
- * remembering. The table gives all three, and still falls back to a card list
- * on phones where a six-column comparison genuinely doesn't fit.
+ * This used to be a table of every business the owner has, which put the
+ * business they're actually looking at on equal footing with every other one
+ * they're not — a search box and five sortable columns to answer "what's my
+ * available funds again?" about the business already selected in the sidebar.
  *
- * Archiving keeps its own panel below rather than becoming a table filter:
- * archived businesses are deliberately out of the way, and folding them into
- * the main list as a greyed row invites restoring one by accident.
+ * That comparison view still exists — AllBusinessProfiles.tsx, one click away
+ * via "View all businesses" — but it's for a different question ("which of my
+ * businesses needs attention", "let me switch to another one"), not this
+ * page's question ("what does THIS business's profile actually say").
  */
-/**
- * The one sentence that makes archiving safe to click.
- *
- * It appears twice — in the confirmation dialog and on the archived-businesses
- * panel — and the two must not drift, because an owner who is reassured in the
- * dialog and then reads something weaker afterwards has been misled.
- */
-const ARCHIVE_PROMISE =
-  "Nothing is deleted — all its records, insights and conversations are kept.";
-
 export function BusinessProfiles() {
-  const { profiles, selected, selectProfile, loading, archiveProfile, restoreProfile, listArchived } =
-    useBusinessProfiles();
-  const confirm = useConfirm();
-  const toast = useToast();
-
-  const [archived, setArchived] = useState<BusinessProfile[] | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [keyword, setKeyword] = useState("");
-
-  const filtered = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
-    if (!q) return profiles;
-    return profiles.filter((p) => p.name.toLowerCase().includes(q) || p.type.toLowerCase().includes(q));
-  }, [profiles, keyword]);
-
-  async function loadArchived() {
-    setError(null);
-    try {
-      setArchived(await listArchived());
-    } catch (err) {
-      setError(getErrorMessage(err));
-    }
-  }
-
-  async function handleArchive(profile: BusinessProfile) {
-    // Archiving is reversible, but it still pulls a business out of the
-    // switcher — worth one confirmation, and worth saying plainly that the
-    // records survive so it isn't mistaken for a delete.
-    //
-    // That promise used to be squeezed into a window.confirm(), where a "\n\n"
-    // was doing the work of a title/body split the OS alert box cannot express.
-    // In a real dialog the title asks and the body reassures.
-    const ok = await confirm({
-      title: `Archive "${profile.name}"?`,
-      body: (
-        <>
-          It will be hidden from your list of businesses. {ARCHIVE_PROMISE} You can restore it at any
-          time.
-        </>
-      ),
-      confirmLabel: "Archive business",
-      tone: "danger",
-    });
-    if (!ok) return;
-
-    setBusyId(profile.id);
-    setError(null);
-    try {
-      await archiveProfile(profile.id);
-      if (archived) await loadArchived();
-      toast(`Archived "${profile.name}"`);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function handleRestore(profile: BusinessProfile) {
-    setBusyId(profile.id);
-    setError(null);
-    try {
-      await restoreProfile(profile.id);
-      await loadArchived();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  // The archived panel is rendered in both the empty and populated states —
-  // an owner who archives their only business must still be able to find it.
-  const archivedPanel = (
-    <div className="mt-8">
-      {archived === null ? (
-        <button
-          type="button"
-          onClick={loadArchived}
-          className="tap rounded-lg px-3 text-sm font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-800"
-        >
-          Show archived businesses
-        </button>
-      ) : (
-        <div className="animate-slide-up rounded-2xl border border-paper-200 bg-paper p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink-800">Archived businesses</h2>
-            <button
-              type="button"
-              onClick={() => setArchived(null)}
-              className="tap rounded-lg px-2 text-xs font-medium text-ink-400 transition hover:bg-paper-100 hover:text-ink-700"
-            >
-              Hide
-            </button>
-          </div>
-          {archived.length === 0 ? (
-            <p className="text-sm text-ink-400">You have no archived businesses.</p>
-          ) : (
-            <ul className="divide-y divide-paper-200">
-              {archived.map((p) => (
-                <li key={p.id} className="flex items-center justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink-800">{p.name}</p>
-                    <p className="text-xs text-ink-400">
-                      {p.type}
-                      {p.archivedAt ? ` · archived ${p.archivedAt.slice(0, 10)}` : ""}
-                    </p>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleRestore(p)}
-                    disabled={busyId === p.id}
-                  >
-                    {busyId === p.id ? "Restoring…" : "Restore"}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-3 text-xs text-ink-400">
-            {ARCHIVE_PROMISE} Restoring one brings it back exactly as it was.
-          </p>
-        </div>
-      )}
-    </div>
-  );
+  const { selected, loading } = useBusinessProfiles();
 
   if (loading) {
     return (
       <div>
-        <PageHead eyebrow="Management" title="Business profiles" />
+        <PageHead eyebrow="Management" title="Business profile" />
         <div className="skeleton h-64 rounded-2xl" aria-hidden />
         <span className="sr-only" aria-live="polite">
-          Loading your businesses…
+          Loading your business profile…
         </span>
       </div>
     );
   }
 
-  if (profiles.length === 0) {
+  if (!selected) {
     return (
       <div>
-        <PageHead eyebrow="Management" title="Business profiles" />
+        <PageHead eyebrow="Management" title="Business profile" />
         <EmptyState
           title="Let's set up your first business"
           action={
@@ -192,204 +48,70 @@ export function BusinessProfiles() {
         >
           Add a business profile to start tracking its funds, expenses, and sales in FinSight.
         </EmptyState>
-        {error ? <p className="mt-4 text-sm text-tone-danger">{error}</p> : null}
-        {archivedPanel}
       </div>
     );
   }
 
-  const columns: Column<BusinessProfile>[] = [
-    {
-      key: "name",
-      header: "Business",
-      width: "grow",
-      sortValue: (p) => p.name,
-      cell: (p) => (
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 font-medium text-ink-900">{p.name}</span>
-          {p.id === selected?.id ? <Pill tone="ok">Active</Pill> : null}
-        </div>
-      ),
-    },
-    {
-      key: "type",
-      header: "Type",
-      width: "content",
-      sortValue: (p) => p.type,
-      cell: (p) => <span className="text-ink-600">{p.type}</span>,
-    },
-    {
-      key: "funds",
-      header: "Available funds",
-      width: "content",
-      align: "right",
-      sortValue: (p) => p.availableFunds,
-      cell: (p) => <span className="figure text-ink-900">{formatMoney(p.availableFunds)}</span>,
-    },
-    {
-      key: "expected",
-      header: "Monthly expenses",
-      width: "content",
-      align: "right",
-      sortValue: (p) => p.expectedMonthlyExpenses,
-      cell: (p) => <span className="figure text-ink-700">{formatMoney(p.expectedMonthlyExpenses)}</span>,
-    },
-    {
-      key: "days",
-      header: "Operating days",
-      width: "content",
-      align: "right",
-      sortValue: (p) => p.operatingDays,
-      cell: (p) => <span className="figure text-ink-600">{p.operatingDays}</span>,
-    },
-    {
-      key: "actions",
-      header: "Actions",
-      headerSrOnly: true,
-      width: "content",
-      align: "right",
-      cell: (p) => (
-        <div className="flex items-center justify-end gap-3">
-          {p.id !== selected?.id ? (
-            <button
-              type="button"
-              onClick={() => selectProfile(p.id)}
-              className="tap-inline font-medium text-brand-700 transition hover:text-brand-800"
-            >
-              Switch to
-              <span className="sr-only"> {p.name}</span>
-            </button>
-          ) : null}
-          <Link
-            to={`/business-profiles/${p.id}/edit`}
-            className="tap-inline font-medium text-ink-500 transition hover:text-ink-900"
-          >
-            Edit
-            <span className="sr-only"> {p.name}</span>
-          </Link>
-          <button
-            type="button"
-            onClick={() => handleArchive(p)}
-            disabled={busyId === p.id}
-            className="tap-inline font-medium text-ink-400 transition hover:text-tone-danger disabled:opacity-60"
-          >
-            {busyId === p.id ? "Archiving…" : "Archive"}
-            <span className="sr-only"> {p.name}</span>
-          </button>
-        </div>
-      ),
-    },
-  ];
-
-  const toolbar = (
-    <div className="relative min-w-0 sm:max-w-xs">
-      <label htmlFor="biz-search" className="sr-only">
-        Search businesses
-      </label>
-      <IconSearch
-        aria-hidden
-        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
-      />
-      <TextInput
-        id="biz-search"
-        value={keyword}
-        onChange={(e) => setKeyword(e.target.value)}
-        placeholder="Search businesses…"
-        className="pl-9 pr-3"
-      />
-    </div>
-  );
+  const threshold = Number(selected.expectedMonthlyExpenses) * (selected.largeExpenseThresholdPercent / 100);
 
   return (
     <div>
       <PageHead
         eyebrow="Management"
-        title="Business profiles"
-        subtitle="Every shop, branch, or income source you track separately."
+        title="Business profile"
+        subtitle="What FinSight knows about the business you're currently looking at."
         actions={
-          <ButtonLink to="/business-profiles/new" variant="brand" size="sm">
-            + Add another business
-          </ButtonLink>
+          <>
+            <ButtonLink to="/business-profiles/all" variant="secondary" size="sm">
+              View all businesses
+            </ButtonLink>
+            <ButtonLink to={`/business-profiles/${selected.id}/edit`} variant="brand" size="sm">
+              Edit
+            </ButtonLink>
+          </>
         }
       />
 
-      {error ? (
-        <p className="mb-4 rounded-xl bg-tint-danger px-3.5 py-3 text-sm text-tone-danger ring-1 ring-edge-danger">
-          {error}
+      <Panel
+        title={
+          <span className="flex items-center gap-3">
+            <Avatar photoUrl={selected.logoUrl} label={selected.name} />
+            {selected.name}
+          </span>
+        }
+        eyebrow={selected.type}
+        action={<Pill tone="ok">Active business</Pill>}
+      >
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatTile
+            label="Available business funds"
+            value={formatMoney(selected.availableFunds)}
+            sublabel="Owner-entered reference"
+            emphasis
+          />
+          <StatTile
+            label="Expected monthly expenses"
+            value={formatMoney(selected.expectedMonthlyExpenses)}
+            sublabel="Owner-entered reference"
+          />
+          <StatTile
+            label="Operating days / month"
+            value={String(selected.operatingDays)}
+            sublabel="Owner-entered reference"
+          />
+          <StatTile
+            label="Large-expense threshold"
+            value={`${selected.largeExpenseThresholdPercent}%`}
+            sublabel={`= ${formatMoney(threshold)} of expected monthly expenses`}
+          />
+        </div>
+
+        <p className="mt-4 border-t border-paper-200 pt-3 text-xs text-ink-400">
+          Created {selected.createdAt.slice(0, 10)}. These figures drive every insight in FinSight — the
+          recovery target, the daily sales target, and which expenses get flagged as unusually large.
+          Click Edit above to change any of them.
         </p>
-      ) : null}
-
-      <DataTable
-        rows={filtered}
-        columns={columns}
-        getRowKey={(p) => String(p.id)}
-        caption="Your business profiles"
-        itemNoun="businesses"
-        storageKey="businessProfiles"
-        initialSort={{ key: "name", direction: "asc" }}
-        toolbar={toolbar}
-        empty={
-          <EmptyState compact title="No businesses match that search" icon="⌕">
-            Try a shorter word, or clear the search box.
-          </EmptyState>
-        }
-        mobileRow={(p) => (
-          <div>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate font-medium text-ink-900">{p.name}</p>
-                <p className="text-xs text-ink-500">{p.type}</p>
-              </div>
-              {p.id === selected?.id ? <Pill tone="ok">Active</Pill> : null}
-            </div>
-
-            <dl className="mt-3 space-y-1 text-sm">
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-500">Available funds</dt>
-                <dd className="figure font-medium text-ink-900">{formatMoney(p.availableFunds)}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-500">Expected monthly expenses</dt>
-                <dd className="figure font-medium text-ink-900">
-                  {formatMoney(p.expectedMonthlyExpenses)}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-500">Operating days / month</dt>
-                <dd className="figure font-medium text-ink-900">{p.operatingDays}</dd>
-              </div>
-            </dl>
-
-            <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-paper-200 pt-2">
-              {p.id !== selected?.id ? (
-                <button
-                  type="button"
-                  onClick={() => selectProfile(p.id)}
-                  className="tap rounded-lg px-3 text-sm font-medium text-brand-700 transition hover:bg-tint-brand"
-                >
-                  Switch to this
-                </button>
-              ) : null}
-              <Link
-                to={`/business-profiles/${p.id}/edit`}
-                className="tap rounded-lg px-3 text-sm font-medium text-ink-500 transition hover:bg-paper-100"
-              >
-                Edit
-              </Link>
-              <button
-                type="button"
-                onClick={() => handleArchive(p)}
-                disabled={busyId === p.id}
-                className="tap ml-auto rounded-lg px-3 text-sm font-medium text-ink-400 transition hover:bg-paper-100 disabled:opacity-60"
-              >
-                {busyId === p.id ? "Archiving…" : "Archive"}
-              </button>
-            </div>
-          </div>
-        )}
-      />
-
-      {archivedPanel}
+      </Panel>
     </div>
   );
 }

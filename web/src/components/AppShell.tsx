@@ -9,7 +9,6 @@ import { NotificationBell } from "./NotificationBell";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 import { AccountMenu, initials } from "./AccountMenu";
 import {
-  IconBell,
   IconBusiness,
   IconCamera,
   IconChevronDown,
@@ -22,7 +21,6 @@ import {
   IconSales,
   IconSearch,
   IconSidebar,
-  IconTag,
   IconUpload,
 } from "./icons";
 
@@ -120,19 +118,24 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     heading: "Management",
-    items: [
-      { to: "/business-profiles", label: "Business profiles", Icon: IconBusiness },
-      { to: "/records/categories", label: "Categories", Icon: IconTag },
-    ],
+    items: [{ to: "/business-profiles", label: "Business profile", Icon: IconBusiness }],
   },
   {
     heading: "Account",
-    items: [
-      { to: "/profile", label: "My profile", Icon: IconProfile },
-      { to: "/notifications", label: "Notifications", Icon: IconBell },
-    ],
+    items: [{ to: "/profile", label: "My profile", Icon: IconProfile }],
   },
 ];
+
+// Pages reachable without being a sidebar nav destination. Notifications
+// lives only behind the topbar bell now (the "one bell, not two places to
+// check" decision); Categories lost its tab too but is still linked from
+// GlobalSearch. Both routes are still real, so both still need a proper
+// announced title below rather than falling back to the generic "FinSight".
+const EXTRA_PAGE_TITLES: Record<string, string> = {
+  "/notifications": "Notifications",
+  "/records/categories": "Categories",
+  "/business-profiles/all": "All businesses",
+};
 
 /**
  * A human name for a path, for the route announcement.
@@ -145,6 +148,7 @@ function pageTitleFor(pathname: string): string {
   const candidates = [
     ...NAV_GROUPS.flatMap((g) => g.items.flatMap((i) => [i, ...(i.children ?? [])])),
     ...INSIGHTS_LINKS,
+    ...Object.entries(EXTRA_PAGE_TITLES).map(([to, label]) => ({ to, label })),
   ];
   const match = candidates
     .filter((i) => pathname === i.to || pathname.startsWith(`${i.to}/`))
@@ -215,7 +219,7 @@ function SidebarLink({
         aria-current={active ? "page" : undefined}
         className={`mb-0.5 flex min-h-tap items-center rounded-xl text-sm font-medium transition ${
           collapsed ? "justify-center px-0" : "gap-3 px-3"
-        } ${active ? "bg-white/15 font-semibold text-white" : "text-brand-100 hover:bg-white/10 hover:text-white"}`}
+        } ${active ? "bg-sidebar-fg/15 font-semibold text-sidebar-ink" : "text-sidebar-muted hover:bg-sidebar-fg/10 hover:text-sidebar-ink"}`}
       >
         <item.Icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
         {collapsed ? <span className="sr-only">{item.label}</span> : item.label}
@@ -322,11 +326,30 @@ export function AppShell({ children }: { children: ReactNode }) {
           railCollapsed ? "px-2 py-3.5" : "p-3.5"
         }`}
       >
+        {/* Collapsed, the expand control gets its own full-width row above the
+            logo — sharing one with the logo at 72px would make both too
+            small to hit, and it reads as "the rail's own control", not
+            something attached underneath the brand mark. */}
+        {railCollapsed ? (
+          <div className="group relative mb-3">
+            <button
+              type="button"
+              onClick={() => setCollapsed(false)}
+              aria-label="Expand sidebar"
+              aria-expanded={false}
+              className="tap h-10 w-full min-h-0 min-w-0 rounded-xl text-sidebar-muted transition hover:bg-sidebar-fg/10 hover:text-sidebar-ink"
+            >
+              <IconSidebar className="h-[18px] w-[18px]" />
+            </button>
+            <RailTip>Expand sidebar</RailTip>
+          </div>
+        ) : null}
+
         {/* ---- logo + collapse ---- */}
         <div className={`mb-3 flex items-center ${railCollapsed ? "justify-center" : "gap-1"}`}>
           <Link
             to="/dashboard"
-            className={`flex min-h-tap items-center rounded-xl transition hover:bg-white/10 ${
+            className={`flex min-h-tap items-center rounded-xl transition hover:bg-sidebar-fg/10 ${
               railCollapsed ? "justify-center px-1.5" : "flex-1 gap-2.5 px-2"
             }`}
             aria-label="FinSight home"
@@ -334,13 +357,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             {/* MASCOT SEAM — the owl badge mark replaces this monogram, 36px. */}
             <span
               aria-hidden
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15 font-display text-base font-extrabold text-white"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sidebar-fg/15 font-display text-base font-extrabold text-sidebar-ink"
             >
               F
             </span>
             {!railCollapsed ? (
-              <span className="font-display text-xl font-extrabold tracking-[-0.02em] text-white">
-                Fin<span className="text-brand-300">Sight</span>
+              <span className="font-display text-xl font-extrabold tracking-[-0.02em] text-sidebar-ink">
+                Fin<span className="text-sidebar-accent">Sight</span>
               </span>
             ) : null}
           </Link>
@@ -351,29 +374,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               onClick={() => setCollapsed(true)}
               aria-label="Collapse sidebar"
               aria-expanded
-              className="tap h-9 w-9 min-h-0 min-w-0 rounded-lg text-brand-200 transition hover:bg-white/10 hover:text-white"
+              className="tap h-9 w-9 min-h-0 min-w-0 rounded-lg text-sidebar-muted transition hover:bg-sidebar-fg/10 hover:text-sidebar-ink"
             >
               <IconSidebar className="h-[18px] w-[18px]" />
             </button>
           ) : null}
         </div>
-
-        {/* Collapsed, the expand control gets its own full-width row — sharing
-            one with the logo at 72px would make both too small to hit. */}
-        {railCollapsed ? (
-          <div className="group relative mb-3">
-            <button
-              type="button"
-              onClick={() => setCollapsed(false)}
-              aria-label="Expand sidebar"
-              aria-expanded={false}
-              className="tap h-10 w-full min-h-0 min-w-0 rounded-xl text-brand-200 transition hover:bg-white/10 hover:text-white"
-            >
-              <IconSidebar className="h-[18px] w-[18px]" />
-            </button>
-            <RailTip>Expand sidebar</RailTip>
-          </div>
-        ) : null}
 
         <BusinessSwitcher collapsed={railCollapsed} />
 
@@ -398,9 +404,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                     and one there just reads as a stray line under the business
                     switcher. */}
                 {railCollapsed ? (
-                  groupIndex > 0 ? <hr className="mx-2 my-2 border-white/10" aria-hidden /> : null
+                  groupIndex > 0 ? <hr className="mx-2 my-2 border-sidebar-fg/10" aria-hidden /> : null
                 ) : (
-                  <div className="px-3 pb-1 pt-2.5 text-[10.5px] font-bold uppercase tracking-[0.13em] text-brand-300">
+                  <div className="px-3 pb-1 pt-2.5 text-[10.5px] font-bold uppercase tracking-[0.13em] text-sidebar-accent">
                     {group.heading}
                   </div>
                 )}
@@ -416,8 +422,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                               aria-current={isActive(item.to, item.match) ? "page" : undefined}
                               className={`mb-0.5 flex min-h-tap items-center justify-center rounded-xl transition ${
                                 isActive(item.to, item.match)
-                                  ? "bg-white/15 text-white"
-                                  : "text-brand-100 hover:bg-white/10 hover:text-white"
+                                  ? "bg-sidebar-fg/15 text-sidebar-ink"
+                                  : "text-sidebar-muted hover:bg-sidebar-fg/10 hover:text-sidebar-ink"
                               }`}
                             >
                               <item.Icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
@@ -434,8 +440,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                               aria-controls="sidebar-insights"
                               className={`mb-0.5 flex min-h-tap w-full items-center gap-3 rounded-xl px-3 text-sm font-medium transition ${
                                 isActive(item.to, item.match)
-                                  ? "bg-white/15 font-semibold text-white"
-                                  : "text-brand-100 hover:bg-white/10 hover:text-white"
+                                  ? "bg-sidebar-fg/15 font-semibold text-sidebar-ink"
+                                  : "text-sidebar-muted hover:bg-sidebar-fg/10 hover:text-sidebar-ink"
                               }`}
                             >
                               <item.Icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
@@ -449,7 +455,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                             {showInsightsChildren ? (
                               <ul
                                 id="sidebar-insights"
-                                className="mb-1.5 ml-4 animate-slide-up border-l border-white/15 pl-3"
+                                className="mb-1.5 ml-4 animate-slide-up border-l border-sidebar-fg/15 pl-3"
                               >
                                 {item.children.map((child) => {
                                   const active = location.pathname === child.to;
@@ -460,8 +466,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                                         aria-current={active ? "page" : undefined}
                                         className={`flex min-h-tap items-center rounded-lg px-3 text-[13.5px] transition ${
                                           active
-                                            ? "bg-white/15 font-semibold text-white"
-                                            : "text-brand-100 hover:bg-white/10 hover:text-white"
+                                            ? "bg-sidebar-fg/15 font-semibold text-sidebar-ink"
+                                            : "text-sidebar-muted hover:bg-sidebar-fg/10 hover:text-sidebar-ink"
                                         }`}
                                       >
                                         {child.label}
@@ -492,12 +498,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
 
         {/* ---- account footer ---- */}
-        <div className="mt-auto border-t border-white/10 pt-3">
+        <div className="mt-auto border-t border-sidebar-fg/10 pt-3">
           {railCollapsed ? (
             <div className="group relative">
               <Link
                 to="/profile"
-                className="tap h-10 w-full min-h-0 min-w-0 rounded-xl transition hover:bg-white/10"
+                className="tap h-10 w-full min-h-0 min-w-0 rounded-xl transition hover:bg-sidebar-fg/10"
                 aria-label="My profile"
               >
                 <span
@@ -514,7 +520,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : (
             <Link
               to="/profile"
-              className="flex min-h-tap items-center gap-2.5 rounded-xl px-2.5 transition hover:bg-white/10"
+              className="flex min-h-tap items-center gap-2.5 rounded-xl px-2.5 transition hover:bg-sidebar-fg/10"
             >
               <span
                 aria-hidden
@@ -523,10 +529,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {initials(user?.firstName, user?.lastName)}
               </span>
               <span className="min-w-0">
-                <span className="block truncate text-[13px] font-semibold text-white">
+                <span className="block truncate text-[13px] font-semibold text-sidebar-ink">
                   {[user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Account"}
                 </span>
-                <span className="block truncate text-[11.5px] text-brand-300">{user?.email}</span>
+                <span className="block truncate text-[11.5px] text-sidebar-accent">{user?.email}</span>
               </span>
             </Link>
           )}

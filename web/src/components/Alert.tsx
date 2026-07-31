@@ -128,21 +128,3 @@ export function Alert({
   );
 }
 
-/**
- * The compact form, for status columns in a table or on a record card.
- *
- * Same glyph and same colour as the full alert for the same kind, so a badge
- * on a row and a banner in the review list are recognisably the same thing.
- */
-export function AlertBadge({ kind, label }: { kind: AlertKind; label?: string }) {
-  const spec = KINDS[kind];
-  return (
-    <span
-      className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white"
-      style={{ backgroundColor: spec.solid }}
-    >
-      <span aria-hidden>{spec.glyph}</span>
-      <span className="truncate">{label ?? spec.label}</span>
-    </span>
-  );
-}

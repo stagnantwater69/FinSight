@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthenticatedLayout } from "./components/AuthenticatedLayout";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
 import { ConfirmProvider } from "./components/ConfirmDialog";
 import { Landing } from "./pages/Landing";
@@ -10,6 +11,7 @@ import { Register } from "./pages/Register";
 import { RecoverPassword } from "./pages/RecoverPassword";
 import { Profile } from "./pages/Profile";
 import { BusinessProfiles } from "./pages/BusinessProfiles";
+import { AllBusinessProfiles } from "./pages/AllBusinessProfiles";
 import { CreateBusinessProfile } from "./pages/CreateBusinessProfile";
 import { EditBusinessProfile } from "./pages/EditBusinessProfile";
 import { Records } from "./pages/Records";
@@ -44,11 +46,14 @@ function LandingOrDashboard() {
 
 function App() {
   return (
-    <BrowserRouter>
-      {/* Outside AuthProvider: the theme applies to the landing, login and
+    // Outermost, so a throw anywhere — including in a provider or the router
+    // itself — shows an error rather than emptying the page.
+    <ErrorBoundary>
+      <BrowserRouter>
+        {/* Outside AuthProvider: the theme applies to the landing, login and
           register screens too, and it must not wait on an auth check to be
           applied. */}
-      <ThemeProvider>
+        <ThemeProvider>
         <AuthProvider>
           <ToastProvider>
             <ConfirmProvider>
@@ -62,6 +67,7 @@ function App() {
                   <Route path="/profile" element={<Profile />} />
                   <Route path="/notifications" element={<Notifications />} />
                   <Route path="/business-profiles" element={<BusinessProfiles />} />
+                  <Route path="/business-profiles/all" element={<AllBusinessProfiles />} />
                   <Route path="/business-profiles/new" element={<CreateBusinessProfile />} />
                   <Route path="/business-profiles/:id/edit" element={<EditBusinessProfile />} />
 
@@ -83,8 +89,9 @@ function App() {
             </ConfirmProvider>
           </ToastProvider>
         </AuthProvider>
-      </ThemeProvider>
-    </BrowserRouter>
+        </ThemeProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 

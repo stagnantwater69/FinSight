@@ -1,14 +1,16 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
+import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { Callout, Card, PageHead } from "../components/ui";
 import { Button } from "../components/Button";
 import { Field, FormError, TextInput } from "../components/Field";
+import { AvatarUpload } from "../components/Avatar";
 
 export function Profile() {
-  const { profile, updateProfile } = useAuth();
-  const [editing, setEditing] = useState(false);
+  const { profile, updateProfile, uploadAvatar } = useAuth();
+  const { profiles } = useBusinessProfiles();
   const [form, setForm] = useState({
     firstName: profile?.firstName ?? "",
     middleName: profile?.middleName ?? "",
@@ -16,17 +18,23 @@ export function Profile() {
     phoneNumber: profile?.phoneNumber ?? "",
   });
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   if (!profile) return null;
 
+  const fullName = [profile.firstName, profile.middleName, profile.lastName].filter(Boolean).join(" ");
+  const businessCount = profiles.length;
+
   function update<K extends keyof typeof form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
+    setSaved(false);
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setSaved(false);
     setSubmitting(true);
     try {
       await updateProfile({
@@ -35,7 +43,7 @@ export function Profile() {
         lastName: form.lastName,
         phoneNumber: form.phoneNumber || null,
       });
-      setEditing(false);
+      setSaved(true);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -45,31 +53,31 @@ export function Profile() {
 
   return (
     <div>
-      <PageHead eyebrow="Account" title="My profile" subtitle="Your name, contact details, and password." />
-      {/* The form measure is capped while the heading above it stays on the
-          shared left edge — see FormPage in components/ui for why. */}
-      <div className="max-w-xl space-y-6">
+      <PageHead eyebrow="Account" title="My Profile" subtitle="Manage your personal account details." />
+
+      <Card className="mb-6 flex flex-wrap items-center justify-between gap-4 p-6">
+        <AvatarUpload photoUrl={profile.avatarUrl} label={fullName} onUpload={uploadAvatar} />
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-lg font-bold text-ink-900">{fullName}</h2>
+          <p className="text-sm text-ink-500">
+            Small Business Owner · {businessCount} business {businessCount === 1 ? "profile" : "profiles"}
+          </p>
+        </div>
+      </Card>
+
+      <div className="grid gap-6 lg:grid-cols-2">
         <Card className="p-6 sm:p-7">
-          {editing ? (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="First name" htmlFor="firstName" required>
-                  <TextInput
-                    required
-                    autoComplete="given-name"
-                    value={form.firstName}
-                    onChange={(e) => update("firstName", e.target.value)}
-                  />
-                </Field>
-                <Field label="Last name" htmlFor="lastName" required>
-                  <TextInput
-                    required
-                    autoComplete="family-name"
-                    value={form.lastName}
-                    onChange={(e) => update("lastName", e.target.value)}
-                  />
-                </Field>
-              </div>
+          <h2 className="mb-4 text-base font-semibold text-ink-900">Personal Details</h2>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="First name" htmlFor="firstName" required>
+                <TextInput
+                  required
+                  autoComplete="given-name"
+                  value={form.firstName}
+                  onChange={(e) => update("firstName", e.target.value)}
+                />
+              </Field>
               <Field label="Middle name" htmlFor="middleName" optional>
                 <TextInput
                   autoComplete="additional-name"
@@ -77,47 +85,34 @@ export function Profile() {
                   onChange={(e) => update("middleName", e.target.value)}
                 />
               </Field>
-              <Field label="Phone number" htmlFor="phoneNumber" optional>
-                <TextInput
-                  type="tel"
-                  autoComplete="tel"
-                  value={form.phoneNumber}
-                  onChange={(e) => update("phoneNumber", e.target.value)}
-                />
-              </Field>
-              {error ? <FormError>{error}</FormError> : null}
-              <div className="flex gap-3">
-                <Button type="submit" variant="primary" disabled={submitting} className="flex-1">
-                  {submitting ? "Saving…" : "Save changes"}
-                </Button>
-                <Button type="button" variant="secondary" onClick={() => setEditing(false)} className="flex-1">
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <div className="space-y-4">
-              <dl className="space-y-3 text-sm">
-                <div>
-                  <dt className="text-ink-500">Name</dt>
-                  <dd className="break-words font-medium text-ink-900">
-                    {[profile.firstName, profile.middleName, profile.lastName].filter(Boolean).join(" ")}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-ink-500">Email</dt>
-                  <dd className="break-all font-medium text-ink-900">{profile.email}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-500">Phone number</dt>
-                  <dd className="break-words font-medium text-ink-900">{profile.phoneNumber ?? "—"}</dd>
-                </div>
-              </dl>
-              <Button type="button" onClick={() => setEditing(true)} fullWidth>
-                Edit profile
+            </div>
+            <Field label="Last name" htmlFor="lastName" required>
+              <TextInput
+                required
+                autoComplete="family-name"
+                value={form.lastName}
+                onChange={(e) => update("lastName", e.target.value)}
+              />
+            </Field>
+            <Field label="Email" htmlFor="email" hint="Contact support to change the email on your account.">
+              <TextInput id="email" value={profile.email} disabled readOnly />
+            </Field>
+            <Field label="Phone number" htmlFor="phoneNumber" optional>
+              <TextInput
+                type="tel"
+                autoComplete="tel"
+                value={form.phoneNumber}
+                onChange={(e) => update("phoneNumber", e.target.value)}
+              />
+            </Field>
+            {error ? <FormError>{error}</FormError> : null}
+            {saved ? <Callout tone="brand">Profile updated.</Callout> : null}
+            <div className="flex justify-end">
+              <Button type="submit" disabled={submitting}>
+                {submitting ? "Saving…" : "Update Profile"}
               </Button>
             </div>
-          )}
+          </form>
         </Card>
 
         <SecurityPanel />
@@ -172,7 +167,7 @@ function SecurityPanel() {
 
   return (
     <Card className="p-6 sm:p-7">
-      <h2 className="mb-1 text-lg font-semibold text-ink-900">Security</h2>
+      <h2 className="mb-1 text-base font-semibold text-ink-900">Security</h2>
       <p className="mb-6 text-xs text-ink-500">
         Change your password. You'll need your current password to confirm it's you.
       </p>
@@ -214,9 +209,11 @@ function SecurityPanel() {
           </Callout>
         ) : null}
 
-        <Button type="submit" variant="primary" fullWidth disabled={submitting}>
-          {submitting ? "Changing…" : "Change password"}
-        </Button>
+        <div className="flex justify-end">
+          <Button type="submit" disabled={submitting}>
+            {submitting ? "Changing…" : "Change Password"}
+          </Button>
+        </div>
       </form>
     </Card>
   );

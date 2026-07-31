@@ -6,16 +6,17 @@ import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { Money } from "../components/Money";
 import { Button, ButtonLink } from "../components/Button";
-import { AlertBadge } from "../components/Alert";
 import { EmptyState } from "../components/EmptyState";
 import { DataTable, type Column } from "../components/DataTable";
-import { IconSearch } from "../components/icons";
+import { IconEdit, IconSearch, IconTrash } from "../components/icons";
 import { RECORD_SOURCE_LABELS, type RecordItem, type RecordSource } from "../lib/types";
-import { PageHead, Pill, Tag } from "../components/ui";
+import { PageHead, Pill, Tag, type PillTone } from "../components/ui";
 import { SelectInput, TextInput } from "../components/Field";
 import { useConfirm } from "../components/ConfirmDialog";
 import { useDebounced } from "../lib/hooks";
 import { useToast } from "../components/Toast";
+import { AddExpenseModal } from "../components/AddExpenseModal";
+import { AddSalesModal } from "../components/AddSalesModal";
 
 interface Filters {
   type: "all" | "expense" | "sales";
@@ -38,6 +39,24 @@ const emptyFilters: Filters = {
 /** Which filters count as "advanced" for Hick's Law progressive disclosure. */
 function activeAdvancedCount(f: Filters) {
   return [f.categoryId, f.dateFrom, f.dateTo, f.source].filter(Boolean).length;
+}
+
+/**
+ * One status per row, not a stack of badges.
+ *
+ * A record can carry a duplicate flag, a large-expense flag and "Needs
+ * Review" all at once, but the table only has room to say one thing at a
+ * glance — so this picks the single most useful one, in priority order: a
+ * possible duplicate is the most actionable (it's asking "is this the same
+ * as another record?"), plain "needs review" is next, and everything settled
+ * reads as "Reviewed". Large-expense records already carry reviewStatus
+ * "Needs Review" (expenseRecord.service.ts), so they fall out of this
+ * naturally without a fourth case.
+ */
+function recordStatus(r: RecordItem): { label: string; tone: PillTone } {
+  if (r.duplicateStatus === "Flagged") return { label: "Possible Duplicate", tone: "info" };
+  if (r.reviewStatus === "Needs Review") return { label: "Needs Review", tone: "warn" };
+  return { label: "Reviewed", tone: "ok" };
 }
 
 /**
@@ -80,6 +99,16 @@ export function Records() {
   // sends "category X" here as ?type=expense&categoryId=N, and it would be a
   // dead end if the page ignored it.
   const [filters, setFilters] = useState<Filters>(() => filtersFromParams(searchParams));
+
+  // A notification's "review this" link arrives as ?highlightRecordId=123.
+  // Read once at mount — it isn't part of the filters<->URL round-trip below,
+  // it just seeds it once (see the effect further down) and marks which row
+  // gets the highlight treatment.
+  const [highlightRecordId] = useState<number | null>(() => {
+    const raw = searchParams.get("highlightRecordId");
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  });
 
   /**
    * The search box is debounced; the selects are not.
@@ -145,6 +174,12 @@ export function Records() {
   // visible; the other four are collapsed until asked for. Auto-expanded when
   // any of them is already set, so an active filter is never hidden.
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // The Records page's own "Add expense" / "Add sales" now open as popups
+  // rather than navigating away — everywhere else in the app (Quick Add,
+  // Dashboard's empty state, GlobalSearch) still routes to the full page,
+  // since only here is the list already on screen and worth staying on.
+  const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const [addSalesOpen, setAddSalesOpen] = useState(false);
 
   /**
    * SCALE CEILING, deliberate: /records/search returns the whole result set and
@@ -218,6 +253,31 @@ export function Records() {
     appliedFilters.keyword,
     appliedFilters.source,
   ]);
+
+  /**
+   * Arriving from a notification's "review this" link — looks up the real
+   * record so the search can be seeded with its actual description, which is
+   * what gets it onto page 1 without teaching DataTable anything about a
+   * specific row. If the record is gone (deleted since the notification was
+   * raised), this says so instead of silently landing on an empty filter.
+   */
+  useEffect(() => {
+    if (!highlightRecordId || !selected) return;
+    let cancelled = false;
+    api
+      .get<RecordItem>(`/records/expenses/${highlightRecordId}`)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setFilters((f) => ({ ...f, type: "expense", keyword: data.description }));
+      })
+      .catch(() => {
+        if (!cancelled) toast("That record couldn't be found — it may have been deleted.");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightRecordId, selected?.id]);
 
   /**
    * Delete, with the row removed optimistically and an undo offered.
@@ -295,15 +355,6 @@ export function Records() {
   const hasFilters = JSON.stringify(filters) !== JSON.stringify(emptyFilters);
   const advancedCount = activeAdvancedCount(filters);
 
-  /** Status badges, shared between the table row and the mobile card. */
-  const statusBadges = (r: RecordItem) => (
-    <div className="flex flex-wrap gap-1">
-      {r.duplicateStatus === "Flagged" ? <AlertBadge kind="duplicate" /> : null}
-      {r.reviewStatus === "Needs Review" ? <AlertBadge kind="needs-review" /> : null}
-      {r.largeExpenseFlag ? <AlertBadge kind="large-expense" /> : null}
-    </div>
-  );
-
   const editPath = (r: RecordItem) =>
     r.type === "expense" ? `/records/expenses/${r.id}/edit` : `/records/sales/${r.id}/edit`;
 
@@ -324,16 +375,18 @@ export function Records() {
       cell: (r) => <span className="figure text-ink-600">{r.date.slice(0, 10)}</span>,
     },
     {
+      key: "type",
+      header: "Type",
+      width: "content",
+      sortValue: (r) => r.type,
+      cell: (r) => <Tag kind={r.type === "expense" ? "expense" : "sales"} />,
+    },
+    {
       key: "description",
       header: "Description",
       width: "grow",
       sortValue: (r) => r.description,
-      cell: (r) => (
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 font-medium text-ink-900">{r.description}</span>
-          <Tag kind={r.type === "expense" ? "expense" : "sales"} />
-        </div>
-      ),
+      cell: (r) => <span className="min-w-0 font-medium text-ink-900">{r.description}</span>,
     },
     {
       key: "category",
@@ -343,6 +396,13 @@ export function Records() {
       cell: (r) => (
         <span className="text-ink-600">{r.type === "expense" ? categoryName(r.categoryId) : "—"}</span>
       ),
+    },
+    {
+      key: "vendor",
+      header: "Vendor",
+      width: "content",
+      sortValue: (r) => r.vendor ?? null,
+      cell: (r) => <span className="text-ink-500">{r.vendor || "—"}</span>,
     },
     {
       key: "amount",
@@ -371,7 +431,11 @@ export function Records() {
       key: "status",
       header: "Status",
       width: "content",
-      cell: (r) => statusBadges(r),
+      sortValue: (r) => recordStatus(r).label,
+      cell: (r) => {
+        const status = recordStatus(r);
+        return <Pill tone={status.tone}>{status.label}</Pill>;
+      },
     },
     {
       key: "actions",
@@ -380,21 +444,35 @@ export function Records() {
       width: "content",
       align: "right",
       cell: (r) => (
-        <div className="flex items-center justify-end gap-3">
+        <div className="flex items-center justify-end gap-1">
+          {r.duplicateStatus === "Flagged" ? (
+            <Link
+              to="/records/flagged"
+              title="Review possible duplicate"
+              aria-label={`Review possible duplicate — ${r.description}`}
+              className="tap flex h-9 w-9 min-h-0 min-w-0 items-center justify-center rounded-lg text-tone-info transition hover:bg-tint-info"
+            >
+              <span aria-hidden className="text-base leading-none">
+                ⧉
+              </span>
+            </Link>
+          ) : null}
           <Link
             to={editPath(r)}
-            className="tap-inline font-medium text-brand-700 transition hover:text-brand-800"
+            title="Edit"
+            aria-label={`Edit ${r.description}`}
+            className="tap flex h-9 w-9 min-h-0 min-w-0 items-center justify-center rounded-lg text-ink-500 transition hover:bg-paper-100 hover:text-ink-800"
           >
-            Edit
-            <span className="sr-only"> {r.description}</span>
+            <IconEdit className="h-4 w-4" />
           </Link>
           <button
             type="button"
             onClick={() => handleDelete(r)}
-            className="tap-inline font-medium text-ink-400 transition hover:text-rose-600"
+            title="Delete"
+            aria-label={`Delete ${r.description}`}
+            className="tap flex h-9 w-9 min-h-0 min-w-0 items-center justify-center rounded-lg text-ink-400 transition hover:bg-tint-danger hover:text-tone-danger"
           >
-            Delete
-            <span className="sr-only"> {r.description}</span>
+            <IconTrash className="h-4 w-4" />
           </button>
         </div>
       ),
@@ -550,9 +628,9 @@ export function Records() {
                 <Pill tone="warn">{flaggedCount}</Pill>
               </Link>
             ) : null}
-            <ButtonLink to="/records/expenses/new" variant="brand" size="sm">
+            <Button variant="brand" size="sm" onClick={() => setAddExpenseOpen(true)}>
               + Add expense
-            </ButtonLink>
+            </Button>
           </>
         }
       />
@@ -561,9 +639,9 @@ export function Records() {
           than wrapping into rows that push the table off-screen. */}
       <div className="scroll-slim -mx-4 mb-4 overflow-x-auto px-4 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0">
         <div className="flex w-max gap-2">
-          <ButtonLink to="/records/sales/new" variant="secondary" size="sm">
+          <Button variant="secondary" size="sm" onClick={() => setAddSalesOpen(true)}>
             + Add sales
-          </ButtonLink>
+          </Button>
           <ButtonLink to="/records/receipts/new" variant="secondary" size="sm">
             Scan receipt
           </ButtonLink>
@@ -589,6 +667,9 @@ export function Records() {
         storageKey="records"
         initialSort={{ key: "date", direction: "desc" }}
         toolbar={toolbar}
+        rowClassName={(r) =>
+          highlightRecordId && r.type === "expense" && r.id === highlightRecordId ? "bg-tint-accent" : ""
+        }
         empty={
           hasFilters ? (
             <EmptyState compact title="No records match these filters" icon="⌕">
@@ -600,9 +681,9 @@ export function Records() {
               title="You haven't added any records yet"
               action={
                 <>
-                  <ButtonLink to="/records/expenses/new" variant="primary">
+                  <Button variant="primary" onClick={() => setAddExpenseOpen(true)}>
                     Add your first expense
-                  </ButtonLink>
+                  </Button>
                   <ButtonLink to="/records/receipts/new" variant="secondary">
                     Or scan a receipt
                   </ButtonLink>
@@ -614,53 +695,87 @@ export function Records() {
             </EmptyState>
           )
         }
-        mobileRow={(r) => (
-          <div>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate font-medium text-ink-900">{r.description}</p>
-                <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
-                  <span className="figure">{r.date.slice(0, 10)}</span>
-                  <span aria-hidden>·</span>
-                  <Tag kind={r.type === "expense" ? "expense" : "sales"} />
-                  {r.type === "expense" ? <span>· {categoryName(r.categoryId)}</span> : null}
+        mobileRow={(r) => {
+          const status = recordStatus(r);
+          return (
+            <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink-900">{r.description}</p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
+                    <span className="figure">{r.date.slice(0, 10)}</span>
+                    <span aria-hidden>·</span>
+                    <Tag kind={r.type === "expense" ? "expense" : "sales"} />
+                    {r.type === "expense" ? <span>· {categoryName(r.categoryId)}</span> : null}
+                    {r.vendor ? <span>· {r.vendor}</span> : null}
+                  </p>
+                </div>
+                <p
+                  className={`shrink-0 text-right font-medium ${
+                    r.type === "expense" ? "text-ink-900" : "text-brand-700"
+                  }`}
+                >
+                  <Money value={r.amount} />
                 </p>
               </div>
-              <p
-                className={`shrink-0 text-right font-medium ${
-                  r.type === "expense" ? "text-ink-900" : "text-brand-700"
-                }`}
-              >
-                <Money value={r.amount} />
-              </p>
-            </div>
 
-            <div className="mt-2">{statusBadges(r)}</div>
+              <div className="mt-2">
+                <Pill tone={status.tone}>{status.label}</Pill>
+              </div>
 
-            <div className="mt-3 flex items-center justify-between border-t border-paper-200 pt-2">
-              <span className="text-xs text-ink-400">
-                {RECORD_SOURCE_LABELS[r.source as RecordSource] ?? r.source}
-              </span>
-              <div className="flex gap-1">
-                <Link
-                  to={editPath(r)}
-                  className="tap rounded-lg px-3 text-sm font-medium text-tone-brand transition hover:bg-tint-brand"
-                >
-                  Edit
-                  <span className="sr-only"> {r.description}</span>
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(r)}
-                  className="tap rounded-lg px-3 text-sm font-medium text-ink-400 transition hover:bg-tint-danger hover:text-tone-danger"
-                >
-                  Delete
-                  <span className="sr-only"> {r.description}</span>
-                </button>
+              <div className="mt-3 flex items-center justify-between border-t border-paper-200 pt-2">
+                <span className="text-xs text-ink-400">
+                  {RECORD_SOURCE_LABELS[r.source as RecordSource] ?? r.source}
+                </span>
+                <div className="flex gap-1">
+                  {r.duplicateStatus === "Flagged" ? (
+                    <Link
+                      to="/records/flagged"
+                      className="tap rounded-lg px-3 text-sm font-medium text-tone-info transition hover:bg-tint-info"
+                    >
+                      Compare
+                      <span className="sr-only"> possible duplicate — {r.description}</span>
+                    </Link>
+                  ) : null}
+                  <Link
+                    to={editPath(r)}
+                    className="tap rounded-lg px-3 text-sm font-medium text-tone-brand transition hover:bg-tint-brand"
+                  >
+                    Edit
+                    <span className="sr-only"> {r.description}</span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(r)}
+                    className="tap rounded-lg px-3 text-sm font-medium text-ink-400 transition hover:bg-tint-danger hover:text-tone-danger"
+                  >
+                    Delete
+                    <span className="sr-only"> {r.description}</span>
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        }}
+      />
+
+      <AddExpenseModal
+        businessProfileId={selected.id}
+        open={addExpenseOpen}
+        onClose={() => setAddExpenseOpen(false)}
+        onSaved={() => {
+          loadRecords();
+          loadFlaggedCount();
+        }}
+      />
+      <AddSalesModal
+        businessProfileId={selected.id}
+        open={addSalesOpen}
+        onClose={() => setAddSalesOpen(false)}
+        onSaved={() => {
+          loadRecords();
+          loadFlaggedCount();
+        }}
       />
     </div>
   );

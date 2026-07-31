@@ -10,6 +10,7 @@ interface AuthContextValue {
   register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (input: UpdateProfileInput) => Promise<void>;
+  uploadAvatar: (file: File) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -30,13 +31,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!active) return;
-      if (data.session) {
-        setProfile(await fetchProfile());
-      }
-      setLoading(false);
-    });
+    /*
+     * `loading` MUST end up false on every path, including the failing ones.
+     *
+     * It gates the whole app: `/` renders null while loading and ProtectedRoute
+     * renders "Loading…", so a rejected getSession() — an unreachable Supabase
+     * project, a corrupt token in localStorage — used to leave the entire site
+     * blank forever with nothing on screen to say why. Treating a failed
+     * session read as "signed out" is the honest outcome: we could not
+     * establish who the user is, so the app should offer them the login screen
+     * rather than hang.
+     */
+    supabase.auth
+      .getSession()
+      .then(async ({ data }) => {
+        if (!active) return;
+        if (data.session) {
+          setProfile(await fetchProfile());
+        }
+      })
+      .catch((err) => {
+        console.error("Could not read the stored session:", err);
+        if (active) setProfile(null);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
@@ -85,8 +105,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(data);
   }
 
+  async function uploadAvatar(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await api.post<Profile>("/auth/me/avatar", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    setProfile(data);
+  }
+
   return (
-    <AuthContext.Provider value={{ profile, loading, login, register, logout, updateProfile }}>
+    <AuthContext.Provider value={{ profile, loading, login, register, logout, updateProfile, uploadAvatar }}>
       {children}
     </AuthContext.Provider>
   );

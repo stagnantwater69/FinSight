@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { SkeletonBubble } from "./Skeleton";
@@ -11,6 +12,22 @@ import { useFocusTrap } from "../lib/hooks";
 // rebuilds the context from fresh data on every message. Passing a context
 // snapshot captured when the drawer opened is exactly the staleness bug
 // this avoids.
+//
+// Rendered via a portal straight into <body>, NOT in place in the page's own
+// JSX tree. Every page renders this inside <main>, and <main> carries
+// `animate-fade-up` (tailwind.config.js) — a `transform`-based entrance
+// animation with `fill-mode: both`, which never gets removed. An element
+// that is the target of a transform animation establishes a new containing
+// block for its `position: fixed` descendants for as long as that animation
+// is in effect — including the held end state under `both`/`forwards` fill
+// mode, regardless of the actual resolved transform value. Left in place,
+// the drawer's "fixed, full viewport height" panel gets trapped inside
+// <main>'s own box instead of the real viewport: it stops covering the
+// topbar (a sibling of <main>, sitting above it) and stretches to <main>'s
+// content length instead of 100vh — which is exactly the "long and awkward"
+// panel this was built to fix. Portalling to <body> sidesteps the whole
+// category of bug: nothing this renders inside can ever again depend on
+// what CSS an ancestor happens to apply.
 
 interface ModuleCopy {
   title: string;
@@ -55,9 +72,18 @@ interface Props {
   module: InteractionModule;
   open: boolean;
   onClose: () => void;
+  /**
+   * Primes the input with a ready-made question built from whatever the
+   * caller's own "FinSight explanation" card just said — e.g. naming the
+   * exact category that rose, not a generic "why did my expenses increase?".
+   * Only ever pre-fills the box (the same thing clicking a starter chip
+   * does); it never sends on the caller's behalf, so the owner still reads
+   * the question and decides before anything reaches the AI.
+   */
+  initialQuestion?: string;
 }
 
-export function AskFinSightDrawer({ businessProfileId, module, open, onClose }: Props) {
+export function AskFinSightDrawer({ businessProfileId, module, open, onClose, initialQuestion }: Props) {
   const copy = MODULE_COPY[module];
   const [messages, setMessages] = useState<AIInteraction[]>([]);
   const [input, setInput] = useState("");
@@ -97,6 +123,13 @@ export function AskFinSightDrawer({ businessProfileId, module, open, onClose }: 
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, sending]);
 
+  // Re-runs whenever a fresh question arrives too, not just on open — so
+  // clicking a second "expand on this" while the drawer is already sitting
+  // open still swaps in the new context instead of leaving the old one.
+  useEffect(() => {
+    if (open && initialQuestion) setInput(initialQuestion);
+  }, [open, initialQuestion]);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -129,7 +162,7 @@ export function AskFinSightDrawer({ businessProfileId, module, open, onClose }: 
     }
   }
 
-  return (
+  return createPortal(
     <>
       <div
         aria-hidden
@@ -242,7 +275,8 @@ export function AskFinSightDrawer({ businessProfileId, module, open, onClose }: 
           </button>
         </form>
       </aside>
-    </>
+    </>,
+    document.body
   );
 }
 

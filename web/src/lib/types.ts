@@ -6,6 +6,7 @@ export interface Profile {
   email: string;
   phoneNumber: string | null;
   status: string;
+  avatarUrl: string | null;
   createdAt: string;
 }
 
@@ -44,10 +45,13 @@ export interface BusinessProfile {
   expectedMonthlyExpenses: number;
   operatingDays: number;
   largeExpenseThresholdPercent: number;
+  logoUrl: string | null;
   createdAt: string;
   /** Null when active. Archiving hides a business without deleting anything. */
   archivedAt: string | null;
   isArchived: boolean;
+  /** Expense + sales reference records combined. */
+  recordCount: number;
 }
 
 export interface BusinessProfileInput {
@@ -82,11 +86,78 @@ export interface RecordItem {
   description: string;
   vendor?: string | null;
   amount: number;
+  /**
+   * The part of `amount` that is this record's share of receipt-level tax,
+   * service charge or discount rather than the price of its own items.
+   * Signed — negative for a discount. Null when the receipt reconciled
+   * exactly, and on records predating the column.
+   */
+  allocatedCharges?: number | null;
   source: string;
   reviewStatus: ReviewStatus;
   duplicateStatus: DuplicateStatus;
   largeExpenseFlag?: boolean;
   createdAt: string;
+}
+
+/** One line read off a receipt (or typed in by the owner) on a saved record. */
+export interface RecordOriginItem {
+  id: number;
+  lineNumber: number;
+  name: string;
+  quantity: number | null;
+  unitPrice: number | null;
+  amount: number;
+  categoryId: number | null;
+  categoryName: string | null;
+  /** True when the owner typed this line in rather than FinSight reading it. */
+  addedByOwner: boolean;
+  /**
+   * True when AI read this line off the receipt photograph because OCR could
+   * read no text. Distinct from an OCR-read line, and kept on the saved
+   * record so the distinction outlives the confirm screen.
+   */
+  extractedByVision?: boolean;
+}
+
+/**
+ * Where a record came from, returned only by the single-record endpoint.
+ *
+ * `null` for a hand-typed record — there is nothing behind it but what the
+ * owner entered, and showing an empty "where this came from" panel would be
+ * noise on the common case.
+ */
+export type RecordOrigin =
+  | {
+      kind: "receipt_scan";
+      scanId: number;
+      scannedAt: string;
+      extractedVendor: string | null;
+      /** A short-lived signed link. Null when it couldn't be minted. */
+      imageUrl: string | null;
+      items: RecordOriginItem[];
+      itemsSubtotal: number;
+      siblings: {
+        id: number;
+        description: string;
+        amount: number;
+        categoryId: number;
+        categoryName: string;
+      }[];
+    }
+  | {
+      kind: "csv_import";
+      batchId: number;
+      title: string;
+      uploadDate: string;
+      fileReference: string;
+      status: string;
+      rowCount: number;
+    };
+
+/** A single record fetched on its own, which carries its provenance. */
+export interface RecordDetail extends RecordItem {
+  origin: RecordOrigin | null;
 }
 
 export interface ExpenseRecordInput {
@@ -126,6 +197,10 @@ export interface RecordFilters {
 export interface Notification {
   id: number;
   businessProfileId: number;
+  /** Which expense record this is about, when it's about one specific
+   * record (a duplicate or large-expense flag) rather than a batch summary
+   * (a finished CSV import covering several rows). */
+  expenseRecordId: number | null;
   message: string;
   type: string;
   dateCreated: string;
@@ -268,4 +343,9 @@ export interface AIInteraction {
 export interface AskResponse extends AIInteraction {
   provider: "gemini" | "openrouter" | "unavailable";
   detectedAmount: number | null;
+}
+
+export interface CategorySuggestion {
+  categoryId: number;
+  categoryName: string;
 }

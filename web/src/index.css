@@ -107,6 +107,14 @@
     --sidebar-from: 15 66 63;
     --sidebar-to: 5 38 36;
 
+    /* The rail's own text/wash colours — see the sidebar note in
+       tailwind.config.js. White text and a white wash source, because this
+       is still the dark teal rail every version of FinSight has had. */
+    --sidebar-ink: 255 255 255;
+    --sidebar-muted: 200 247 236;
+    --sidebar-accent: 90 220 196;
+    --sidebar-fg: 255 255 255;
+
     /* Shadow tinted toward the brand hue — see the config's note. */
     --shadow: 6 45 35;
     --shadow-sm-a: 0.06;
@@ -178,8 +186,22 @@
     --chart-emphasis: 13 127 114;
     --chart-muted: 205 213 215;
 
-    --sidebar-from: 15 66 63;
-    --sidebar-to: 5 38 36;
+    /* The one theme where the rail itself goes light rather than staying the
+       fixed dark teal — a near-white surface instead of the deep gradient,
+       so it reads as part of this theme's cooler, brighter surface rather
+       than a fixed dark panel bolted onto a light page. The gradient's foot
+       is brand-50 rather than a neutral grey — a faint mint wash top-to-
+       bottom is the "still FinSight" cue a flat white panel would lose. */
+    --sidebar-from: 255 255 255;
+    --sidebar-to: 239 252 249;
+
+    /* Dark text and a dark wash source, because the rail is light here —
+       see the sidebar note in tailwind.config.js. sidebar-accent reuses the
+       same brand-600 the .eyebrow rule below already uses on light surfaces. */
+    --sidebar-ink: 15 23 42;
+    --sidebar-muted: 71 85 105;
+    --sidebar-accent: 13 127 114;
+    --sidebar-fg: 15 23 42;
 
     /* Neutral rather than green-tinted, to match the cooler neutrals. */
     --shadow: 15 23 42;
@@ -269,6 +291,14 @@
     /* Darker than the page, so the sidebar still reads as its own plane. */
     --sidebar-from: 10 22 21;
     --sidebar-to: 5 13 12;
+
+    /* Same white-based rail text/wash as Classic — Dark's page goes to near-
+       black, but the rail was already the darkest surface in the app, so it
+       doesn't need its own inverted treatment the way Light's does. */
+    --sidebar-ink: 255 255 255;
+    --sidebar-muted: 200 247 236;
+    --sidebar-accent: 90 220 196;
+    --sidebar-fg: 255 255 255;
 
     /* Pure black and much heavier: a tinted shadow at 6% is invisible on a
        near-black page, so depth here comes from the shadow plus the border
@@ -361,11 +391,19 @@
     @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-transparent;
   }
 
-  /* On the dark sidebar, brand-500 sits too close to the surface to read as a
-     focus ring. White is unambiguous there, and the sidebar is the same deep
-     teal in every theme, so this needs no per-theme handling. */
+  /* On the dark sidebar (Classic and Dark), brand-500 sits too close to the
+     surface to read as a focus ring, so white is unambiguous there instead.
+     Light's rail is the exception — it goes light along with the rest of
+     that theme (see the sidebar note in tailwind.config.js), and a white
+     ring on a near-white rail is exactly the invisible-ring problem this
+     rule exists to avoid. The base rule's default (ring-brand-500) already
+     reads fine there, so Light overrides back to it. */
   .surface-sidebar :focus-visible {
     @apply ring-white;
+  }
+
+  [data-theme="light"] .surface-sidebar :focus-visible {
+    @apply ring-brand-600;
   }
 
   /* The active field in a dense form should be obvious from its border too,
@@ -450,6 +488,15 @@
     );
   }
 
+  /* Classic and Dark don't need this — the dark rail already reads as its
+     own plane against the page next to it. Light's rail is close enough in
+     value to the page beside it that without a seam it can look like it
+     forgot to render; a hairline in the brand tint is enough to frame it
+     without drawing a hard line down the screen. */
+  [data-theme="light"] .surface-sidebar {
+    border-right: 1px solid rgb(var(--edge-brand));
+  }
+
   /* AI / explanation cards, and the auth brand panel. Diagonal, lighter, so
      it reads as a distinct "this is FinSight speaking" surface rather than as
      more chrome. */
@@ -477,12 +524,17 @@
 
      The entrance reuses the existing pop-in timing and is decorative only,
      so the global prefers-reduced-motion rule switches it off. */
-  .confirm-dialog {
+  /* Shared by every native <dialog> in the app — ConfirmDialog and the
+     general-purpose Modal (components/Modal.tsx) both get this centering,
+     entrance and backdrop treatment from one place. */
+  .confirm-dialog,
+  .modal-dialog {
     margin: auto;
     animation: pop-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
   }
 
-  .confirm-dialog::backdrop {
+  .confirm-dialog::backdrop,
+  .modal-dialog::backdrop {
     background-color: rgb(var(--shadow) / 0.55);
   }
 

@@ -2,17 +2,19 @@ import { useEffect, useState } from "react";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
-import { ExplainButton } from "../components/ExplainButton";
+import { InsightsTabs } from "../components/AppShell";
 import { AskFinSightButton, AskFinSightDrawer } from "../components/AskFinSightDrawer";
 import { RecoveryMeter } from "../components/RecoveryMeter";
 import { StatTile } from "../components/StatTile";
+import { DataTable, type Column } from "../components/DataTable";
 import { STATUS_TEXT_COLORS } from "../lib/chartPalette";
-import type { DayStatus, RecoveryInsight } from "../lib/types";
-import { PageHead, Panel } from "../components/ui";
+import type { DailyCoverageRow, DayStatus, RecoveryInsight } from "../lib/types";
+import { AiCard, Kw, PageHead, Panel, Pill, type PillTone } from "../components/ui";
 import { Money, formatMoney } from "../components/Money";
 
-// Text-variant colors: these are used both as small type and as pill
-// backgrounds under white text, so they need the darker steps.
+// Text-variant colors: used for the Gap column, which stays a plain coloured
+// figure rather than a chip — see the Pill mapping below for the Status
+// column, which IS a chip.
 function statusColor(status: DayStatus): string {
   return status === "below"
     ? STATUS_TEXT_COLORS.critical
@@ -25,22 +27,86 @@ function statusLabel(status: DayStatus): string {
   return status === "below" ? "Below target" : status === "at" ? "Reached target" : "Above target";
 }
 
-function buildContext(data: RecoveryInsight, businessName: string): string {
-  return [
-    `Business: ${businessName}`,
-    `Expected monthly expenses: PHP ${data.expectedMonthlyExpenses.toLocaleString()}`,
-    `Operating days per month: ${data.operatingDays}`,
-    `Daily needed target: PHP ${data.dailyNeededTarget.toFixed(2)}`,
-    `Sales reference recorded so far this month: PHP ${data.salesThisMonth.toLocaleString()}`,
-    `Remaining target: PHP ${data.remainingTarget.toLocaleString()}`,
-    `Remaining operating days (approximated): ${data.remainingOperatingDays}`,
-    `Adjusted daily target: PHP ${data.adjustedDailyTarget.toFixed(2)}`,
-    `Today's target: PHP ${data.todaysTarget.toFixed(2)}; recorded today: PHP ${data.todaysSales.toLocaleString()}; gap: PHP ${Math.abs(
-      data.todaysGap,
-    ).toFixed(2)} ${data.todaysStatus} target`,
-    `Month coverage: ${data.monthCoveragePercent.toFixed(1)}% (${data.onTrack ? "on pace" : "behind pace"})`,
-  ].join("\n");
+// The Status column as a themed Pill rather than a hand-rolled chip painted
+// with an inline background colour — see the note on PILL_TONES in ui.tsx.
+// "at" reads as informational rather than a warning: reaching the target
+// exactly is a good outcome, not a caution.
+const STATUS_TONE: Record<DayStatus, PillTone> = {
+  below: "danger",
+  at: "info",
+  above: "ok",
+};
+
+function statusGlyph(status: DayStatus): string {
+  return status === "below" ? "▼" : status === "at" ? "＝" : "▲";
 }
+
+// Column defs live at module scope, same as every other DataTable call site —
+// they don't close over component state, so there's no reason to recreate
+// them on every render.
+const DAILY_COVERAGE_COLUMNS: Column<DailyCoverageRow>[] = [
+  {
+    key: "date",
+    header: "Day",
+    width: "content",
+    sortValue: (d) => d.date,
+    cell: (d) => <span className="whitespace-nowrap font-medium text-ink-700">{d.date}</span>,
+  },
+  {
+    key: "neededTarget",
+    header: "Needed target",
+    width: "content",
+    align: "right",
+    sortValue: (d) => d.neededTarget,
+    cell: (d) => (
+      <span className="text-ink-600">
+        <Money value={d.neededTarget} />
+      </span>
+    ),
+  },
+  {
+    key: "sales",
+    header: "Sales reference",
+    width: "content",
+    align: "right",
+    sortValue: (d) => d.sales,
+    cell: (d) => (
+      <span className="text-ink-600">
+        <Money value={d.sales} />
+      </span>
+    ),
+  },
+  {
+    key: "gap",
+    header: "Gap",
+    width: "content",
+    align: "right",
+    sortValue: (d) => d.gap,
+    cell: (d) => (
+      <span className="font-medium" style={{ color: statusColor(d.status) }}>
+        {d.status === "at" ? (
+          <Money value={0} />
+        ) : (
+          <>
+            <Money value={Math.abs(d.gap)} /> {d.status}
+          </>
+        )}
+      </span>
+    ),
+  },
+  {
+    key: "status",
+    header: "Status",
+    width: "content",
+    sortValue: (d) => d.status,
+    cell: (d) => (
+      <Pill tone={STATUS_TONE[d.status]}>
+        <span aria-hidden>{statusGlyph(d.status)}</span>
+        {statusLabel(d.status)}
+      </Pill>
+    ),
+  },
+];
 
 export function RecoveryInsightPage() {
   const { selected } = useBusinessProfiles();
@@ -48,6 +114,9 @@ export function RecoveryInsightPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Set only by the "expand on this" link — the plain header button opens
+  // the drawer with this left undefined, same as always.
+  const [drawerQuestion, setDrawerQuestion] = useState<string | undefined>(undefined);
 
   async function load() {
     if (!selected) return;
@@ -55,7 +124,11 @@ export function RecoveryInsightPage() {
     setError(null);
     try {
       const { data } = await api.get<RecoveryInsight>("/insights/recovery", {
-        params: { businessProfileId: selected.id, coverageDays: 14 },
+        // The server caps this at the days actually elapsed this month
+        // (max 31) — asking for the ceiling every time is what gives the
+        // Daily coverage table enough rows for pagination to mean anything,
+        // rather than requesting a fixed 14 and hiding the rest.
+        params: { businessProfileId: selected.id, coverageDays: 31 },
       });
       setData(data);
     } catch (err) {
@@ -72,14 +145,34 @@ export function RecoveryInsightPage() {
 
   if (!selected) return null;
 
+  // Names the exact gap and target the card below just described, rather
+  // than a generic "how much more sales do I need?".
+  const expandQuestion = data
+    ? `Why is today's sales reference ${formatMoney(Math.abs(data.todaysGap))} ${statusLabel(data.todaysStatus).toLowerCase()}, and how do I close it?`
+    : undefined;
+
   return (
     <div>
       <PageHead
         eyebrow="Insights"
         title="Recovery target"
-        subtitle="Did your recorded sales reference reach the needed target, and how much is still needed? This tracks the current calendar month, so there's no period to choose."
-        actions={<AskFinSightButton onClick={() => setDrawerOpen(true)} />}
+        subtitle={
+          <>
+            Target-Based Recovery Insight — answers "Did my recorded sales reference reach the needed
+            target, and how much is still needed?"
+          </>
+        }
+        actions={
+          <AskFinSightButton
+            onClick={() => {
+              setDrawerQuestion(undefined);
+              setDrawerOpen(true);
+            }}
+          />
+        }
       />
+
+      <InsightsTabs />
 
       {error ? <p className="mb-4 text-sm text-tone-danger">{error}</p> : null}
 
@@ -87,7 +180,10 @@ export function RecoveryInsightPage() {
         <p className="text-sm text-ink-500">Loading…</p>
       ) : (
         <div className="space-y-6">
-          <Panel title="Inputs">
+          {/* This tracks the current calendar month — there is no period to
+              choose, so the pill here just names what "today" means rather
+              than offering a control that does nothing. */}
+          <Panel title="Inputs" action={<span className="text-xs text-ink-400">Today</span>}>
             <div className="grid gap-4 sm:grid-cols-3">
               <StatTile
                 label="Expected monthly expenses"
@@ -103,6 +199,7 @@ export function RecoveryInsightPage() {
                 label="Daily needed target"
                 value={formatMoney(data.dailyNeededTarget)}
                 sublabel="Computed from the two figures beside it"
+                emphasis
               />
             </div>
             <p className="mt-3 text-xs text-ink-400">
@@ -140,7 +237,12 @@ export function RecoveryInsightPage() {
           </Panel>
 
           <Panel title="Remaining recovery target" eyebrow="Recalculated across your remaining operating days">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              <StatTile
+                label="Expected monthly expenses"
+                value={formatMoney(data.expectedMonthlyExpenses)}
+                sublabel="Owner-entered reference"
+              />
               <StatTile
                 label="Sales reference so far this month"
                 value={formatMoney(data.salesThisMonth)}
@@ -156,17 +258,20 @@ export function RecoveryInsightPage() {
                 value={`≈ ${data.remainingOperatingDays}`}
                 sublabel={`${data.calendarDaysLeftInMonth} of ${data.daysInMonth} calendar days left`}
               />
+              <StatTile
+                label="Adjusted daily target"
+                value={formatMoney(data.adjustedDailyTarget)}
+                sublabel="Remaining target ÷ remaining operating days"
+                emphasis
+              />
             </div>
-            <div className="mt-4 rounded-lg bg-tint-brand p-4">
-              <p className="text-xs font-medium text-brand-700">Adjusted daily target</p>
-              <Money value={data.adjustedDailyTarget} className="block text-2xl font-semibold text-ink-900" />
-              <p className="mt-1 text-xs text-brand-700">
-                Remaining target ÷ remaining operating days. This updates as you record more sales references
-                — it's a recovery guide, not a guaranteed outcome.
-              </p>
-            </div>
+            <p className="mt-3 text-xs text-ink-400">
+              Remaining target = expected monthly expenses − sales reference recorded so far. Adjusted daily
+              target updates as you record more sales references — it's a recovery guide, not a guaranteed
+              outcome.
+            </p>
             {data.remainingOperatingDaysIsApproximated ? (
-              <p className="mt-3 text-xs text-ink-400">
+              <p className="mt-1 text-xs text-ink-400">
                 Remaining operating days is an estimate: your profile records how many days a month you
                 operate, not which days of the week, so this scales your monthly count by how much of the
                 month is left.
@@ -174,65 +279,59 @@ export function RecoveryInsightPage() {
             ) : null}
           </Panel>
 
-          <div className="overflow-x-auto rounded-2xl bg-paper border border-paper-200 shadow-sm">
-            <div className="flex items-center justify-between px-5 pt-5">
+          <div>
+            <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-ink-700">Daily coverage</h2>
-              <span className="text-xs text-ink-400">
-                Last {data.coverageDays} day{data.coverageDays === 1 ? "" : "s"}
-              </span>
+              <span className="text-xs text-ink-400">Month to date</span>
             </div>
-            <table className="mt-3 w-full text-left text-sm">
-              <thead className="border-b border-paper-200 text-xs uppercase text-ink-500">
-                <tr>
-                  <th className="px-5 py-3">Day</th>
-                  <th className="px-5 py-3 text-right">Needed target</th>
-                  <th className="px-5 py-3 text-right">Sales reference</th>
-                  <th className="px-5 py-3 text-right">Gap</th>
-                  <th className="px-5 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.dailyCoverage.map((d) => (
-                  <tr key={d.date} className="border-b border-paper-200 last:border-0">
-                    <td className="px-5 py-2.5 whitespace-nowrap font-medium text-ink-700">{d.date}</td>
-                    <td className="px-5 py-2.5 text-right text-ink-600">
-                      <Money value={d.neededTarget} />
-                    </td>
-                    <td className="px-5 py-2.5 text-right text-ink-600">
-                      <Money value={d.sales} />
-                    </td>
-                    <td
-                      className="px-5 py-2.5 text-right font-medium"
-                      style={{ color: statusColor(d.status) }}
-                    >
-                      {d.status === "at" ? (
-                        <Money value={0} />
-                      ) : (
-                        <>
-                          <Money value={Math.abs(d.gap)} /> {d.status}
-                        </>
-                      )}
-                    </td>
-                    <td className="px-5 py-2.5">
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white"
-                        style={{ backgroundColor: statusColor(d.status) }}
-                      >
-                        <span aria-hidden>{d.status === "below" ? "▼" : d.status === "at" ? "＝" : "▲"}</span>
-                        {statusLabel(d.status)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              rows={data.dailyCoverage}
+              columns={DAILY_COVERAGE_COLUMNS}
+              getRowKey={(d) => d.date}
+              caption={`Daily sales reference against target for ${selected.name}, month to date.`}
+              itemNoun="days"
+              storageKey="recovery-daily-coverage"
+              initialSort={{ key: "date", direction: "desc" }}
+              empty={<p className="p-4 text-sm text-ink-500">No days recorded yet this month.</p>}
+              mobileRow={(d) => (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-ink-900">{d.date}</p>
+                    <p className="mt-0.5 text-xs text-ink-500">
+                      <Money value={d.sales} bare /> of <Money value={d.neededTarget} bare /> needed
+                    </p>
+                  </div>
+                  <Pill tone={STATUS_TONE[d.status]}>
+                    <span aria-hidden>{statusGlyph(d.status)}</span>
+                    {statusLabel(d.status)}
+                  </Pill>
+                </div>
+              )}
+            />
           </div>
 
-          <ExplainButton
-            businessProfileId={selected.id}
-            module="Recovery Target"
-            context={buildContext(data, selected.name)}
-          />
+          <AiCard
+            title="FinSight explanation"
+            subtitle="Scoped to Recovery Target — composed from your records, not AI-written"
+            footer={
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawerQuestion(expandQuestion);
+                  setDrawerOpen(true);
+                }}
+                className="tap-inline font-semibold text-accent-200 underline-offset-2 hover:underline"
+              >
+                Ask about this gap →
+              </button>
+            }
+          >
+            Your sales reference for today is <Kw>{formatMoney(Math.abs(data.todaysGap))}</Kw>{" "}
+            {statusLabel(data.todaysStatus).toLowerCase()}. Based on your expected monthly expenses and
+            recorded sales references so far, FinSight estimates that you need around{" "}
+            <Kw>{formatMoney(data.adjustedDailyTarget)}</Kw> per remaining operating day to still reach the
+            monthly target.
+          </AiCard>
         </div>
       )}
 
@@ -241,6 +340,7 @@ export function RecoveryInsightPage() {
         module="Recovery Target"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        initialQuestion={drawerQuestion}
       />
     </div>
   );

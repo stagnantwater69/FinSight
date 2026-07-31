@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
+import { useExpenseCategories } from "../context/ExpenseCategoryContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
-import { ExplainButton } from "../components/ExplainButton";
+import { InsightsTabs } from "../components/AppShell";
 import { AskFinSightButton, AskFinSightDrawer } from "../components/AskFinSightDrawer";
 import { DonutChart } from "../components/DonutChart";
 import { CategoryComparisonChart } from "../components/CategoryComparisonChart";
@@ -12,8 +14,8 @@ import { EmptyState } from "../components/EmptyState";
 import { ButtonLink } from "../components/Button";
 import { formatMoney } from "../components/Money";
 import { STATUS_INK } from "../lib/chartPalette";
-import { KpiCard, PageHead, Panel, Callout } from "../components/ui";
-import type { ExpenseBehavior as ExpenseInsightData } from "../lib/types";
+import { AiCard, KpiCard, Kw, PageHead, Panel, Callout, Pill } from "../components/ui";
+import type { ExpenseBehavior as ExpenseInsightData, RecordItem } from "../lib/types";
 
 const PERIOD_OPTIONS = [
   { label: "This week", days: 7 },
@@ -29,9 +31,10 @@ const PERIOD_OPTIONS = [
  *   1. How much did I spend, and is that a lot?      — the KPI row
  *   2. Where did it go?                              — Category distribution
  *   3. What changed since last time?                 — Category comparison
- *   4. When did it leave?                            — Daily spending
- *   5. Anything odd I should look at?                — Unusual expenses
- *   6. The numbers, exactly                          — Category summary table
+ *   4. The numbers, exactly                          — Category summary table
+ *   5. Anything I should act on?                     — Large expense flags + FinSight's own read of the panel
+ *   6. When did it leave?                            — Daily spending
+ *   7. Anything odd, statistically?                  — Unusual expenses (Z-score)
  *
  * No panel assumes a term the reader might not have. "Exp. of available funds"
  * is written out as a share of the cash they told us they have; "biggest
@@ -43,52 +46,31 @@ const PERIOD_OPTIONS = [
  * the same category destroys trust in every other number on the page.
  */
 
-function buildContext(data: ExpenseInsightData, businessName: string, periodDays: number): string {
-  const lines = [
-    `Business: ${businessName}`,
-    `Period: last ${periodDays} days (${data.periodStart.slice(0, 10)} to ${data.periodEnd.slice(0, 10)})`,
-    `Total expenses this period: PHP ${data.totals.current.toLocaleString()}`,
-    `Total expenses previous period: PHP ${data.totals.previous.toLocaleString()}`,
-    "",
-  ];
-
-  lines.push("Category trends (this period vs. previous equivalent period):");
-  if (data.categoryTrends.length === 0) {
-    lines.push("- none — no expense categories or records exist yet.");
-  } else {
-    for (const t of data.categoryTrends) {
-      const changeText =
-        t.percentChange === null
-          ? "new spending this period, no prior period to compare"
-          : `${t.direction} ${Math.abs(t.percentChange).toFixed(1)}%`;
-      lines.push(
-        `- ${t.categoryName}: PHP ${t.current.toLocaleString()} across ${t.recordCount} record(s) (was PHP ${t.previous.toLocaleString()}, ${changeText})`,
-      );
-    }
-  }
-
-  lines.push("", "Unusual expenses flagged this period (Z-score beyond threshold vs. category history):");
-  if (data.unusualExpenses.length === 0) {
-    lines.push("- none flagged.");
-  } else {
-    for (const u of data.unusualExpenses) {
-      lines.push(
-        `- "${u.description}" PHP ${u.amount.toLocaleString()} on ${u.date.slice(0, 10)}, category ${u.categoryName} (z-score ${u.zScore.toFixed(2)}, category average PHP ${u.categoryMean.toFixed(2)})`,
-      );
-    }
-  }
-
-  if (data.insufficientHistoryCategories.length > 0) {
-    lines.push(
-      "",
-      "Categories with too little history for unusual-expense detection: " +
-        data.insufficientHistoryCategories
-          .map((c) => `${c.categoryName} (${c.historyCount} record${c.historyCount === 1 ? "" : "s"})`)
-          .join(", "),
+/**
+ * Why a record showed up on the Large Expense Flags panel.
+ *
+ * Grounded in the exact rule the backend applies (expenseRecord.service.ts:
+ * `amount >= expectedMonthlyExpenses * (largeExpenseThresholdPercent / 100)`),
+ * so the reason line names a real, checkable threshold rather than a vague
+ * "this seemed big". A record can carry a large-expense flag, a duplicate
+ * flag, or both — the sentence says whichever actually applied.
+ */
+function flagReason(record: RecordItem, profile: { expectedMonthlyExpenses: number; largeExpenseThresholdPercent: number }): string {
+  const reasons: string[] = [];
+  if (record.largeExpenseFlag) {
+    const thresholdAmount = profile.expectedMonthlyExpenses * (profile.largeExpenseThresholdPercent / 100);
+    reasons.push(
+      `above your large-expense threshold (${profile.largeExpenseThresholdPercent}% of expected monthly expenses = ${formatMoney(thresholdAmount)})`,
     );
   }
-
-  return lines.join("\n");
+  if (record.duplicateStatus === "Flagged") {
+    reasons.push(
+      record.duplicateOfRecordId
+        ? `a possible duplicate of record #${record.duplicateOfRecordId}`
+        : "a possible duplicate of another record",
+    );
+  }
+  return reasons.length > 0 ? reasons.join(" · ") : "flagged for a second look";
 }
 
 /** "▲ PHP 7,000" in the right status colour, or an em-dash for no movement. */
@@ -113,23 +95,42 @@ function ChangeFigure({ change, percent }: { change: number; percent: number | n
   );
 }
 
+// The panel is a summary, not the full review queue — FlaggedRecords already
+// owns that job. Capped the same way the AI context builder caps it
+// server-side (aiContext.service.ts: `take: 5`), so the two surfaces never
+// disagree about what "a short list" means.
+const MAX_FLAGGED_SHOWN = 5;
+
 export function ExpenseInsight() {
   const { selected } = useBusinessProfiles();
+  const { categories } = useExpenseCategories();
   const [periodDays, setPeriodDays] = useState(30);
   const [data, setData] = useState<ExpenseInsightData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [flaggedExpenses, setFlaggedExpenses] = useState<RecordItem[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Set only by the "expand on this" link — the plain header button opens
+  // the drawer with this left undefined, same as always.
+  const [drawerQuestion, setDrawerQuestion] = useState<string | undefined>(undefined);
 
   async function load() {
     if (!selected) return;
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.get<ExpenseInsightData>("/insights/expense-behavior", {
-        params: { businessProfileId: selected.id, periodDays },
-      });
-      setData(data);
+      const [behavior, flagged] = await Promise.all([
+        api.get<ExpenseInsightData>("/insights/expense-behavior", {
+          params: { businessProfileId: selected.id, periodDays },
+        }),
+        api.get<RecordItem[]>("/records/flagged", { params: { businessProfileId: selected.id } }),
+      ]);
+      setData(behavior.data);
+      setFlaggedExpenses(
+        flagged.data
+          .filter((r) => r.type === "expense")
+          .sort((a, b) => (a.date < b.date ? 1 : -1)),
+      );
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -184,6 +185,45 @@ export function ExpenseInsight() {
 
   if (!selected) return null;
 
+  function categoryName(categoryId?: number) {
+    return categories.find((c) => c.id === categoryId)?.name ?? "—";
+  }
+
+  /**
+   * The AI card's body — composed from figures already on this page, not
+   * generated. Same reasoning as the Dashboard's "This month at a glance"
+   * card: it can share a denominator with the KPI row above it and never
+   * drift out of step with them, which an actual model call could.
+   */
+  const aiSummary = summary ? (
+    <>
+      {summary.top ? (
+        <>
+          <Kw>{summary.top.categoryName}</Kw> is your highest expense category {periodLabel}, making up{" "}
+          <Kw>{summary.topShare.toFixed(1)}%</Kw> of recorded expenses.{" "}
+        </>
+      ) : (
+        <>No expenses recorded {periodLabel} yet. </>
+      )}
+      {summary.biggestIncrease ? (
+        <>
+          <Kw>{summary.biggestIncrease.categoryName}</Kw> rose the most, up{" "}
+          <Kw>{formatMoney(summary.biggestIncrease.change)}</Kw> compared with{" "}
+          {previousLabel.toLowerCase()}, so it may be worth reviewing.
+        </>
+      ) : null}
+    </>
+  ) : null;
+
+  // Names the exact category and figure the card above just named — a much
+  // more useful starting point in the drawer than a generic "why did my
+  // expenses increase?" that makes the owner retype what's already on screen.
+  const expandQuestion = summary?.biggestIncrease
+    ? `Why did ${summary.biggestIncrease.categoryName} increase by ${formatMoney(summary.biggestIncrease.change)} compared with ${previousLabel.toLowerCase()}?`
+    : summary?.top
+      ? `Why is ${summary.top.categoryName} my highest expense category ${periodLabel}?`
+      : undefined;
+
   const periodPicker = (
     <div className="flex gap-1 rounded-xl border border-paper-200 bg-paper-100 p-1">
       {PERIOD_OPTIONS.map((opt) => (
@@ -209,14 +249,25 @@ export function ExpenseInsight() {
       <PageHead
         eyebrow="Insights"
         title="Expense insight"
-        subtitle="Where your money went, what changed, and anything worth a second look."
+        subtitle={
+          <>
+            Expense Behavior Analysis — answers "What is happening with my expenses?"
+          </>
+        }
         actions={
           <>
             {periodPicker}
-            <AskFinSightButton onClick={() => setDrawerOpen(true)} />
+            <AskFinSightButton
+              onClick={() => {
+                setDrawerQuestion(undefined);
+                setDrawerOpen(true);
+              }}
+            />
           </>
         }
       />
+
+      <InsightsTabs />
 
       {error ? (
         <p className="mb-4 rounded-xl bg-tint-danger px-3.5 py-3 text-sm text-tone-danger ring-1 ring-edge-danger">
@@ -374,7 +425,7 @@ export function ExpenseInsight() {
 
           {/* ================= 2 & 3. WHERE IT WENT / WHAT CHANGED ================= */}
           <div className="grid gap-5 lg:grid-cols-2">
-            <Panel eyebrow="Category share" title="Where your money went" className="min-w-0">
+            <Panel eyebrow="Category share" title="Category distribution" className="min-w-0">
               <DonutChart
                 breakdown={data.categoryTrends
                   .filter((t) => t.current > 0)
@@ -383,8 +434,8 @@ export function ExpenseInsight() {
             </Panel>
 
             <Panel
-              eyebrow={`This vs ${previousLabel.toLowerCase()}`}
-              title="What changed"
+              eyebrow={`Current vs previous period`}
+              title="Category comparison"
               className="min-w-0"
             >
               <CategoryComparisonChart
@@ -395,72 +446,7 @@ export function ExpenseInsight() {
             </Panel>
           </div>
 
-          {/* ===================== 4. WHEN IT LEFT ===================== */}
-          <Panel
-            eyebrow="Day by day"
-            title="When your money left"
-            action={<span className="text-xs text-ink-400">Last {data.periodDays} days</span>}
-          >
-            <DailySpendChart daily={data.dailyTotals} />
-          </Panel>
-
-          {/* ===================== 5. ANYTHING ODD ===================== */}
-          <Panel
-            eyebrow="Worth a look"
-            title="Unusual expenses"
-            action={
-              data.unusualExpenses.length > 0 ? (
-                <span className="text-xs text-ink-400">
-                  {data.unusualExpenses.length} flagged
-                </span>
-              ) : null
-            }
-          >
-            {data.unusualExpenses.length === 0 ? (
-              <EmptyState compact title="Nothing looks out of the ordinary" icon="✓">
-                FinSight compares each expense against what you usually spend in that category. Nothing
-                this period stood out.
-              </EmptyState>
-            ) : (
-              <ul className="space-y-2">
-                {data.unusualExpenses.map((u) => {
-                  const times = u.categoryMean > 0 ? u.amount / u.categoryMean : null;
-                  return (
-                    <li
-                      key={u.id}
-                      className="rounded-xl bg-tint-accent px-3.5 py-3 ring-1 ring-edge-accent"
-                    >
-                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                        <p className="min-w-0 text-sm font-semibold text-tone-accent">{u.description}</p>
-                        <p className="figure shrink-0 text-sm font-bold text-tone-accent">
-                          {formatMoney(u.amount)}
-                        </p>
-                      </div>
-                      {/* Said in multiples of the usual, not in standard
-                          deviations. "About 4x your usual Inventory expense"
-                          lands; "z-score 3.2" does not. */}
-                      <p className="mt-1 text-xs text-tone-accent opacity-90">
-                        {u.categoryName} · {u.date.slice(0, 10)} ·{" "}
-                        {times && times >= 1.5
-                          ? `about ${times.toFixed(1)}× your usual ${formatMoney(u.categoryMean)}`
-                          : `usually around ${formatMoney(u.categoryMean)}`}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-
-            {data.insufficientHistoryCategories.length > 0 ? (
-              <p className="mt-3 text-xs text-ink-400">
-                Not enough history yet to check:{" "}
-                {data.insufficientHistoryCategories.map((c) => c.categoryName).join(", ")}. FinSight needs
-                a few expenses in a category before it can tell what "normal" looks like.
-              </p>
-            ) : null}
-          </Panel>
-
-          {/* ===================== 6. THE TABLE ===================== */}
+          {/* ===================== 4. THE TABLE ===================== */}
           {/* The accessible reading of every chart above, and the relief the
               palette's contrast check requires: nothing on this page is
               knowable only by colour. */}
@@ -548,11 +534,149 @@ export function ExpenseInsight() {
             </div>
           </Panel>
 
-          <ExplainButton
-            businessProfileId={selected.id}
-            module="Expense Insights"
-            context={buildContext(data, selected.name, periodDays)}
-          />
+          {/* ===================== 5. FLAGS + AI ===================== */}
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Panel
+              title="Large expense flags"
+              action={
+                flaggedExpenses.length > 0 ? (
+                  <Pill tone="danger">{flaggedExpenses.length} flagged</Pill>
+                ) : (
+                  <Pill tone="ok">All clear</Pill>
+                )
+              }
+            >
+              {flaggedExpenses.length === 0 ? (
+                <EmptyState compact title="Nothing flagged right now" icon="✓">
+                  Expenses land here once they cross your large-expense threshold or look like a possible
+                  duplicate.
+                </EmptyState>
+              ) : (
+                <>
+                  <ul className="space-y-2">
+                    {flaggedExpenses.slice(0, MAX_FLAGGED_SHOWN).map((r) => (
+                      <li
+                        key={r.id}
+                        className="flex items-start gap-2.5 rounded-xl bg-tint-danger px-3.5 py-3 ring-1 ring-edge-danger"
+                      >
+                        <span aria-hidden className="mt-0.5 shrink-0 text-tone-danger">
+                          ⚑
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                            <p className="min-w-0 text-sm font-semibold text-tone-danger">{r.description}</p>
+                            <p className="figure shrink-0 text-sm font-bold text-tone-danger">
+                              {formatMoney(r.amount)}
+                            </p>
+                          </div>
+                          <p className="mt-1 text-xs text-tone-danger opacity-90">
+                            {categoryName(r.categoryId)} · {r.date.slice(0, 10)} ·{" "}
+                            {flagReason(r, selected)}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {flaggedExpenses.length > MAX_FLAGGED_SHOWN ? (
+                    <Link
+                      to="/records/flagged"
+                      className="tap-inline mt-3 block text-sm font-semibold text-brand-700 hover:text-brand-800"
+                    >
+                      {flaggedExpenses.length - MAX_FLAGGED_SHOWN} more — review all flagged records →
+                    </Link>
+                  ) : null}
+                  <p className="mt-3 text-xs text-ink-400">
+                    A large-expense flag marks records worth a second look. It does not mean the expense is
+                    wrong.
+                  </p>
+                </>
+              )}
+            </Panel>
+
+            <AiCard
+              title="FinSight explanation"
+              subtitle="Scoped to Expense Insights — composed from your records, not AI-written"
+              footer={
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawerQuestion(expandQuestion);
+                    setDrawerOpen(true);
+                  }}
+                  className="tap-inline font-semibold text-accent-200 underline-offset-2 hover:underline"
+                >
+                  Ask FinSight to expand on this →
+                </button>
+              }
+            >
+              {aiSummary}
+            </AiCard>
+          </div>
+
+          {/* ===================== 6. WHEN IT LEFT ===================== */}
+          <Panel
+            eyebrow="Day by day"
+            title="When your money left"
+            action={<span className="text-xs text-ink-400">Last {data.periodDays} days</span>}
+          >
+            <DailySpendChart daily={data.dailyTotals} />
+          </Panel>
+
+          {/* ===================== 7. ANYTHING ODD (statistical) ===================== */}
+          <Panel
+            eyebrow="Worth a look"
+            title="Unusual expenses"
+            action={
+              data.unusualExpenses.length > 0 ? (
+                <span className="text-xs text-ink-400">
+                  {data.unusualExpenses.length} flagged
+                </span>
+              ) : null
+            }
+          >
+            {data.unusualExpenses.length === 0 ? (
+              <EmptyState compact title="Nothing looks out of the ordinary" icon="✓">
+                FinSight compares each expense against what you usually spend in that category. Nothing
+                this period stood out.
+              </EmptyState>
+            ) : (
+              <ul className="space-y-2">
+                {data.unusualExpenses.map((u) => {
+                  const times = u.categoryMean > 0 ? u.amount / u.categoryMean : null;
+                  return (
+                    <li
+                      key={u.id}
+                      className="rounded-xl bg-tint-accent px-3.5 py-3 ring-1 ring-edge-accent"
+                    >
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                        <p className="min-w-0 text-sm font-semibold text-tone-accent">{u.description}</p>
+                        <p className="figure shrink-0 text-sm font-bold text-tone-accent">
+                          {formatMoney(u.amount)}
+                        </p>
+                      </div>
+                      {/* Said in multiples of the usual, not in standard
+                          deviations. "About 4x your usual Inventory expense"
+                          lands; "z-score 3.2" does not. */}
+                      <p className="mt-1 text-xs text-tone-accent opacity-90">
+                        {u.categoryName} · {u.date.slice(0, 10)} ·{" "}
+                        {times && times >= 1.5
+                          ? `about ${times.toFixed(1)}× your usual ${formatMoney(u.categoryMean)}`
+                          : `usually around ${formatMoney(u.categoryMean)}`}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {data.insufficientHistoryCategories.length > 0 ? (
+              <p className="mt-3 text-xs text-ink-400">
+                Not enough history yet to check:{" "}
+                {data.insufficientHistoryCategories.map((c) => c.categoryName).join(", ")}. FinSight needs
+                a few expenses in a category before it can tell what "normal" looks like.
+              </p>
+            ) : null}
+          </Panel>
         </div>
       )}
 
@@ -561,6 +685,7 @@ export function ExpenseInsight() {
         module="Expense Insights"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        initialQuestion={drawerQuestion}
       />
     </div>
   );

@@ -2,12 +2,11 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { useExpenseCategories } from "../context/ExpenseCategoryContext";
-import { useNotifications } from "../context/NotificationContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { CategoryBreakdownChart } from "../components/CategoryBreakdownChart";
+import { CategoryComparisonChart } from "../components/CategoryComparisonChart";
 import { RecoveryMeter } from "../components/RecoveryMeter";
-import { AlertsPanel } from "../components/AlertsPanel";
 import { AskFinSightButton, AskFinSightDrawer } from "../components/AskFinSightDrawer";
 import { SkeletonDashboard } from "../components/Skeleton";
 import { EmptyState, SetupProgress } from "../components/EmptyState";
@@ -16,7 +15,7 @@ import { formatMoney } from "../components/Money";
 import { DonutChart } from "../components/DonutChart";
 import { AiCard, KpiCard, Kw, Panel, PageHead, Pill } from "../components/ui";
 import { IconArrowRight } from "../components/icons";
-import type { DashboardSummary } from "../lib/types";
+import type { DashboardSummary, ExpenseBehavior } from "../lib/types";
 
 const PERIOD_OPTIONS = [
   { label: "Today", days: 1 },
@@ -27,12 +26,15 @@ const PERIOD_OPTIONS = [
 export function Dashboard() {
   const { selected } = useBusinessProfiles();
   const { categories } = useExpenseCategories();
-  const { markRead } = useNotifications();
   const [periodDays, setPeriodDays] = useState(30);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<ExpenseBehavior | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Set only by the "expand on this" link — the plain header button opens
+  // the drawer with this left undefined, same as always.
+  const [drawerQuestion, setDrawerQuestion] = useState<string | undefined>(undefined);
 
   async function load() {
     if (!selected) return;
@@ -55,28 +57,31 @@ export function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, periodDays]);
 
-  /**
-   * Goes through the shared notification context rather than calling the API
-   * directly.
-   *
-   * The dashboard's `summary.alerts` and the topbar bell are two views of the
-   * same rows. Marking one read here used to PATCH straight to the server,
-   * which left the bell's badge showing a count that included an alert the
-   * user had visibly just dismissed — it only corrected itself on the next
-   * poll or reload. Routing through the context updates both at once.
-   *
-   * The local `summary` copy still has to be updated too: it came from
-   * /dashboard/summary, not from the notifications endpoint, so the context
-   * has no way to reach into it.
-   */
-  async function handleMarkRead(id: number) {
-    setSummary((prev) =>
-      prev
-        ? { ...prev, alerts: prev.alerts.map((a) => (a.id === id ? { ...a, readStatus: true } : a)) }
-        : prev,
-    );
-    await markRead(id);
-  }
+  // This vs last month, independent of the KPI row's own period toggle above
+  // — "Today" or "This week" would make a month-over-month comparison
+  // meaningless, so this always asks for the fixed 30-day window regardless
+  // of what periodDays is currently set to.
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    api
+      .get<ExpenseBehavior>("/insights/expense-behavior", {
+        params: { businessProfileId: selected.id, periodDays: 30 },
+      })
+      .then(({ data }) => {
+        if (!cancelled) setComparison(data);
+      })
+      .catch(() => {
+        // A quiet failure here — the KPI row and the rest of the dashboard
+        // already loaded successfully via a separate request, and this one
+        // panel degrading to its empty state is a much smaller problem than
+        // a page-level error banner over a dashboard that otherwise works.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
 
   if (!selected) return null;
 
@@ -92,8 +97,6 @@ export function Dashboard() {
   const topCategory = summary?.expenseCategoryBreakdown?.length
     ? [...summary.expenseCategoryBreakdown].sort((a, b) => b.total - a.total)[0]
     : null;
-
-  const unreadAlerts = summary?.alerts.filter((a) => !a.readStatus).length ?? 0;
 
   /**
    * Recovery reduced to a KPI-sized verdict.
@@ -118,6 +121,17 @@ export function Dashboard() {
             meta: `${formatMoney(summary.recoveryStatus.remainingTarget)} still needed`,
             tone: "danger",
           };
+
+  // Names whichever specific thing the card above actually flagged — the
+  // records needing review if there are any (the most actionable item),
+  // otherwise the top category — rather than a generic "summarise this".
+  const expandQuestion = summary
+    ? summary.recordsNeedingReview > 0
+      ? `What should I do about the ${summary.recordsNeedingReview} record${summary.recordsNeedingReview === 1 ? "" : "s"} that need${summary.recordsNeedingReview === 1 ? "s" : ""} review?`
+      : topCategory
+        ? `Why is ${topCategory.categoryName} my largest expense category ${periodLabel.toLowerCase()}?`
+        : undefined
+    : undefined;
 
   return (
     <div>
@@ -148,7 +162,12 @@ export function Dashboard() {
                 </button>
               ))}
             </div>
-            <AskFinSightButton onClick={() => setDrawerOpen(true)} />
+            <AskFinSightButton
+              onClick={() => {
+                setDrawerQuestion(undefined);
+                setDrawerOpen(true);
+              }}
+            />
           </>
         }
       />
@@ -238,7 +257,10 @@ export function Dashboard() {
               footer={
                 <button
                   type="button"
-                  onClick={() => setDrawerOpen(true)}
+                  onClick={() => {
+                    setDrawerQuestion(expandQuestion);
+                    setDrawerOpen(true);
+                  }}
                   className="tap-inline font-semibold text-accent-200 underline-offset-2 hover:underline"
                 >
                   Ask FinSight about any of this →
@@ -322,17 +344,39 @@ export function Dashboard() {
             </Panel>
 
             <Panel
-              title="Alerts"
+              eyebrow="This month vs last month"
+              title="Expense comparison"
               className="min-w-0"
               action={
-                unreadAlerts > 0 ? (
-                  <Pill tone="warn">{unreadAlerts} unread</Pill>
-                ) : (
-                  <Pill tone="ok">All read</Pill>
-                )
+                comparison && comparison.totals.previous > 0 ? (
+                  <Pill tone={comparison.totals.current > comparison.totals.previous ? "warn" : "ok"}>
+                    <span aria-hidden>
+                      {comparison.totals.current > comparison.totals.previous
+                        ? "▲"
+                        : comparison.totals.current < comparison.totals.previous
+                          ? "▼"
+                          : "—"}
+                    </span>
+                    {Math.abs(
+                      ((comparison.totals.current - comparison.totals.previous) / comparison.totals.previous) * 100,
+                    ).toFixed(0)}
+                    % vs last month
+                  </Pill>
+                ) : null
               }
             >
-              <AlertsPanel alerts={summary.alerts} onMarkRead={handleMarkRead} />
+              {!comparison || comparison.categoryTrends.filter((t) => t.current > 0 || t.previous > 0).length === 0 ? (
+                <EmptyState compact title="Not enough history yet" icon="◔">
+                  Once you've recorded expenses in two consecutive months, this compares them side by side,
+                  category by category.
+                </EmptyState>
+              ) : (
+                <CategoryComparisonChart
+                  trends={comparison.categoryTrends}
+                  currentLabel="This month"
+                  previousLabel="Last month"
+                />
+              )}
             </Panel>
           </div>
 
@@ -381,6 +425,7 @@ export function Dashboard() {
         module="Dashboard"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        initialQuestion={drawerQuestion}
       />
     </div>
   );
