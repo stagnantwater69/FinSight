@@ -1,9 +1,10 @@
 import { Prisma } from "@prisma/client";
-import type { ExpenseRecord, ExpenseRecordSource } from "@prisma/client";
+import type { ExpenseRecord, ExpenseRecordSource, ReceiptScanItem } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { ApiError } from "../middleware/error.middleware";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { createNotification, NOTIFICATION_TYPES } from "./notification.service";
+import { signedReceiptImageUrl } from "./storage.service";
 
 interface CreateInput {
   businessProfileId: number;
@@ -15,6 +16,11 @@ interface CreateInput {
   source?: ExpenseRecordSource;
   receiptScanId?: number;
   importBatchId?: number;
+  /**
+   * This record's share of a receipt's tax, service charge or discount —
+   * part of `amount`, not on top of it. Signed. See schema header note 13.
+   */
+  allocatedCharges?: number;
 }
 
 interface UpdateInput {
@@ -49,6 +55,7 @@ function toDTO(record: ExpenseRecord) {
     description: record.description,
     vendor: record.vendor,
     amount: Number(record.amount),
+    allocatedCharges: record.allocatedCharges === null ? null : Number(record.allocatedCharges),
     source: record.source,
     reviewStatus: record.reviewStatus,
     duplicateStatus: record.duplicateStatus,
@@ -70,6 +77,38 @@ async function findDuplicate(businessProfileId: number, date: Date, amount: Pris
   });
 }
 
+// ============================================================
+// The two flagging rules, extracted so there is one copy of each
+// ============================================================
+// CSV import can't afford findDuplicate-per-row or a profile fetch per row
+// (see bulkCreateExpenseRecords), so it re-implements both decisions against
+// an in-memory index. These helpers exist so that "re-implements" means
+// "calls the same function", not "has a second copy of the arithmetic that
+// can quietly disagree with this one".
+
+export function largeExpenseThresholdFor(profile: {
+  expectedMonthlyExpenses: Prisma.Decimal | number;
+  largeExpenseThresholdPercent: Prisma.Decimal | number;
+}): number {
+  return Number(profile.expectedMonthlyExpenses) * (Number(profile.largeExpenseThresholdPercent) / 100);
+}
+
+/**
+ * The identity two records must share to count as duplicates of each other.
+ *
+ * Mirrors findDuplicate's WHERE clause exactly: same calendar date, same
+ * amount, same description ignoring case. Anything that changes there has to
+ * change here in the same commit, or a CSV import and a typed-in record will
+ * disagree about what a duplicate is.
+ */
+export function duplicateKeyOf(date: Date, amount: Prisma.Decimal | number, description: string): string {
+  return [
+    date.toISOString().slice(0, 10),
+    Number(amount).toFixed(2),
+    description.toLowerCase(),
+  ].join("|");
+}
+
 async function verifyCategoryBelongsToProfile(categoryId: number, businessProfileId: number) {
   const category = await prisma.expenseCategory.findFirst({ where: { id: categoryId, businessProfileId } });
   if (!category) {
@@ -85,8 +124,7 @@ export async function createExpenseRecord(userId: number, input: CreateInput) {
   const amount = new Prisma.Decimal(input.amount);
 
   const duplicate = await findDuplicate(input.businessProfileId, date, amount, input.description);
-  const threshold = Number(profile.expectedMonthlyExpenses) * (Number(profile.largeExpenseThresholdPercent) / 100);
-  const largeExpenseFlag = input.amount >= threshold;
+  const largeExpenseFlag = input.amount >= largeExpenseThresholdFor(profile);
 
   const record = await prisma.expenseRecord.create({
     data: {
@@ -96,6 +134,8 @@ export async function createExpenseRecord(userId: number, input: CreateInput) {
       description: input.description,
       vendor: input.vendor,
       amount,
+      allocatedCharges:
+        input.allocatedCharges === undefined ? undefined : new Prisma.Decimal(input.allocatedCharges),
       source: input.source ?? "MANUAL_ENTRY",
       receiptScanId: input.receiptScanId,
       importBatchId: input.importBatchId,
@@ -111,7 +151,8 @@ export async function createExpenseRecord(userId: number, input: CreateInput) {
       userId,
       input.businessProfileId,
       NOTIFICATION_TYPES.POSSIBLE_DUPLICATE,
-      `Possible duplicate: "${input.description}" (PHP ${input.amount}) on ${input.date}`
+      `Possible duplicate: "${input.description}" (PHP ${input.amount}) on ${input.date}`,
+      record.id
     );
   }
   if (largeExpenseFlag) {
@@ -119,21 +160,292 @@ export async function createExpenseRecord(userId: number, input: CreateInput) {
       userId,
       input.businessProfileId,
       NOTIFICATION_TYPES.LARGE_EXPENSE_FLAG,
-      `Large expense flagged: "${input.description}" (PHP ${input.amount}) on ${input.date}`
+      `Large expense flagged: "${input.description}" (PHP ${input.amount}) on ${input.date}`,
+      record.id
     );
   }
 
   return toDTO(record);
 }
 
+export interface BulkExpenseRow {
+  categoryId: number;
+  /** YYYY-MM-DD. */
+  date: string;
+  description: string;
+  amount: number;
+  vendor?: string;
+}
+
+/**
+ * Creates a whole CSV batch in a fixed number of queries instead of a
+ * per-row handful.
+ *
+ * createExpenseRecord is right for one record and wrong for a hundred: it
+ * re-fetches the business profile, re-verifies the category, and runs its own
+ * findDuplicate SELECT every time it is called. Looping it over a 35-row file
+ * measured at ~57 seconds against the hosted database — roughly 175 round
+ * trips at ~300ms each — and it scales linearly, so a 200-row import would
+ * have sat behind a spinner for five minutes and very likely tripped a
+ * gateway timeout before it finished.
+ *
+ * This does the same work in four queries regardless of row count: one SELECT
+ * for the existing records a row could possibly duplicate, one createMany,
+ * one optional transaction to link within-batch duplicates, one createMany for
+ * the notifications. The profile and the categories are resolved once by the
+ * caller, which is also the only caller — everything here assumes the rows
+ * have already been validated and their categories already belong to this
+ * profile.
+ *
+ * A welcome side effect: the insert is now atomic. The old loop committed
+ * every row before the one that threw, so a failure halfway through left a
+ * half-imported batch behind and returned a 500 describing none of it.
+ */
+export async function bulkCreateExpenseRecords(
+  userId: number,
+  profile: { id: number; expectedMonthlyExpenses: Prisma.Decimal; largeExpenseThresholdPercent: Prisma.Decimal },
+  importBatchId: number,
+  rows: BulkExpenseRow[],
+) {
+  if (rows.length === 0) return [];
+
+  const businessProfileId = profile.id;
+  const threshold = largeExpenseThresholdFor(profile);
+
+  // Only records sharing a date with some row in the file can possibly be a
+  // duplicate of one, so the candidate set is bounded by the file's date range
+  // rather than by the business's whole history.
+  const dates = [...new Set(rows.map((r) => r.date))].map((d) => new Date(d));
+  const candidates = await prisma.expenseRecord.findMany({
+    where: { businessProfileId, date: { in: dates } },
+    // findDuplicate takes the OLDEST match; id breaks createdAt ties, which a
+    // previous bulk import can now produce since its rows share a timestamp.
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, date: true, amount: true, description: true },
+  });
+
+  const existingIdByKey = new Map<string, number>();
+  for (const c of candidates) {
+    const key = duplicateKeyOf(c.date, c.amount, c.description);
+    if (!existingIdByKey.has(key)) existingIdByKey.set(key, c.id);
+  }
+
+  // A row can also duplicate an earlier row of the SAME file, which the old
+  // loop caught for free because each insert was visible to the next one's
+  // SELECT. Here the earlier row has no id until after the createMany, so the
+  // link is recorded by row index and resolved below.
+  const firstIndexByKey = new Map<string, number>();
+  const duplicatesEarlierRow = new Map<number, number>();
+
+  const data = rows.map((row, i) => {
+    const date = new Date(row.date);
+    const amount = new Prisma.Decimal(row.amount);
+    const key = duplicateKeyOf(date, amount, row.description);
+
+    const existingId = existingIdByKey.get(key);
+    const earlierIndex = firstIndexByKey.get(key);
+    if (existingId === undefined && earlierIndex === undefined) {
+      firstIndexByKey.set(key, i);
+    } else if (existingId === undefined) {
+      duplicatesEarlierRow.set(i, earlierIndex!);
+    }
+
+    const largeExpenseFlag = row.amount >= threshold;
+    return {
+      businessProfileId,
+      categoryId: row.categoryId,
+      date,
+      description: row.description,
+      vendor: row.vendor,
+      amount,
+      source: "CSV_UPLOAD" as const,
+      importBatchId,
+      largeExpenseFlag,
+      reviewStatus: largeExpenseFlag ? "Needs Review" : "Reviewed",
+      duplicateStatus: existingId !== undefined || earlierIndex !== undefined ? "Flagged" : "Not a Duplicate",
+      duplicateOfRecordId: existingId,
+    };
+  });
+
+  // Postgres returns INSERT ... RETURNING rows in insertion order, so
+  // created[i] is data[i]. The length check is cheap insurance on an
+  // assumption the index-based links below depend on completely.
+  const created = await prisma.expenseRecord.createManyAndReturn({ data });
+  if (created.length !== rows.length) {
+    throw new ApiError(500, "Import did not create the expected number of records");
+  }
+
+  if (duplicatesEarlierRow.size > 0) {
+    await prisma.$transaction(
+      [...duplicatesEarlierRow].map(([rowIndex, earlierIndex]) =>
+        prisma.expenseRecord.update({
+          where: { id: created[rowIndex]!.id },
+          data: { duplicateOfRecordId: created[earlierIndex]!.id },
+        }),
+      ),
+    );
+  }
+
+  const notifications = created.flatMap((record, i) => {
+    const row = rows[i]!;
+    const out: { userId: number; businessProfileId: number; type: string; message: string; expenseRecordId: number }[] = [];
+    if (data[i]!.duplicateStatus === "Flagged") {
+      out.push({
+        userId,
+        businessProfileId,
+        type: NOTIFICATION_TYPES.POSSIBLE_DUPLICATE,
+        message: `Possible duplicate: "${row.description}" (PHP ${row.amount}) on ${row.date}`.slice(0, 255),
+        expenseRecordId: record.id,
+      });
+    }
+    if (data[i]!.largeExpenseFlag) {
+      out.push({
+        userId,
+        businessProfileId,
+        type: NOTIFICATION_TYPES.LARGE_EXPENSE_FLAG,
+        message: `Large expense flagged: "${row.description}" (PHP ${row.amount}) on ${row.date}`.slice(0, 255),
+        expenseRecordId: record.id,
+      });
+    }
+    return out;
+  });
+  if (notifications.length > 0) {
+    await prisma.notification.createMany({ data: notifications });
+  }
+
+  return created.map(toDTO);
+}
+
+/**
+ * One record, with everything known about where it came from.
+ *
+ * WHY THE EXTRA QUERIES: a record created by a receipt scan is a summary of
+ * something more detailed — "Inventory PHP 1,850" was really buns, patties
+ * and a tray of eggs, read off a photo, sitting alongside an Equipment record
+ * from the same receipt. Opening it to edit and seeing only the summary gives
+ * the owner no way to check the figure against reality, or even to remember
+ * what the purchase was. The detail already exists in the database; it simply
+ * was never sent.
+ *
+ * The provenance is deliberately assembled here rather than left to the
+ * client to stitch together from three endpoints, because "what is this
+ * record" is one question.
+ */
 export async function getExpenseRecord(userId: number, id: number) {
   const record = await prisma.expenseRecord.findFirst({
     where: { id, businessProfile: { userId } },
+    include: {
+      receiptItems: {
+        orderBy: { lineNumber: "asc" },
+        include: { category: { select: { id: true, name: true } } },
+      },
+      receiptScan: {
+        select: { id: true, imageFile: true, extractedVendor: true, createdAt: true },
+      },
+      importBatch: {
+        select: { id: true, title: true, uploadDate: true, fileReference: true, status: true },
+      },
+    },
   });
   if (!record) {
     throw new ApiError(404, "Expense record not found");
   }
-  return toDTO(record);
+
+  return { ...toDTO(record), origin: await buildOrigin(record) };
+}
+
+type RecordWithOrigin = ExpenseRecord & {
+  receiptItems: (ReceiptScanItem & { category: { id: number; name: string } | null })[];
+  receiptScan: { id: number; imageFile: string; extractedVendor: string | null; createdAt: Date } | null;
+  importBatch: {
+    id: number;
+    title: string;
+    uploadDate: Date;
+    fileReference: string;
+    status: string;
+  } | null;
+};
+
+async function buildOrigin(record: RecordWithOrigin) {
+  if (record.receiptScan) {
+    /*
+     * The other records this same receipt produced. A receipt covering
+     * inventory and equipment becomes two records, and each one is only half
+     * the story — without this, an owner looking at the Inventory record has
+     * no way to see that the PHP 2,400 drinks chiller they remember buying is
+     * filed separately rather than missing.
+     */
+    const siblings = await prisma.expenseRecord.findMany({
+      where: { receiptScanId: record.receiptScan.id, id: { not: record.id } },
+      select: { id: true, description: true, amount: true, category: { select: { id: true, name: true } } },
+      orderBy: { id: "asc" },
+    });
+
+    const itemsSubtotal = record.receiptItems.reduce((sum, i) => sum + Math.round(Number(i.amount) * 100), 0) / 100;
+
+    return {
+      kind: "receipt_scan" as const,
+      scanId: record.receiptScan.id,
+      scannedAt: record.receiptScan.createdAt,
+      extractedVendor: record.receiptScan.extractedVendor,
+      imageUrl: await signedReceiptImageUrl(record.receiptScan.imageFile),
+      items: record.receiptItems.map((i) => ({
+        id: i.id,
+        lineNumber: i.lineNumber,
+        name: i.name,
+        quantity: i.quantity === null ? null : Number(i.quantity),
+        unitPrice: i.unitPrice === null ? null : Number(i.unitPrice),
+        amount: Number(i.amount),
+        categoryId: i.categoryId,
+        categoryName: i.category?.name ?? null,
+        addedByOwner: i.addedByOwner,
+        // Survives onto the saved record, not just the confirm screen. Someone
+        // reviewing this expense months later should still be able to tell
+        // which lines were read off text and which a model inferred from a
+        // photograph.
+        extractedByVision: i.extractedByVision,
+      })),
+      /**
+       * The items' own subtotal, kept separate from the record amount so the
+       * panel can show the arithmetic — "1,000.00 of items + 120.00 tax" —
+       * rather than presenting the total as though the items summed to it.
+       */
+      itemsSubtotal,
+      siblings: siblings.map((s) => ({
+        id: s.id,
+        description: s.description,
+        amount: Number(s.amount),
+        categoryId: s.category.id,
+        categoryName: s.category.name,
+      })),
+    };
+  }
+
+  if (record.importBatch) {
+    /*
+     * A CSV row has no line items — the spreadsheet row IS the record. So the
+     * useful provenance is the batch: which file, when, and how many other
+     * rows came in with it. A count rather than the rows themselves, since an
+     * import is routinely hundreds of records and listing them here would
+     * turn opening one record into a page-sized response.
+     */
+    const rowCount = await prisma.expenseRecord.count({
+      where: { importBatchId: record.importBatch.id },
+    });
+
+    return {
+      kind: "csv_import" as const,
+      batchId: record.importBatch.id,
+      title: record.importBatch.title,
+      uploadDate: record.importBatch.uploadDate,
+      fileReference: record.importBatch.fileReference,
+      status: record.importBatch.status,
+      rowCount,
+    };
+  }
+
+  // Typed by hand, or a scan/import whose parent has since been deleted.
+  return null;
 }
 
 export async function updateExpenseRecord(userId: number, id: number, input: UpdateInput) {
@@ -167,10 +479,7 @@ export async function updateExpenseRecord(userId: number, id: number, input: Upd
     duplicateStatus = duplicate ? "Flagged" : "Not a Duplicate";
     duplicateOfRecordId = duplicate?.id ?? null;
 
-    const threshold =
-      Number(existing.businessProfile.expectedMonthlyExpenses) *
-      (Number(existing.businessProfile.largeExpenseThresholdPercent) / 100);
-    largeExpenseFlag = Number(nextAmount) >= threshold;
+    largeExpenseFlag = Number(nextAmount) >= largeExpenseThresholdFor(existing.businessProfile);
     if (input.reviewStatus === undefined) {
       reviewStatus = largeExpenseFlag ? "Needs Review" : "Reviewed";
     }
@@ -198,7 +507,8 @@ export async function updateExpenseRecord(userId: number, id: number, input: Upd
       userId,
       existing.businessProfileId,
       NOTIFICATION_TYPES.POSSIBLE_DUPLICATE,
-      `Possible duplicate: "${nextDescription}" (PHP ${Number(nextAmount)}) on ${nextDate.toISOString().slice(0, 10)}`
+      `Possible duplicate: "${nextDescription}" (PHP ${Number(nextAmount)}) on ${nextDate.toISOString().slice(0, 10)}`,
+      record.id
     );
   }
   if (largeExpenseFlag && !existing.largeExpenseFlag) {
@@ -206,7 +516,8 @@ export async function updateExpenseRecord(userId: number, id: number, input: Upd
       userId,
       existing.businessProfileId,
       NOTIFICATION_TYPES.LARGE_EXPENSE_FLAG,
-      `Large expense flagged: "${nextDescription}" (PHP ${Number(nextAmount)}) on ${nextDate.toISOString().slice(0, 10)}`
+      `Large expense flagged: "${nextDescription}" (PHP ${Number(nextAmount)}) on ${nextDate.toISOString().slice(0, 10)}`,
+      record.id
     );
   }
 

@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import * as authService from "../services/auth.service";
+import { ApiError } from "../middleware/error.middleware";
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -73,5 +74,13 @@ export async function getMe(req: Request, res: Response) {
 export async function updateMe(req: Request, res: Response) {
   const input = updateProfileSchema.parse(req.body);
   const profile = await authService.updateProfile(req.user!.id, input);
+  res.status(200).json(profile);
+}
+
+export async function uploadAvatar(req: Request, res: Response) {
+  if (!req.file) {
+    throw new ApiError(400, "Photo file is required");
+  }
+  const profile = await authService.updateAvatar(req.user!.id, req.file.buffer, req.file.mimetype, req.file.originalname);
   res.status(200).json(profile);
 }

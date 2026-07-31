@@ -33,6 +33,58 @@
 //      needs-review alerts bleeding into every other business's Dashboard
 //      without this — every notification this app creates originates from
 //      a specific business-profile-scoped event, so it's NOT NULL.
+//   7. Notification.expenseRecordId [ADDED] — the dictionary has no link
+//      from Notification to the specific record it's about, only the free-
+//      text message. Clicking a "possible duplicate" or "large expense"
+//      notification had nowhere to go beyond the general flagged-records
+//      list. Nullable and onDelete: SetNull — a deleted record shouldn't
+//      take its notification history down with it, and older notifications
+//      (or ones about something other than an expense record) simply have
+//      no link.
+//   8. User.avatarUrl / BusinessProfile.logoUrl [ADDED] — not in the
+//      dictionary. Both are nullable public-bucket Supabase Storage paths;
+//      absent, the UI falls back to an initials monogram, so neither is
+//      required at signup or business creation.
+//   9. ExpenseRecord.receiptScanId is NO LONGER @unique [CHANGED]. The
+//      dictionary's 1:1 ReceiptScan -> ExpenseRecord assumed one receipt is
+//      one expense in one category. Real receipts routinely are not: a
+//      hardware-store slip holding P1,200 of nails (Equipment) and P800 of
+//      cleaning supplies (Supplies) was unrepresentable, so the owner had to
+//      file the whole total under one category and every category-based
+//      insight downstream was then wrong by construction. One scan may now
+//      produce several records, each with its own category and amount, whose
+//      sum the API requires to equal the receipt total.
+//  10. ReceiptScan.rawText [ADDED] — the OCR text the extracted fields were
+//      parsed out of. Kept so the line-item splitter can re-read a receipt
+//      without paying for a second OCR pass over the stored image (Tesseract
+//      is by far the slowest step in the app), and so any future change to
+//      the parsing rules can be replayed against receipts already scanned.
+//      Nullable: scans taken before this column existed have none.
+//  11. ReceiptScanItem [ADDED] — the individual lines read off a receipt,
+//      with the category each was assigned and the ExpenseRecord each ended
+//      up in. A real table rather than a JSON column on ReceiptScan so an
+//      item stays queryable: "which items made up this PHP 1,850 Ingredients
+//      entry" is a question about rows, and answering it from a blob would
+//      mean parsing JSON in every query that asks. expenseRecordId is null
+//      until the owner confirms, and onDelete: SetNull — deleting a record
+//      must not destroy the reading of the receipt it came from.
+//  12. ReceiptScanItem.addedByOwner [ADDED] — false for a line OCR read off
+//      the image, true for one the owner typed in on the confirm screen to
+//      close a gap. The two must stay distinguishable: the review panel
+//      claims "FinSight read these items off your receipt", and that claim
+//      has to be false for a row a human supplied. It also keeps the OCR
+//      accuracy figures honest, since owner-added rows are not extractions
+//      and must never be counted as ones.
+//  13. ExpenseRecord.allocatedCharges [ADDED] — the share of a receipt's
+//      tax, service charge or discount folded into this record's amount.
+//      Receipts routinely do not sum: a VAT-exclusive register prints items
+//      totalling 1,000.00 under a TOTAL of 1,120.00. The total is what left
+//      the owner's pocket, so it is the anchor and the difference has to go
+//      somewhere. Storing the allocated share (rather than only the merged
+//      amount) is what lets the record say "1,000.00 of items + 120.00 tax"
+//      instead of presenting 1,120.00 as though the items added up to it.
+//      Null on records predating this column and on any receipt that
+//      reconciled exactly. Signed: negative for a discount.
 
 generator client {
   provider = "prisma-client-js"
@@ -68,6 +120,7 @@ model User {
   email       String   @unique @map("User_Email") @db.VarChar(150)
   phoneNumber String?  @map("User_PhoneNumber") @db.VarChar(20)
   status      String   @default("Active") @map("User_Status") @db.VarChar(50)
+  avatarUrl   String?  @map("User_AvatarURL") @db.VarChar(500) // [ADDED] see schema header note
   createdAt   DateTime @default(now()) @map("User_CreatedAt")
 
   businessProfiles BusinessProfile[]
@@ -86,6 +139,7 @@ model BusinessProfile {
   expectedMonthlyExpenses      Decimal  @map("BusinessProfile_ExpectedMonthlyExpenses") @db.Decimal(12, 2)
   operatingDays                Int      @map("BusinessProfile_OperatingDays")
   largeExpenseThresholdPercent Decimal  @default(20) @map("BusinessProfile_LargeExpenseThresholdPercent") @db.Decimal(5, 2) // [ADDED] see schema header note
+  logoUrl                      String?  @map("BusinessProfile_LogoURL") @db.VarChar(500) // [ADDED] see schema header note
   createdAt                    DateTime @default(now()) @map("BusinessProfile_CreatedAt")
   // [ADDED] Soft delete. Null = active. Archiving hides a profile from the
   // switcher without touching its records, insights or AI history. A hard
@@ -114,8 +168,9 @@ model ExpenseCategory {
   description       String?  @map("Category_Description") @db.VarChar(255)
   createdAt         DateTime @default(now()) @map("Category_CreatedAt")
 
-  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
-  expenseRecords  ExpenseRecord[]
+  businessProfile  BusinessProfile   @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  expenseRecords   ExpenseRecord[]
+  receiptScanItems ReceiptScanItem[]
 
   @@index([businessProfileId])
   @@map("ExpenseCategory")
@@ -125,13 +180,17 @@ model ExpenseRecord {
   id                  Int                 @id @default(autoincrement()) @map("ExpenseRecord_ID")
   businessProfileId   Int                 @map("BusinessProfile_ID")
   categoryId          Int                 @map("Category_ID")
-  receiptScanId       Int?                @unique @map("ReceiptScan_ID")
+  receiptScanId       Int?                @map("ReceiptScan_ID") // [CHANGED] no longer @unique — see schema header note 9
   importBatchId       Int?                @map("ImportBatch_ID")
   duplicateOfRecordId Int?                @map("DuplicateOf_RecordID")
   date                DateTime            @map("ExpenseRecord_Date") @db.Date
   description         String              @map("ExpenseRecord_Description") @db.VarChar(255)
   vendor              String?             @map("ExpenseRecord_Vendor") @db.VarChar(150)
   amount              Decimal             @map("ExpenseRecord_Amount") @db.Decimal(12, 2)
+  /// The part of `amount` that is this record's share of receipt-level tax,
+  /// service charge or discount rather than the price of its own items.
+  /// See schema header note 13. Signed — negative for a discount.
+  allocatedCharges    Decimal?            @map("ExpenseRecord_AllocatedCharges") @db.Decimal(12, 2)
   source              ExpenseRecordSource @map("ExpenseRecord_Source")
   reviewStatus        String              @default("Needs Review") @map("ExpenseRecord_ReviewStatus") @db.VarChar(50)
   duplicateStatus     String              @default("Not a Duplicate") @map("ExpenseRecord_DuplicateStatus") @db.VarChar(50)
@@ -144,10 +203,13 @@ model ExpenseRecord {
   importBatch     CSVImportBatch? @relation(fields: [importBatchId], references: [id])
   duplicateOf     ExpenseRecord?  @relation("ExpenseRecordDuplicates", fields: [duplicateOfRecordId], references: [id])
   duplicates      ExpenseRecord[] @relation("ExpenseRecordDuplicates")
+  notifications   Notification[]
+  receiptItems    ReceiptScanItem[]
 
   @@index([businessProfileId])
   @@index([categoryId])
   @@index([importBatchId])
+  @@index([receiptScanId])
   @@map("ExpenseRecord")
 }
 
@@ -183,13 +245,64 @@ model ReceiptScan {
   extractedDescription String?   @map("ReceiptScan_ExtractedDescription") @db.VarChar(255)
   extractedAmount      Decimal?  @map("ReceiptScan_ExtractedAmount") @db.Decimal(12, 2)
   confirmationStatus   String    @default("Pending") @map("ReceiptScan_ConfirmationStatus") @db.VarChar(50)
+  rawText              String?   @map("ReceiptScan_RawText") @db.Text // [ADDED] see schema header note 10
+  /// True when the deterministic OCR parse came back empty and a vision model
+  /// was asked to interpret the photo instead. The confirm screen says so
+  /// plainly — these values were guessed from an image, not read off text,
+  /// and the owner is told to check them harder than usual.
+  visionAssisted       Boolean   @default(false) @map("ReceiptScan_VisionAssisted")
   createdAt            DateTime  @default(now()) @map("ReceiptScan_CreatedAt")
 
-  businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
-  expenseRecord   ExpenseRecord?
+  businessProfile BusinessProfile?  @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+  expenseRecords  ExpenseRecord[]
+  items           ReceiptScanItem[]
 
   @@index([businessProfileId])
   @@map("ReceiptScan")
+}
+
+/// [ADDED] see schema header note 11
+model ReceiptScanItem {
+  id              Int      @id @default(autoincrement()) @map("ReceiptScanItem_ID")
+  receiptScanId   Int      @map("ReceiptScan_ID")
+  categoryId      Int?     @map("Category_ID")
+  expenseRecordId Int?     @map("ExpenseRecord_ID")
+  /// Position on the receipt, so the review screen can show items in the
+  /// order they were printed rather than in insertion order.
+  lineNumber      Int      @map("ReceiptScanItem_LineNumber")
+  name            String   @map("ReceiptScanItem_Name") @db.VarChar(255)
+  /// Null when the receipt prints no quantity column, which is common on
+  /// small sari-sari store receipts. Not the same as a quantity of 1.
+  quantity        Decimal? @map("ReceiptScanItem_Quantity") @db.Decimal(10, 2)
+  unitPrice       Decimal? @map("ReceiptScanItem_UnitPrice") @db.Decimal(12, 2)
+  /// The line's own total, which is what the category subtotals sum.
+  amount          Decimal  @map("ReceiptScanItem_Amount") @db.Decimal(12, 2)
+  /// True when the owner typed this line in on the confirm screen rather
+  /// than OCR reading it off the image. See schema header note 12.
+  addedByOwner    Boolean  @default(false) @map("ReceiptScanItem_AddedByOwner")
+  /// A category name the AI proposed when NOTHING on the business's existing
+  /// list fit this item. Only ever a suggestion for the owner to accept or
+  /// ignore — never auto-created, because a category the owner never asked
+  /// for appearing in their books is exactly what the classifier's
+  /// "never invent a category" rule exists to prevent. Null when the item
+  /// matched an existing category, when the model declined to propose one,
+  /// or when it was unreachable.
+  suggestedCategoryName String? @map("ReceiptScanItem_SuggestedCategoryName") @db.VarChar(100)
+  /// True when a vision model produced this line because the deterministic
+  /// parser could read no items at all. Parallel to addedByOwner: both exist
+  /// so the claim "FinSight read this off your receipt" is never quietly
+  /// stretched to cover a line it did not read that way.
+  extractedByVision Boolean @default(false) @map("ReceiptScanItem_ExtractedByVision")
+  createdAt       DateTime @default(now()) @map("ReceiptScanItem_CreatedAt")
+
+  receiptScan   ReceiptScan      @relation(fields: [receiptScanId], references: [id], onDelete: Cascade)
+  category      ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  expenseRecord ExpenseRecord?   @relation(fields: [expenseRecordId], references: [id], onDelete: SetNull)
+
+  @@index([receiptScanId])
+  @@index([expenseRecordId])
+  @@index([categoryId])
+  @@map("ReceiptScanItem")
 }
 
 model CSVImportBatch {
@@ -213,6 +326,7 @@ model Notification {
   id                Int      @id @default(autoincrement()) @map("Notification_ID")
   userId            Int      @map("User_ID")
   businessProfileId Int      @map("BusinessProfile_ID") // [ADDED] see schema header note
+  expenseRecordId   Int?     @map("ExpenseRecord_ID") // [ADDED] see schema header note
   message           String   @map("Notification_Message") @db.VarChar(255)
   type              String   @map("Notification_Type") @db.VarChar(50)
   dateCreated       DateTime @default(now()) @map("Notification_DateCreated")
@@ -220,9 +334,11 @@ model Notification {
 
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  expenseRecord   ExpenseRecord?  @relation(fields: [expenseRecordId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([businessProfileId])
+  @@index([expenseRecordId])
   @@map("Notification")
 }
 

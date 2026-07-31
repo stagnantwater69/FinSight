@@ -4,6 +4,7 @@ import { prisma } from "../config/prisma";
 import { ApiError } from "../middleware/error.middleware";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { createNotification, NOTIFICATION_TYPES } from "./notification.service";
+import { duplicateKeyOf } from "./expenseRecord.service";
 
 interface CreateInput {
   businessProfileId: number;
@@ -92,6 +93,106 @@ export async function createSalesRecord(userId: number, input: CreateInput) {
   }
 
   return toDTO(record);
+}
+
+export interface BulkSalesRow {
+  /** YYYY-MM-DD. */
+  date: string;
+  description: string;
+  amount: number;
+}
+
+/**
+ * The sales-record half of the CSV bulk path — see bulkCreateExpenseRecords
+ * for why this exists and what it replaces. Simpler than the expense side:
+ * sales references have no category to verify and no large-expense rule, so
+ * duplicate detection is the only per-row decision.
+ */
+export async function bulkCreateSalesRecords(
+  userId: number,
+  businessProfileId: number,
+  importBatchId: number,
+  rows: BulkSalesRow[],
+) {
+  if (rows.length === 0) return [];
+
+  const dates = [...new Set(rows.map((r) => r.date))].map((d) => new Date(d));
+  const candidates = await prisma.salesReferenceRecord.findMany({
+    where: { businessProfileId, date: { in: dates } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, date: true, amount: true, description: true },
+  });
+
+  const existingIdByKey = new Map<string, number>();
+  for (const c of candidates) {
+    const key = duplicateKeyOf(c.date, c.amount, c.description);
+    if (!existingIdByKey.has(key)) existingIdByKey.set(key, c.id);
+  }
+
+  const firstIndexByKey = new Map<string, number>();
+  const duplicatesEarlierRow = new Map<number, number>();
+
+  const data = rows.map((row, i) => {
+    const date = new Date(row.date);
+    const amount = new Prisma.Decimal(row.amount);
+    const key = duplicateKeyOf(date, amount, row.description);
+
+    const existingId = existingIdByKey.get(key);
+    const earlierIndex = firstIndexByKey.get(key);
+    if (existingId === undefined && earlierIndex === undefined) {
+      firstIndexByKey.set(key, i);
+    } else if (existingId === undefined) {
+      duplicatesEarlierRow.set(i, earlierIndex!);
+    }
+
+    return {
+      businessProfileId,
+      date,
+      description: row.description,
+      amount,
+      source: "CSV_UPLOAD" as const,
+      importBatchId,
+      reviewStatus: "Reviewed",
+      duplicateStatus: existingId !== undefined || earlierIndex !== undefined ? "Flagged" : "Not a Duplicate",
+      duplicateOfRecordId: existingId,
+    };
+  });
+
+  const created = await prisma.salesReferenceRecord.createManyAndReturn({ data });
+  if (created.length !== rows.length) {
+    throw new ApiError(500, "Import did not create the expected number of records");
+  }
+
+  if (duplicatesEarlierRow.size > 0) {
+    await prisma.$transaction(
+      [...duplicatesEarlierRow].map(([rowIndex, earlierIndex]) =>
+        prisma.salesReferenceRecord.update({
+          where: { id: created[rowIndex]!.id },
+          data: { duplicateOfRecordId: created[earlierIndex]!.id },
+        }),
+      ),
+    );
+  }
+
+  // Sales duplicates carry no expenseRecordId — the column only ever points at
+  // an expense record, exactly as the single-record path leaves it unset.
+  const notifications = data.flatMap((d, i) =>
+    d.duplicateStatus === "Flagged"
+      ? [
+          {
+            userId,
+            businessProfileId,
+            type: NOTIFICATION_TYPES.POSSIBLE_DUPLICATE,
+            message: `Possible duplicate: "${rows[i]!.description}" (PHP ${rows[i]!.amount}) on ${rows[i]!.date}`.slice(0, 255),
+          },
+        ]
+      : [],
+  );
+  if (notifications.length > 0) {
+    await prisma.notification.createMany({ data: notifications });
+  }
+
+  return created.map(toDTO);
 }
 
 export async function getSalesRecord(userId: number, id: number) {

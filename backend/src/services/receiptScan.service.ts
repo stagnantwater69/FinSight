@@ -2,9 +2,18 @@ import { prisma } from "../config/prisma";
 import { ApiError } from "../middleware/error.middleware";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { uploadReceiptImage } from "./storage.service";
-import { extractText, parseReceiptFields } from "./ocr.service";
+import {
+  extractText,
+  parseLineItems,
+  parseReceiptFields,
+  type ParsedLineItem,
+  type ParsedReceiptFields,
+} from "./ocr.service";
+import { categoriseReceiptItems, UNCATEGORISED } from "./ai.service";
+import { extractReceiptWithVision } from "./visionOcr.service";
 import { createExpenseRecord } from "./expenseRecord.service";
-import type { ReceiptScan } from "@prisma/client";
+import { allocateProportionally, type ReconciliationMode } from "../lib/allocation";
+import type { ReceiptScan, ReceiptScanItem } from "@prisma/client";
 
 interface UploadInput {
   businessProfileId: number;
@@ -13,15 +22,65 @@ interface UploadInput {
   originalname: string;
 }
 
-interface ConfirmInput {
+export interface ReceiptSplit {
   categoryId: number;
+  amount: number;
+  /** The extracted lines that composed this split, on the itemised path. */
+  itemIds?: number[];
+  /**
+   * Overrides the receipt-level description for this line. Unused by the
+   * confirm screen today — it exists for line-item extraction, which needs
+   * to say "12 items: chicken, buns, …" on the Inventory split and something
+   * different on the Equipment one.
+   */
+  description?: string;
+  /**
+   * The part of `amount` that is this split's share of receipt-level tax,
+   * service charge or discount rather than the price of its own items.
+   * Signed. Absent when the receipt reconciled exactly.
+   */
+  allocatedCharges?: number;
+}
+
+interface ConfirmInput {
   date: string;
   description: string;
   vendor?: string;
+  /** The receipt's total, as read and confirmed by the owner. */
   amount: number;
+  /**
+   * One entry per category this receipt covers. Must sum to `amount`.
+   * Used by the single-total flow and by a hand-made split.
+   */
+  splits?: ReceiptSplit[];
+  /**
+   * The itemised path: the owner's final say on which category each extracted
+   * line belongs to. When present it takes precedence over `splits` — the
+   * server groups the items itself rather than trusting a client-computed
+   * split, so the item -> record links it writes cannot disagree with the
+   * amounts it posts.
+   */
+  itemAssignments?: { itemId: number; categoryId: number }[];
+  /**
+   * Lines the owner typed in on the confirm screen because OCR missed them.
+   * Stored as real ReceiptScanItem rows (flagged `addedByOwner`) before the
+   * grouping runs, so a hand-added line is grouped, linked to its record and
+   * shown on the record afterwards exactly like an extracted one — while
+   * still being distinguishable from something FinSight claims to have read.
+   */
+  additionalItems?: { name: string; amount: number; categoryId: number }[];
+  /**
+   * How to account for any difference between the items and the confirmed
+   * total. Only meaningful on the itemised path. Defaults to `none`, which
+   * requires the items to already reconcile.
+   */
+  reconciliation?: ReconciliationMode;
 }
 
-function toDTO(scan: ReceiptScan) {
+/** Description given to the standalone record that carries a receipt's tax. */
+const CHARGES_DESCRIPTION = "Tax and charges";
+
+function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = []) {
   return {
     id: scan.id,
     businessProfileId: scan.businessProfileId,
@@ -32,7 +91,60 @@ function toDTO(scan: ReceiptScan) {
     extractedAmount: scan.extractedAmount ? Number(scan.extractedAmount) : null,
     confirmationStatus: scan.confirmationStatus,
     createdAt: scan.createdAt,
+    /**
+     * True when the deterministic parse failed and a model interpreted the
+     * photo instead. The confirm screen warns on this — values guessed from
+     * an image must not look like values read off text.
+     */
+    visionAssisted: scan.visionAssisted,
+    /**
+     * The lines read off the receipt, each with the category FinSight
+     * assigned it. Empty when the receipt has no parseable item lines — the
+     * client then keeps the single-total flow, unchanged.
+     */
+    items: items.map((i) => ({
+      id: i.id,
+      lineNumber: i.lineNumber,
+      name: i.name,
+      quantity: i.quantity === null ? null : Number(i.quantity),
+      unitPrice: i.unitPrice === null ? null : Number(i.unitPrice),
+      amount: Number(i.amount),
+      categoryId: i.categoryId,
+      addedByOwner: i.addedByOwner,
+      /**
+       * A category FinSight thinks should exist but the business doesn't have
+       * yet. Carried to the client so the confirm screen can offer to create
+       * it — without this the proposal is computed, stored and then never
+       * seen by anyone, which is exactly the bug this field was added to fix.
+       */
+      suggestedCategoryName: i.suggestedCategoryName,
+      /** True for a line a vision model produced rather than OCR text. */
+      extractedByVision: i.extractedByVision,
+    })),
   };
+}
+
+/**
+ * The standing home for an item nothing else fits.
+ *
+ * Created per business profile on first need rather than at signup, so a
+ * business that never scans a receipt never acquires a category it doesn't
+ * use. Matched case-insensitively first, so an owner who already has their
+ * own "Uncategorized" keeps it instead of getting a near-duplicate.
+ */
+async function ensureUncategorised(businessProfileId: number): Promise<number> {
+  const existing = await prisma.expenseCategory.findFirst({
+    where: { businessProfileId, name: { equals: UNCATEGORISED, mode: "insensitive" } },
+  });
+  if (existing) return existing.id;
+  const created = await prisma.expenseCategory.create({
+    data: {
+      businessProfileId,
+      name: UNCATEGORISED,
+      description: "Items FinSight could not confidently categorise. Reassign them as you review.",
+    },
+  });
+  return created.id;
 }
 
 export async function uploadAndScan(userId: number, input: UploadInput) {
@@ -47,20 +159,280 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
 
   const text = await extractText(input.buffer);
   const parsed = parseReceiptFields(text);
+  const deterministicItems = parseLineItems(text);
+
+  const rescued = await rescueWithVision(input, parsed, deterministicItems);
 
   const scan = await prisma.receiptScan.create({
     data: {
       businessProfileId: input.businessProfileId,
       imageFile: imagePath,
-      extractedDate: parsed.date ? new Date(parsed.date) : undefined,
-      extractedVendor: parsed.vendor ?? undefined,
-      extractedDescription: parsed.description ?? undefined,
-      extractedAmount: parsed.amount ?? undefined,
+      extractedDate: rescued.date ? new Date(rescued.date) : undefined,
+      extractedVendor: rescued.vendor ?? undefined,
+      extractedDescription: rescued.description ?? undefined,
+      extractedAmount: rescued.amount ?? undefined,
       confirmationStatus: "Pending",
+      rawText: text,
+      visionAssisted: rescued.visionAssisted,
     },
   });
 
-  return toDTO(scan);
+  const items = await persistCategorisedItems(
+    input.businessProfileId,
+    scan.id,
+    rescued.items,
+    rescued.vendor,
+    rescued.itemsFromVision,
+  );
+  return toDTO(scan, items);
+}
+
+/**
+ * What the scan ended up with, and whether a model had a hand in it.
+ */
+interface RescuedFields extends ParsedReceiptFields {
+  items: ParsedLineItem[];
+  /** True when the vision model supplied any of the above. */
+  visionAssisted: boolean;
+  /** True when the ITEMS specifically came from the model rather than OCR text. */
+  itemsFromVision: boolean;
+}
+
+/**
+ * Falls back to reading the photograph when the deterministic parse came up
+ * short.
+ *
+ * WHEN THIS FIRES: only when tesseract's text yielded no line items, or no
+ * total at all. A receipt it read is never sent to a model — this can only
+ * ever add to an empty result, never overwrite a real one.
+ *
+ * The merge rule is "the deterministic answer wins wherever it exists", and
+ * the DATE deserves its own note, because it is the one field where the
+ * parser is better even though the model reads more:
+ *
+ *   A date like "03/09/2026" cannot be resolved by reading harder. Both
+ *   components are <= 12, so the answer is a CONVENTION (Philippine DD/MM),
+ *   not something visible in the image. Measured across three runs the model
+ *   answered that receipt inconsistently — 9 March twice, 3 September once —
+ *   despite being told the convention in its prompt. The parser has the rule
+ *   compiled in and is right every time. So a date tesseract found always
+ *   wins, and the model's date is only used where there was none at all.
+ *
+ * The model is better at READING what is printed; the parser is better at
+ * APPLYING a rule the image cannot supply. This split reflects that.
+ */
+async function rescueWithVision(
+  input: UploadInput,
+  parsed: ParsedReceiptFields,
+  deterministicItems: ParsedLineItem[],
+): Promise<RescuedFields> {
+  const nothingToShow = deterministicItems.length === 0 || parsed.amount === null;
+  if (!nothingToShow) {
+    return { ...parsed, items: deterministicItems, visionAssisted: false, itemsFromVision: false };
+  }
+
+  // Never throws — a failed rescue leaves the scan exactly as the
+  // deterministic parse left it, which is still a correctable draft.
+  const vision = await extractReceiptWithVision(input.buffer, input.mimetype);
+  if (!vision) {
+    return { ...parsed, items: deterministicItems, visionAssisted: false, itemsFromVision: false };
+  }
+
+  /*
+   * The model reports a name, a quantity and a line total but never a unit
+   * price, so it is derived exactly as parseLineItems derives it — from the
+   * quantity where there is one, and left null otherwise. Null means "the
+   * receipt didn't say"; inventing a unit price would be a number nobody read.
+   */
+  const visionItems: ParsedLineItem[] = vision.items.map((i) => ({
+    name: i.name,
+    quantity: i.quantity,
+    unitPrice: i.quantity && i.quantity > 0 ? Math.round((i.amount / i.quantity) * 100) / 100 : null,
+    amount: i.amount,
+  }));
+
+  const items = deterministicItems.length === 0 ? visionItems : deterministicItems;
+  const itemsFromVision = deterministicItems.length === 0 && visionItems.length > 0;
+  const vendor = parsed.vendor ?? vision.vendor;
+  const amount = parsed.amount ?? vision.amount;
+  const date = parsed.date ?? vision.date;
+
+  return {
+    date,
+    vendor,
+    // Rebuilt rather than carried over, so a vendor the model supplied is
+    // reflected in the description the owner sees instead of the parser's
+    // "Receipt purchase" fallback for a vendor it never found.
+    description: vendor ? `Purchase from ${vendor}` : "Receipt purchase",
+    amount,
+    items,
+    visionAssisted:
+      itemsFromVision ||
+      (parsed.amount === null && amount !== null) ||
+      (parsed.vendor === null && vendor !== null) ||
+      (parsed.date === null && date !== null),
+    itemsFromVision,
+  };
+}
+
+/**
+ * How many past items are read to build the classifier's few-shot examples.
+ *
+ * Deliberately larger than the number of examples the prompt ends up carrying
+ * (ai.service caps that): these are deduplicated by item name there, and a
+ * business that buys the same few things every week would otherwise yield
+ * only a handful of distinct examples from a tighter query.
+ */
+const PRIOR_CHOICE_LOOKBACK = 100;
+
+/**
+ * What this business has decided about items before, most recent first.
+ *
+ * ONLY from CONFIRMED scans, and that restriction is the whole point. A
+ * pending scan's categories are the AI's own unreviewed guesses; feeding
+ * those back would teach it its own mistakes and the loop would amplify an
+ * error rather than correct it. A confirmed scan is the opposite — the owner
+ * saw every row and either accepted it or changed it, so each one is a real
+ * human decision.
+ *
+ * Items sitting in Uncategorized are left out too: "this belongs in
+ * Uncategorized" is not a decision, it is the absence of one, and the model
+ * already has UNCATEGORISED for declining.
+ */
+async function recentCategoryChoices(businessProfileId: number) {
+  const rows = await prisma.receiptScanItem.findMany({
+    where: {
+      receiptScan: { businessProfileId, confirmationStatus: "Confirmed" },
+      categoryId: { not: null },
+    },
+    select: { name: true, category: { select: { name: true } } },
+    orderBy: { id: "desc" },
+    take: PRIOR_CHOICE_LOOKBACK,
+  });
+
+  return rows
+    .filter((r) => r.category !== null && r.category.name.toLowerCase() !== UNCATEGORISED.toLowerCase())
+    .map((r) => ({ item: r.name, category: r.category!.name }));
+}
+
+/**
+ * Categorises the extracted lines and stores them against the scan.
+ *
+ * Categorisation is automatic and happens here, at scan time, rather than
+ * behind a button the owner has to find — reading a receipt and knowing that
+ * "buns" are ingredients is the thing the feature is for, and making it
+ * opt-in meant it mostly didn't happen.
+ *
+ * Nothing here can fail the scan. If the model is unreachable the items are
+ * still stored, just all uncategorised, and the owner assigns them on the
+ * review screen. An upload must never be lost because a third-party API was
+ * down.
+ */
+async function persistCategorisedItems(
+  businessProfileId: number,
+  receiptScanId: number,
+  parsedItems: { name: string; quantity: number | null; unitPrice: number | null; amount: number }[],
+  vendor: string | null,
+  extractedByVision = false,
+): Promise<ReceiptScanItem[]> {
+  if (parsedItems.length === 0) return [];
+
+  const categories = await prisma.expenseCategory.findMany({
+    where: { businessProfileId },
+    select: { id: true, name: true },
+  });
+
+  // The standing Uncategorized category is never offered to the model as a
+  // classification target — "put it in Uncategorized" is our decision when
+  // the model declines, not one of its options.
+  const assignable = categories.filter((c) => c.name.toLowerCase() !== UNCATEGORISED.toLowerCase());
+
+  let suggestions: Awaited<ReturnType<typeof categoriseReceiptItems>> = [];
+  try {
+    // The history read sits inside the try with the model call on purpose: it
+    // is part of the categorisation attempt, and this function's promise is
+    // that nothing in it can cost the owner their scan.
+    suggestions = await categoriseReceiptItems(
+      parsedItems.map((i) => i.name),
+      assignable.map((c) => c.name),
+      { vendorName: vendor, priorChoices: await recentCategoryChoices(businessProfileId) },
+    );
+  } catch (err) {
+    console.error("Item categorisation failed; storing items uncategorised:", err);
+  }
+
+  const idByName = new Map(assignable.map((c) => [c.name.toLowerCase(), c.id]));
+  const matchByIndex = new Map(suggestions.map((s) => [s.index, s.match]));
+  // Kept separate from the match: a proposal is only ever a question for the
+  // owner, never an assignment. validateItemCategories guarantees the two are
+  // mutually exclusive — a suggestion only survives when nothing matched.
+  const suggestNewByIndex = new Map(suggestions.map((s) => [s.index, s.suggestNew]));
+
+  // Only pay for the Uncategorized category if something actually needs it.
+  const needsFallback = parsedItems.some((_, i) => !matchByIndex.get(i));
+  const uncategorisedId = needsFallback ? await ensureUncategorised(businessProfileId) : null;
+
+  await prisma.receiptScanItem.createMany({
+    data: parsedItems.map((item, i) => {
+      const match = matchByIndex.get(i);
+      return {
+        receiptScanId,
+        lineNumber: i + 1,
+        name: item.name.slice(0, 255),
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        amount: item.amount,
+        categoryId: (match ? idByName.get(match.toLowerCase()) : null) ?? uncategorisedId,
+        suggestedCategoryName: suggestNewByIndex.get(i) ?? null,
+        extractedByVision,
+      };
+    }),
+  });
+
+  return prisma.receiptScanItem.findMany({ where: { receiptScanId }, orderBy: { lineNumber: "asc" } });
+}
+
+/**
+ * Removes a line the owner says was never a purchase.
+ *
+ * OCR occasionally admits a line that is really register furniture, and the
+ * owner is the only one who can tell. Deleting the ROW rather than hiding it
+ * client-side is deliberate: `groupItemsIntoSplits` requires every stored item
+ * to carry an assignment, so a line the client merely stopped sending would
+ * fail confirmation with "Every item on the receipt needs a category" and no
+ * way for the owner to act on it.
+ *
+ * Only while the scan is still Pending. Once confirmed, the items are the
+ * evidence for expense records that already exist, and deleting one would
+ * leave a record whose breakdown no longer explains its own amount.
+ *
+ * Removing a line widens the gap between the items and the confirmed total.
+ * That is correct and is left to the reconciliation step, which already
+ * exists to answer exactly that question.
+ */
+export async function deleteScanItem(userId: number, receiptScanId: number, itemId: number) {
+  const scan = await prisma.receiptScan.findFirst({
+    where: { id: receiptScanId, businessProfile: { userId } },
+  });
+  if (!scan) {
+    throw new ApiError(404, "Receipt scan not found");
+  }
+  if (scan.confirmationStatus === "Confirmed") {
+    throw new ApiError(400, "This receipt scan has already been confirmed");
+  }
+
+  // Scoped to the scan, so an id from someone else's receipt cannot be
+  // deleted by guessing it.
+  const deleted = await prisma.receiptScanItem.deleteMany({ where: { id: itemId, receiptScanId } });
+  if (deleted.count === 0) {
+    throw new ApiError(404, "Item not found on this receipt scan");
+  }
+
+  const items = await prisma.receiptScanItem.findMany({
+    where: { receiptScanId },
+    orderBy: { lineNumber: "asc" },
+  });
+  return toDTO(scan, items);
 }
 
 export async function confirmReceipt(userId: number, receiptScanId: number, input: ConfirmInput) {
@@ -77,21 +449,302 @@ export async function confirmReceipt(userId: number, receiptScanId: number, inpu
     throw new ApiError(400, "Receipt scan is not linked to a business profile");
   }
 
-  const record = await createExpenseRecord(userId, {
-    businessProfileId: scan.businessProfileId,
-    categoryId: input.categoryId,
-    date: input.date,
-    description: input.description,
-    vendor: input.vendor,
-    amount: input.amount,
-    source: "RECEIPT_SCAN",
-    receiptScanId: scan.id,
-  });
+  /*
+   * The splits must account for the whole receipt, exactly.
+   *
+   * The total is the number the owner confirmed against the photo, and it is
+   * what the receipt actually cost — so it is the anchor, and the split has to
+   * reconcile TO it. Silently importing a short split would quietly under-
+   * report the expense; silently scaling one to fit would invent numbers the
+   * owner never entered. Both are worse than refusing.
+   *
+   * Compared in centavos because 1200.10 + 800.20 !== 2000.30 in binary
+   * floating point, and an owner whose arithmetic is right should never be
+   * told it is wrong by a rounding artefact.
+   */
+  const totalCentavos = Math.round(input.amount * 100);
+
+  /*
+   * Every category named anywhere in this request is checked against THIS
+   * business before anything is written. Doing it up front rather than at
+   * each use matters because owner-added items are persisted below: a
+   * validation failure halfway through would leave orphan item rows on the
+   * scan that reappear the next time the owner opens it.
+   */
+  const validCategories = new Set(
+    (
+      await prisma.expenseCategory.findMany({
+        where: { businessProfileId: scan.businessProfileId },
+        select: { id: true },
+      })
+    ).map((c) => c.id),
+  );
+  const namedCategories = [
+    ...(input.itemAssignments ?? []).map((a) => a.categoryId),
+    ...(input.additionalItems ?? []).map((i) => i.categoryId),
+    ...(input.reconciliation?.mode === "category" ? [input.reconciliation.categoryId] : []),
+  ];
+  if (namedCategories.some((id) => !validCategories.has(id))) {
+    throw new ApiError(400, "Category does not belong to this business profile");
+  }
+
+  // The itemised path derives its own splits from the stored items, so the
+  // amounts written and the item -> record links written come from the same
+  // grouping and cannot drift apart.
+  let splits: ReceiptSplit[];
+  if (input.itemAssignments) {
+    const ownerAdded = await persistOwnerAddedItems(scan.id, input.additionalItems);
+    splits = await groupItemsIntoSplits(scan.id, validCategories, [...input.itemAssignments, ...ownerAdded]);
+    splits = reconcileSplits(splits, totalCentavos, input.reconciliation ?? { mode: "none" });
+  } else {
+    splits = input.splits ?? [];
+  }
+
+  if (splits.length === 0) {
+    throw new ApiError(400, "Assign the receipt to at least one category");
+  }
+
+  /*
+   * The splits must account for the whole receipt, exactly.
+   *
+   * On the itemised path reconcileSplits has already closed any legitimate
+   * gap, so this is now a POST-CONDITION on that arithmetic rather than the
+   * owner's problem to solve — if it ever fires there, the allocation is
+   * wrong and must not be written. On the manual-split path it is still the
+   * original check on what the owner typed.
+   */
+  const splitCentavos = splits.reduce((sum, s) => sum + Math.round(s.amount * 100), 0);
+  if (splitCentavos !== totalCentavos) {
+    const difference = (splitCentavos - totalCentavos) / 100;
+    throw new ApiError(
+      400,
+      difference > 0
+        ? `The categories add up to PHP ${Math.abs(difference).toFixed(2)} more than the receipt total.`
+        : `PHP ${Math.abs(difference).toFixed(2)} of the receipt total is not assigned to a category yet.`,
+    );
+  }
+
+  // One record per category, all pointing back at this scan. Sequential
+  // rather than batched on purpose: a receipt splits into a handful of
+  // categories at most, and going through createExpenseRecord keeps the
+  // duplicate check, the large-expense rule and their notifications
+  // identical to a hand-typed expense.
+  const records = [];
+  for (const split of splits) {
+    const record = await createExpenseRecord(userId, {
+      businessProfileId: scan.businessProfileId,
+      categoryId: split.categoryId,
+      date: input.date,
+      description: split.description ?? input.description,
+      vendor: input.vendor,
+      amount: split.amount,
+      allocatedCharges: split.allocatedCharges,
+      source: "RECEIPT_SCAN",
+      receiptScanId: scan.id,
+    });
+    records.push(record);
+
+    // Point the items that composed this record at it, so "what made up this
+    // PHP 1,850 Ingredients entry" stays answerable after the fact.
+    if (split.itemIds && split.itemIds.length > 0) {
+      await prisma.receiptScanItem.updateMany({
+        where: { id: { in: split.itemIds } },
+        data: { expenseRecordId: record.id, categoryId: split.categoryId },
+      });
+    }
+  }
 
   await prisma.receiptScan.update({
     where: { id: scan.id },
     data: { confirmationStatus: "Confirmed" },
   });
 
-  return record;
+  return records;
+}
+
+/**
+ * Persists the lines the owner typed in because OCR missed them.
+ *
+ * They become ordinary ReceiptScanItem rows so everything downstream —
+ * grouping, the item -> record links, the breakdown shown when the record is
+ * later opened — treats them like any other line. `addedByOwner` is what keeps
+ * them honest: the review panel says FinSight *read* the items off the
+ * receipt, and that sentence must not cover a row a human supplied.
+ *
+ * Line numbers continue after the extracted ones, so a hand-added line sorts
+ * to the bottom rather than claiming a position on the printed receipt it
+ * never occupied.
+ */
+async function persistOwnerAddedItems(
+  receiptScanId: number,
+  additionalItems: { name: string; amount: number; categoryId: number }[] | undefined,
+): Promise<{ itemId: number; categoryId: number }[]> {
+  if (!additionalItems || additionalItems.length === 0) return [];
+
+  const existing = await prisma.receiptScanItem.findMany({
+    where: { receiptScanId },
+    select: { lineNumber: true },
+  });
+  let lineNumber = existing.reduce((max, i) => Math.max(max, i.lineNumber), 0);
+
+  const created: { itemId: number; categoryId: number }[] = [];
+  for (const item of additionalItems) {
+    lineNumber += 1;
+    const row = await prisma.receiptScanItem.create({
+      data: {
+        receiptScanId,
+        lineNumber,
+        name: item.name.slice(0, 255),
+        // A hand-added line is a name and an amount. Quantity and unit price
+        // are left null rather than defaulted to 1 — null means "the receipt
+        // didn't say", and inventing a quantity would be a number nobody
+        // entered.
+        quantity: null,
+        unitPrice: null,
+        amount: item.amount,
+        categoryId: item.categoryId,
+        addedByOwner: true,
+      },
+    });
+    created.push({ itemId: row.id, categoryId: item.categoryId });
+  }
+  return created;
+}
+
+/**
+ * Accounts for the difference between what the items come to and what the
+ * receipt actually cost.
+ *
+ * THE RULE THIS ENFORCES: the total the owner confirmed against the photo is
+ * the anchor and is never altered. It is what left their pocket. The gap —
+ * VAT a register adds on top, a service charge, a discount taken off — gets
+ * allocated to categories instead. The alternative, shrinking the total down
+ * to the items, silently under-reports the expense, which is the one thing a
+ * spending monitor must not do.
+ */
+function reconcileSplits(
+  splits: ReceiptSplit[],
+  totalCentavos: number,
+  reconciliation: ReconciliationMode,
+): ReceiptSplit[] {
+  const itemsCentavos = splits.reduce((sum, s) => sum + Math.round(s.amount * 100), 0);
+  const gapCentavos = totalCentavos - itemsCentavos;
+
+  // Nothing to account for. A VAT-inclusive receipt — the compliant
+  // Philippine case, where the printed prices already contain the tax and the
+  // VAT block is only a breakdown — lands here, whatever mode was requested.
+  if (gapCentavos === 0) return splits;
+
+  if (reconciliation.mode === "none") {
+    const difference = Math.abs(gapCentavos) / 100;
+    throw new ApiError(
+      400,
+      gapCentavos > 0
+        ? `The items come to PHP ${difference.toFixed(2)} less than the receipt total. Choose how to account for the difference.`
+        : `The items come to PHP ${difference.toFixed(2)} more than the receipt total. Choose how to account for the difference.`,
+    );
+  }
+
+  if (reconciliation.mode === "category") {
+    /*
+     * A negative gap is a discount — money the owner did NOT spend. Filing it
+     * as its own record would mean a negative expense, which every total,
+     * chart and insight downstream would have to learn to handle. Spreading
+     * it across the categories that were actually discounted is both the
+     * correct accounting and the only shape the rest of the app understands.
+     */
+    if (gapCentavos < 0) {
+      throw new ApiError(
+        400,
+        "A discount can't be filed as its own expense. Spread it across the item categories instead.",
+      );
+    }
+    return [
+      ...splits,
+      {
+        categoryId: reconciliation.categoryId,
+        amount: gapCentavos / 100,
+        description: CHARGES_DESCRIPTION,
+        allocatedCharges: gapCentavos / 100,
+      },
+    ];
+  }
+
+  // Proportional: each category absorbs the share of the gap that matches its
+  // own subtotal, so per-category spending stays truthful. Buy PHP 1,000 of
+  // inventory and PHP 500 of equipment with PHP 180 of VAT and inventory
+  // carries 120 of it, not 90 and not all 180.
+  const weights = splits.map((s) => Math.round(s.amount * 100));
+  const shares = allocateProportionally(gapCentavos, weights);
+
+  const reconciled = splits.map((split, i) => ({
+    ...split,
+    amount: (weights[i]! + shares[i]!) / 100,
+    allocatedCharges: shares[i]! / 100,
+  }));
+
+  // A discount bigger than a category's own items would drive it to zero or
+  // below. Refusing beats writing a record for PHP 0.00 that the owner then
+  // has to work out the meaning of.
+  if (reconciled.some((s) => s.amount <= 0)) {
+    throw new ApiError(
+      400,
+      "The discount is too large to spread across these categories. Check the receipt total and the item amounts.",
+    );
+  }
+
+  return reconciled;
+}
+
+/**
+ * Turns the owner's per-item category choices into one split per category.
+ *
+ * This is where "one record per category group" is actually decided. A
+ * fourteen-item grocery run becomes two records, not fourteen: item-level
+ * detail belongs to ReceiptScanItem, while the Records table stays one row
+ * per finalised transaction.
+ */
+async function groupItemsIntoSplits(
+  receiptScanId: number,
+  validCategories: ReadonlySet<number>,
+  assignments: { itemId: number; categoryId: number }[],
+): Promise<ReceiptSplit[]> {
+  const items = await prisma.receiptScanItem.findMany({ where: { receiptScanId }, orderBy: { lineNumber: "asc" } });
+  const chosen = new Map(assignments.map((a) => [a.itemId, a.categoryId]));
+
+  // Every assignment must name an item of THIS scan and a category of THIS
+  // business — otherwise a crafted request could file an expense under
+  // someone else's category, or attach another receipt's items to it. The
+  // category half is checked by the caller, before anything is written.
+  const itemIds = new Set(items.map((i) => i.id));
+  for (const a of assignments) {
+    if (!itemIds.has(a.itemId)) {
+      throw new ApiError(400, "An item assignment does not belong to this receipt");
+    }
+    if (!validCategories.has(a.categoryId)) {
+      throw new ApiError(400, "Category does not belong to this business profile");
+    }
+  }
+  if (items.some((i) => !chosen.has(i.id))) {
+    throw new ApiError(400, "Every item on the receipt needs a category before saving");
+  }
+
+  const groups = new Map<number, { centavos: number; names: string[]; itemIds: number[] }>();
+  for (const item of items) {
+    const categoryId = chosen.get(item.id)!;
+    const group = groups.get(categoryId) ?? { centavos: 0, names: [], itemIds: [] };
+    group.centavos += Math.round(Number(item.amount) * 100);
+    group.names.push(item.name);
+    group.itemIds.push(item.id);
+    groups.set(categoryId, group);
+  }
+
+  return [...groups.entries()].map(([categoryId, g]) => ({
+    categoryId,
+    amount: g.centavos / 100,
+    // The item names ARE the description — "Buns, Ground beef patty, Eggs
+    // tray" says far more on the Records table than "Purchase from Puregold".
+    description: g.names.join(", ").slice(0, 255),
+    itemIds: g.itemIds,
+  }));
 }

@@ -9,4 +9,5 @@ export const receiptRouter = Router();
 receiptRouter.use(requireAuth);
 
 receiptRouter.post("/", uploadReceiptImage.single("file"), asyncHandler(receiptScanController.upload));
+receiptRouter.delete("/:id/items/:itemId", asyncHandler(receiptScanController.deleteItem));
 receiptRouter.post("/:id/confirm", asyncHandler(receiptScanController.confirm));

@@ -1,6 +1,7 @@
 import { env } from "../config/env";
 import { prisma } from "../config/prisma";
 import { ApiError } from "../middleware/error.middleware";
+import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { buildModuleContext, type InteractionModule } from "./aiContext.service";
 import type { ExtractedScenario } from "../lib/scenario";
 import type { AIInteraction } from "@prisma/client";
@@ -14,7 +15,10 @@ import type { AIInteraction } from "@prisma/client";
 // build (confirmed live against the API, not from docs) — 3.5 is the
 // current flash-lite tier.
 const GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// Exported so visionOcr.service reads a receipt through the same model this
+// file already talks to, rather than keeping a second copy of the name that
+// drifts the next time Google deprecates one.
+export const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // Deliberately a different vendor (Anthropic, via OpenRouter) than the
 // primary Gemini path, so a Google-side outage doesn't take down the
@@ -276,4 +280,400 @@ export async function askFinSight(input: AskInput): Promise<AskResult> {
       };
     }
   }
+}
+
+// ============================================================
+// Category suggestion — a classification, not a conversation
+// ============================================================
+// Deliberately NOT built on askFinSight/AskInput above: that path frames
+// every message as CONTEXT+QUESTION for a free-form conversational answer,
+// grounded by a system prompt about never inventing a NUMBER. This is a
+// one-word classification against the business's OWN category list — the
+// prompt, the temperature (0, for a repeatable answer) and the token budget
+// are all different enough that bolting this onto the conversational path
+// would mean threading exceptions through it rather than reusing anything
+// real.
+
+const CATEGORY_SUGGESTION_SYSTEM_PROMPT = `You classify a short planned-expense description into one of a small business's own expense categories.
+
+Respond with ONLY the exact category name, copied character-for-character from the list you are given. No punctuation, no explanation, no extra words.
+If none of the categories in the list are a reasonable fit, respond with exactly: NONE`;
+
+function classifierUserContent(description: string, categoryNames: string[]): string {
+  return `Categories: ${categoryNames.join(", ")}\n\nDescription: ${description}`;
+}
+
+async function classifyWithGemini(description: string, categoryNames: string[]): Promise<string> {
+  const res = await fetch(GEMINI_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": env.GOOGLE_GEMINI_API_KEY,
+    },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: CATEGORY_SUGGESTION_SYSTEM_PROMPT }] },
+      contents: [{ role: "user", parts: [{ text: classifierUserContent(description, categoryNames) }] }],
+      // temperature 0 and a tight token cap: this answer should be the same
+      // category every time for the same input, and it is at most a few words.
+      generationConfig: { temperature: 0, maxOutputTokens: 20 },
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Gemini responded ${res.status}: ${await res.text()}`);
+  }
+
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("Gemini returned no text content");
+  }
+  return text.trim();
+}
+
+async function classifyWithOpenRouter(description: string, categoryNames: string[]): Promise<string> {
+  const res = await fetch(OPENROUTER_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: [
+        { role: "system", content: CATEGORY_SUGGESTION_SYSTEM_PROMPT },
+        { role: "user", content: classifierUserContent(description, categoryNames) },
+      ],
+      temperature: 0,
+      max_tokens: 20,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`OpenRouter responded ${res.status}: ${await res.text()}`);
+  }
+
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) {
+    throw new Error("OpenRouter returned no text content");
+  }
+  return text.trim();
+}
+
+export interface CategorySuggestion {
+  categoryId: number;
+  categoryName: string;
+}
+
+/**
+ * Matches the model's answer back against the real category list,
+ * case-insensitively but EXACTLY. A model that returns "inventory" or
+ * "Inventory " still resolves to the real category; a near-miss like "Stock"
+ * does not silently become "Inventory" — that would be the model inventing a
+ * mapping rather than reading one off the list it was actually given, which
+ * is the same "never invent what isn't there" rule the conversational prompt
+ * states as RULE 1.
+ */
+function matchCategory(raw: string, categories: CategorySuggestion[]): CategorySuggestion | null {
+  const cleaned = raw.trim().replace(/^["'.]+|["'.]+$/g, "");
+  if (cleaned.toUpperCase() === "NONE") return null;
+  return categories.find((c) => c.categoryName.toLowerCase() === cleaned.toLowerCase()) ?? null;
+}
+
+// ============================================================
+// Receipt item categorisation — a batched classification
+// ============================================================
+// Extraction is NOT this layer's job. parseLineItems (ocr.service) reads the
+// item name, quantity and price off the receipt deterministically, and its
+// accuracy is measured in tests/ocr-accuracy/OCR-ACCURACY-REPORT.md. Handing
+// extraction to a language model instead would mean numbers in the owner's
+// books came from something that cannot be measured that way, and could
+// invent a line that was never printed.
+//
+// What a model IS good at is the part regex cannot do at all: knowing that
+// "buns", "patty" and "eggs" are ingredients while "rice cooker" is
+// equipment. So it classifies, and only classifies.
+//
+// ONE call per receipt, not one per item — the whole list goes up together
+// and comes back as an index-keyed array, the same batching discipline the
+// rest of this service follows.
+
+const ITEM_CATEGORY_SYSTEM_PROMPT = `You assign each item bought on a shop receipt to one of a small business's OWN expense categories.
+
+You are given a numbered list of item names and the exact list of categories that business already uses.
+
+Respond with ONLY a JSON array, no prose and no code fences. One element per item, in the same order:
+{"index": <the item's number>, "match": "<a category name copied EXACTLY from the list, or UNCATEGORISED>", "suggestNew": "<optional>"}
+
+RULES:
+- "match" MUST be copied character-for-character from the categories you were given, or be exactly UNCATEGORISED. Never write a category that is not on that list.
+- Prefer an existing category. Only if NO category on the list is a reasonable home for the item, set "match" to UNCATEGORISED.
+- If an item has no reasonable existing home AND a clear new category would obviously fit it, you may additionally set "suggestNew" to a short proposed category name. This is only a suggestion for the owner to approve — still set "match" to UNCATEGORISED.
+- If you are not confident, use UNCATEGORISED. Guessing wrongly is worse than admitting you don't know.
+- You may also be told the VENDOR the receipt is from, and how this business has categorised items BEFORE. Treat both as evidence: the owner's own past choice is the best guide to where they want something filed, and the vendor tells you what kind of shop the item came from. Neither widens your options — "match" must still be copied from the categories list.
+- Item names come from OCR and are often mangled ("Sprite Can 320m]"). Read through obvious misreads rather than giving up on a name you can still recognise.`;
+
+/** The standing category an item falls into when nothing is confidently right. */
+export const UNCATEGORISED = "Uncategorized";
+
+export interface ItemCategorySuggestion {
+  index: number;
+  /** An existing category name, or null meaning "leave it uncategorised". */
+  match: string | null;
+  /** A proposed NEW category, for the owner to accept or ignore. Never auto-created. */
+  suggestNew: string | null;
+}
+
+/**
+ * Extra signal for the classifier, beyond the item names themselves.
+ *
+ * Both fields are hints only. Neither can widen what the model is allowed to
+ * answer with, because validateItemCategories still checks every answer
+ * against `categoryNames` no matter what went in.
+ */
+export interface ItemCategoryContext {
+  /**
+   * The store the receipt is from.
+   *
+   * A strong prior on its own, and a cheap one: OCR mangles item names far
+   * more often than it mangles the shop's name at the top of the receipt, so
+   * "this came from a hardware store" survives on receipts where the
+   * individual lines barely do.
+   */
+  vendorName?: string | null;
+  /**
+   * How this business has categorised items before, MOST RECENT FIRST.
+   *
+   * This is what lets the classifier learn one business's habits. An owner
+   * who files "Coke Mismo" under Resale rather than Ingredients corrects it
+   * once on the confirm screen, and that choice becomes the example the next
+   * receipt is classified against — instead of the same wrong guess arriving
+   * again every week, which is what happened before this existed.
+   */
+  priorChoices?: { item: string; category: string }[];
+}
+
+/**
+ * How many prior choices are replayed into the prompt.
+ *
+ * Capped because this is paid for by the token on every scan, forever. Twenty
+ * carries a business's recurring purchases — the items that repeat week to
+ * week are exactly the ones worth teaching — without the prompt growing
+ * without bound as history accumulates.
+ */
+const MAX_PRIOR_CHOICES = 20;
+
+function itemCategoryUserContent(
+  itemNames: string[],
+  categoryNames: string[],
+  context: ItemCategoryContext = {},
+): string {
+  const sections = [`Categories: ${categoryNames.join(", ")}`];
+
+  /*
+   * Prior choices are filtered against the CURRENT category list first.
+   *
+   * A category the owner has since deleted or renamed would otherwise be
+   * modelled as a valid answer: the model would copy it, and
+   * validateItemCategories would then discard that answer as ungrounded,
+   * leaving the item uncategorised. Teaching an answer that is guaranteed to
+   * be thrown away is worse than teaching nothing.
+   */
+  const known = new Set(categoryNames.map((c) => c.toLowerCase()));
+  const seen = new Set<string>();
+  const examples: string[] = [];
+  for (const choice of context.priorChoices ?? []) {
+    if (!known.has(choice.category.toLowerCase())) continue;
+    // Deduplicated by item name, first occurrence winning. Callers pass
+    // history most-recent-first, so this keeps the owner's LATEST decision
+    // about a repeated purchase rather than the one it superseded.
+    const key = choice.item.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    examples.push(`"${choice.item.trim().slice(0, 120)}" -> ${choice.category}`);
+    if (examples.length >= MAX_PRIOR_CHOICES) break;
+  }
+  if (examples.length > 0) {
+    sections.push(`How this business has categorised items before:\n${examples.join("\n")}`);
+  }
+
+  if (context.vendorName?.trim()) {
+    sections.push(`Vendor: ${context.vendorName.trim().slice(0, 150)}`);
+  }
+
+  sections.push(`Items:\n${itemNames.map((n, i) => `${i}. ${n.slice(0, 120)}`).join("\n")}`);
+  return sections.join("\n\n");
+}
+
+/** Strips a ```json fence if the model adds one despite being told not to. */
+function parseJsonArray(raw: string): unknown {
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+  return JSON.parse(cleaned);
+}
+
+async function classifyItemsWithGemini(
+  itemNames: string[],
+  categoryNames: string[],
+  context: ItemCategoryContext,
+): Promise<string> {
+  const res = await fetch(GEMINI_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": env.GOOGLE_GEMINI_API_KEY },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: ITEM_CATEGORY_SYSTEM_PROMPT }] },
+      contents: [{ role: "user", parts: [{ text: itemCategoryUserContent(itemNames, categoryNames, context) }] }],
+      // temperature 0: the same receipt must categorise the same way twice.
+      generationConfig: { temperature: 0, maxOutputTokens: 2000, responseMimeType: "application/json" },
+    }),
+  });
+  if (!res.ok) throw new Error(`Gemini responded ${res.status}: ${await res.text()}`);
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned no text content");
+  return text;
+}
+
+async function classifyItemsWithOpenRouter(
+  itemNames: string[],
+  categoryNames: string[],
+  context: ItemCategoryContext,
+): Promise<string> {
+  const res = await fetch(OPENROUTER_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENROUTER_API_KEY}` },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: [
+        { role: "system", content: ITEM_CATEGORY_SYSTEM_PROMPT },
+        { role: "user", content: itemCategoryUserContent(itemNames, categoryNames, context) },
+      ],
+      temperature: 0,
+      max_tokens: 2000,
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenRouter responded ${res.status}: ${await res.text()}`);
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) throw new Error("OpenRouter returned no text content");
+  return text;
+}
+
+/**
+ * Validates the model's answer back against the real category list.
+ *
+ * A "match" that is not on the list EXACTLY (case aside) is discarded and the
+ * item left uncategorised. This is the same rule matchCategory follows for
+ * the single-category classifier, and it is what stops the model quietly
+ * inventing "Groceries" for a business that only has "Inventory" — an
+ * invented category name would either fail to resolve to an id or, worse,
+ * silently create a category the owner never asked for.
+ */
+function validateItemCategories(
+  raw: string,
+  itemCount: number,
+  categoryNames: string[],
+): ItemCategorySuggestion[] {
+  let parsed: unknown;
+  try {
+    parsed = parseJsonArray(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const known = new Map(categoryNames.map((n) => [n.toLowerCase(), n]));
+  const out: ItemCategorySuggestion[] = [];
+  const seen = new Set<number>();
+
+  for (const entry of parsed) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const { index, match, suggestNew } = entry as Record<string, unknown>;
+    const i = typeof index === "number" ? index : Number(index);
+    if (!Number.isInteger(i) || i < 0 || i >= itemCount || seen.has(i)) continue;
+    seen.add(i);
+
+    const matched = typeof match === "string" ? known.get(match.trim().toLowerCase()) : undefined;
+    const proposal =
+      typeof suggestNew === "string" && suggestNew.trim() && !known.has(suggestNew.trim().toLowerCase())
+        ? suggestNew.trim().slice(0, 100)
+        : null;
+
+    out.push({ index: i, match: matched ?? null, suggestNew: matched ? null : proposal });
+  }
+  return out;
+}
+
+/**
+ * Categorises a receipt's items against the business's own category list.
+ *
+ * Returns an empty array — never throws — when both providers are
+ * unreachable, the answer is unusable, or the business has no categories
+ * yet. Every item then arrives uncategorised and the owner assigns them on
+ * the review screen, exactly as if this had never been asked. The AI is an
+ * accelerator on a manual flow, never a dependency of it.
+ */
+export async function categoriseReceiptItems(
+  itemNames: string[],
+  categoryNames: string[],
+  context: ItemCategoryContext = {},
+): Promise<ItemCategorySuggestion[]> {
+  if (itemNames.length === 0 || categoryNames.length === 0) return [];
+
+  let raw: string;
+  try {
+    raw = await classifyItemsWithGemini(itemNames, categoryNames, context);
+  } catch (geminiError) {
+    console.error("Gemini item categorisation failed, falling back to OpenRouter:", geminiError);
+    try {
+      raw = await classifyItemsWithOpenRouter(itemNames, categoryNames, context);
+    } catch (openRouterError) {
+      console.error("OpenRouter item categorisation also failed:", openRouterError);
+      return [];
+    }
+  }
+  return validateItemCategories(raw, itemNames.length, categoryNames);
+}
+
+/**
+ * Suggests one of the business's own categories for a planned-expense
+ * description — the "Category (AI-suggested, editable)" field on Spending
+ * Impact. Returns null if nothing fits, the business has no categories yet,
+ * or both providers are unreachable: a missing suggestion just means the
+ * owner picks one themselves, same as if AI had never been asked.
+ */
+export async function suggestCategoryForDescription(
+  userId: number,
+  businessProfileId: number,
+  description: string
+): Promise<CategorySuggestion | null> {
+  await requireOwnedBusinessProfile(userId, businessProfileId);
+
+  const categories = await prisma.expenseCategory.findMany({
+    where: { businessProfileId },
+    select: { id: true, name: true },
+  });
+  if (categories.length === 0) return null;
+
+  const suggestions: CategorySuggestion[] = categories.map((c) => ({ categoryId: c.id, categoryName: c.name }));
+  const names = suggestions.map((c) => c.categoryName);
+
+  let raw: string;
+  try {
+    raw = await classifyWithGemini(description, names);
+  } catch (geminiError) {
+    console.error("Gemini category classification failed, falling back to OpenRouter:", geminiError);
+    try {
+      raw = await classifyWithOpenRouter(description, names);
+    } catch (openRouterError) {
+      console.error("OpenRouter category classification also failed:", openRouterError);
+      return null;
+    }
+  }
+
+  return matchCategory(raw, suggestions);
 }

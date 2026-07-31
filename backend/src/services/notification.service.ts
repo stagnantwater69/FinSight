@@ -18,6 +18,7 @@ function toDTO(notification: Notification) {
   return {
     id: notification.id,
     businessProfileId: notification.businessProfileId,
+    expenseRecordId: notification.expenseRecordId,
     message: notification.message,
     type: notification.type,
     dateCreated: notification.dateCreated,
@@ -29,10 +30,11 @@ export async function createNotification(
   userId: number,
   businessProfileId: number,
   type: string,
-  message: string
+  message: string,
+  expenseRecordId?: number
 ) {
   await prisma.notification.create({
-    data: { userId, businessProfileId, type, message: message.slice(0, 255) },
+    data: { userId, businessProfileId, type, message: message.slice(0, 255), expenseRecordId },
   });
 }
 

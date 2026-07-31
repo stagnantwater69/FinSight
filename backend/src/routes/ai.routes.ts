@@ -9,3 +9,4 @@ aiRouter.use(requireAuth);
 
 aiRouter.post("/ask", asyncHandler(aiController.ask));
 aiRouter.get("/history", asyncHandler(aiController.history));
+aiRouter.post("/suggest-category", asyncHandler(aiController.suggestCategory));

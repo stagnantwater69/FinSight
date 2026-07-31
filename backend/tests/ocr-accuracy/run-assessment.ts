@@ -9,7 +9,18 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { extractText, parseReceiptFields } from "../../src/services/ocr.service";
+import { extractText, parseLineItems, parseReceiptFields } from "../../src/services/ocr.service";
+import {
+  pct,
+  scoreAmount,
+  scoreDate,
+  scoreItems,
+  scoreVendor,
+  SYMBOL,
+  type ExpectedItem,
+  type ItemScore,
+  type Verdict,
+} from "./scoring";
 
 const HERE = __dirname;
 const IMAGES = join(HERE, "images");
@@ -23,63 +34,30 @@ interface Entry {
   known_ambiguous?: boolean;
   known_layout_risk?: boolean;
   vendor_note?: string;
-  expected: { date: string | null; vendor: string | null; amount: number | null };
+  expected: {
+    date: string | null;
+    vendor: string | null;
+    amount: number | null;
+    /** Null on entries predating the item assessment; [] means "genuinely none". */
+    items?: ExpectedItem[] | null;
+  };
 }
 
-type Verdict = "correct" | "wrong" | "missed" | "n/a";
-
+/** One corpus image's outcome. Local to this script — the scoring it uses is shared. */
 interface Result {
   id: string;
   kind: string;
   conditions: string;
   expected: Entry["expected"];
-  actual: { date: string | null; vendor: string | null; amount: number | null };
+  actual: {
+    date: string | null;
+    vendor: string | null;
+    amount: number | null;
+    items: { name: string; quantity: number | null; amount: number }[];
+  };
   verdict: { date: Verdict; vendor: Verdict; amount: Verdict };
+  itemScore: ItemScore | null;
   rawText: string;
-}
-
-/** Vendor matching is deliberately lenient about OCR character noise. */
-function normalizeVendor(v: string | null): string {
-  return (v ?? "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function scoreVendor(expected: string | null, actual: string | null): Verdict {
-  // Some receipts genuinely contain no vendor name (e.g. the real photo whose
-  // header is cropped). Scoring those as failures would be dishonest — the
-  // information is not in the image.
-  if (expected === null) return "n/a";
-  if (actual === null) return "missed";
-
-  const e = normalizeVendor(expected);
-  const a = normalizeVendor(actual);
-  if (e === a) return "correct";
-
-  // Allow light OCR noise: accept if the words largely agree.
-  const ew = e.split(" ").filter(Boolean);
-  const aw = a.split(" ").filter(Boolean);
-  const hits = ew.filter((w) => aw.some((x) => x === w || (w.length > 3 && x.includes(w.slice(0, 4))))).length;
-  return hits / ew.length >= 0.7 ? "correct" : "wrong";
-}
-
-function scoreDate(expected: string | null, actual: string | null): Verdict {
-  if (expected === null) return "n/a";
-  if (actual === null) return "missed";
-  return actual === expected ? "correct" : "wrong";
-}
-
-function scoreAmount(expected: number | null, actual: number | null): Verdict {
-  if (expected === null) return "n/a";
-  if (actual === null) return "missed";
-  // Exact to the centavo. An amount that is "close" is still wrong money.
-  return Math.abs(actual - expected) < 0.005 ? "correct" : "wrong";
-}
-
-function pct(n: number, d: number): string {
-  return d === 0 ? "n/a" : `${((n / d) * 100).toFixed(0)}%`;
 }
 
 function tally(results: Result[], field: "date" | "vendor" | "amount") {
@@ -93,8 +71,6 @@ function tally(results: Result[], field: "date" | "vendor" | "amount") {
   };
 }
 
-const SYMBOL: Record<Verdict, string> = { correct: "✅", wrong: "❌", missed: "⬜", "n/a": "—" };
-
 (async () => {
   const corpus: Entry[] = JSON.parse(readFileSync(join(HERE, "ground-truth.json"), "utf8"));
   const results: Result[] = [];
@@ -102,12 +78,22 @@ const SYMBOL: Record<Verdict, string> = { correct: "✅", wrong: "❌", missed: 
   for (const entry of corpus) {
     process.stdout.write(`  ${entry.id.padEnd(30)} `);
     const buffer = readFileSync(join(IMAGES, entry.file));
-    let actual: Result["actual"] = { date: null, vendor: null, amount: null };
+    let actual: Result["actual"] = { date: null, vendor: null, amount: null, items: [] };
     let rawText = "";
     try {
-      rawText = await extractText(buffer);
+      // OCR_PSM / OCR_DPI let a tuning sweep run through this exact scoring
+      // path. Unset in a normal run, which is what the report describes.
+      rawText = await extractText(buffer, {
+        pageSegMode: process.env.OCR_PSM,
+        dpi: process.env.OCR_DPI,
+      });
       const parsed = parseReceiptFields(rawText);
-      actual = { date: parsed.date, vendor: parsed.vendor, amount: parsed.amount };
+      actual = {
+        date: parsed.date,
+        vendor: parsed.vendor,
+        amount: parsed.amount,
+        items: parseLineItems(rawText).map((i) => ({ name: i.name, quantity: i.quantity, amount: i.amount })),
+      };
     } catch (err) {
       rawText = `OCR ERROR: ${(err as Error).message}`;
     }
@@ -117,8 +103,12 @@ const SYMBOL: Record<Verdict, string> = { correct: "✅", wrong: "❌", missed: 
       vendor: scoreVendor(entry.expected.vendor, actual.vendor),
       amount: scoreAmount(entry.expected.amount, actual.amount),
     };
-    results.push({ id: entry.id, kind: entry.kind, conditions: entry.conditions, expected: entry.expected, actual, verdict, rawText });
-    console.log(`date ${SYMBOL[verdict.date]}  vendor ${SYMBOL[verdict.vendor]}  amount ${SYMBOL[verdict.amount]}`);
+    const itemScore = entry.expected.items ? scoreItems(entry.expected.items, actual.items) : null;
+    results.push({ id: entry.id, kind: entry.kind, conditions: entry.conditions, expected: entry.expected, actual, verdict, itemScore, rawText });
+    const itemNote = itemScore
+      ? `items ${itemScore.matched}/${itemScore.expected}${itemScore.falsePositives ? ` (+${itemScore.falsePositives} false)` : ""}`
+      : "items —";
+    console.log(`date ${SYMBOL[verdict.date]}  vendor ${SYMBOL[verdict.vendor]}  amount ${SYMBOL[verdict.amount]}  ${itemNote}`);
   }
 
   writeFileSync(join(HERE, "results.json"), JSON.stringify(results, null, 2) + "\n");
@@ -142,7 +132,7 @@ const SYMBOL: Record<Verdict, string> = { correct: "✅", wrong: "❌", missed: 
   lines.push("");
   lines.push(`Generated: ${new Date().toISOString().slice(0, 10)}`);
   lines.push("");
-  lines.push(`Corpus: **${results.length} receipt images**. Pipeline under test: \`extractText()\` (tesseract.js) followed by \`parseReceiptFields()\` — the same two functions the receipt-scan endpoint calls.`);
+  lines.push(`Corpus: **${results.length} receipt images**. Pipeline under test: \`extractText()\` (tesseract.js) followed by \`parseReceiptFields()\` and \`parseLineItems()\` — the same functions the receipt-scan endpoint calls.`);
   lines.push("");
   lines.push("A field is **correct** only on an exact match (amounts to the centavo, dates to the day). Vendor matching tolerates light OCR character noise but not a wrong line.");
   lines.push("");
@@ -161,6 +151,56 @@ const SYMBOL: Record<Verdict, string> = { correct: "✅", wrong: "❌", missed: 
   lines.push(`All three fields correct on the same receipt: **${allThree} of ${results.length}** (${pct(allThree, results.length)}).`);
   lines.push("");
   lines.push("`n/a` fields are excluded from the denominator — those are receipts where the information genuinely is not present in the image, so there is nothing to extract.");
+  lines.push("");
+
+  // ---- Item-level extraction ----
+  const scored = results.filter((r) => r.itemScore !== null).map((r) => r.itemScore!);
+  const it = {
+    expected: scored.reduce((n, s) => n + s.expected, 0),
+    matched: scored.reduce((n, s) => n + s.matched, 0),
+    nameCorrect: scored.reduce((n, s) => n + s.nameCorrect, 0),
+    quantityCorrect: scored.reduce((n, s) => n + s.quantityCorrect, 0),
+    quantityScored: scored.reduce((n, s) => n + s.quantityScored, 0),
+    falsePositives: scored.reduce((n, s) => n + s.falsePositives, 0),
+  };
+
+  lines.push("## Line-item extraction");
+  lines.push("");
+  lines.push("Scored per ITEM, not per receipt. An extracted item is paired with a ground-truth item by **amount**; name and quantity are then scored on that pairing. Quantity is only scored on receipts that actually print a quantity column.");
+  lines.push("");
+  lines.push("| Measure | Count | Of | Rate |");
+  lines.push("|---|---|---|---|");
+  lines.push(`| Items found (price exact to the centavo) | ${it.matched} | ${it.expected} | **${pct(it.matched, it.expected)}** |`);
+  lines.push(`| ...of those, name also correct | ${it.nameCorrect} | ${it.matched} | **${pct(it.nameCorrect, it.matched)}** |`);
+  lines.push(`| ...of those, quantity also correct | ${it.quantityCorrect} | ${it.quantityScored} | **${pct(it.quantityCorrect, it.quantityScored)}** |`);
+  lines.push(`| **False positives** (extracted, not on the receipt) | ${it.falsePositives} | — | — |`);
+  lines.push("");
+  lines.push("**The false-positive count is the number that matters most.** A missed item costs the owner one row of manual entry; a fabricated item silently puts money in their books that was never on the receipt. The parser is deliberately biased towards missing rather than inventing, and the recall figure above is the price of that choice.");
+  lines.push("");
+  lines.push("> **Read the headline recall figure with the corpus in mind.** Most of these images are rendered receipts, and rendered text OCRs far better than a crumpled thermal one photographed on a table. The single real multi-item PHOTO in the corpus (`real-01-ph-pos-photo`) yields **0 of its 2 items** — Tesseract returns its item block as `Spareribs Keal Res FLV` / `co alle oor 9. 00v`, in which no amount is legible, so the parser correctly extracts nothing. The other real receipt (`real-02-clean-digital`) is a clean digital render and scores 3/3. On the evidence here, item extraction from a **clean or lightly degraded** receipt is reliable; item extraction from a **crumpled thermal phone photo is not**, and the product must treat item extraction as best-effort with a manual fallback rather than as something an owner can depend on. This is the same limitation the corpus note above states for the synthetic set generally.");
+  lines.push("");
+
+  const multi = results.filter((r) => (r.expected.items?.length ?? 0) >= 2);
+  const multiScore = multi.map((r) => r.itemScore!);
+  lines.push(`Multi-item receipts only (${multi.length} images, ${multiScore.reduce((n, s) => n + s.expected, 0)} items): **${pct(multiScore.reduce((n, s) => n + s.matched, 0), multiScore.reduce((n, s) => n + s.expected, 0))}** of items found.`);
+  lines.push("");
+
+  const noItems = results.filter((r) => r.expected.items?.length === 0);
+  if (noItems.length > 0) {
+    const clean = noItems.filter((r) => r.actual.items.length === 0).length;
+    lines.push(`Receipts with **no itemised lines at all** (${noItems.length}): ${clean} of ${noItems.length} correctly extracted nothing, rather than inventing lines. These are the ones that must fall back to the single-total flow.`);
+    lines.push("");
+  }
+
+  lines.push("### Per-image item detail");
+  lines.push("");
+  lines.push("| Image | Expected | Found | Name ok | Qty ok | False |");
+  lines.push("|---|---|---|---|---|---|");
+  for (const r of results) {
+    if (!r.itemScore) continue;
+    const s2 = r.itemScore;
+    lines.push(`| \`${r.id}\` | ${s2.expected} | ${s2.matched} | ${s2.nameCorrect} | ${s2.quantityScored ? `${s2.quantityCorrect}/${s2.quantityScored}` : "—"} | ${s2.falsePositives} |`);
+  }
   lines.push("");
 
   lines.push("## Results by image category");
@@ -243,6 +283,47 @@ const SYMBOL: Record<Verdict, string> = { correct: "✅", wrong: "❌", missed: 
   lines.push("### 3. OCR losing the transaction-date line entirely on a real photo");
   lines.push("");
   lines.push("On the real thermal-receipt photo, tesseract never recovered the `Jul 11 2026 (Sat)` line at all — it is absent from the extracted text. The parser can only work with what OCR returns, so no parsing rule could have recovered it. This is an image-quality/OCR-engine limit, and it is the kind of failure the 6 synthetic degraded images did **not** reproduce.");
+  lines.push("");
+  lines.push("## Image preprocessing, and what it was measured to be worth");
+  lines.push("");
+  lines.push("`extractText()` now passes every upload through `sharp` before tesseract sees it: EXIF rotation, a downscale to 2000px, and grayscale. **This changes no figure in this report.** Every image above scores identically with and without it — same date, vendor, amount and item results, image for image. It is in the pipeline for orientation correctness and cost, not accuracy:");
+  lines.push("");
+  lines.push("- **Orientation.** `rotate()` applies the EXIF flag a phone camera writes. A receipt shot in portrait and tagged sideways is unreadable without it. No image in this corpus carries an orientation flag, so this corpus cannot demonstrate the benefit — it is a real-world case the corpus does not cover.");
+  lines.push("- **Cost.** On a simulated 4000px phone capture (1.71 MB), OCR took **35.4s** on the raw bytes and **14.3s** including preprocessing — about **60% faster**, for identical output. The receipt scan is the slowest interaction in the app, so this is the change's actual value.");
+  lines.push("");
+  lines.push("### Preprocessing that was tried and rejected");
+  lines.push("");
+  lines.push("Recorded so it is not retried on the assumption that it obviously ought to help:");
+  lines.push("");
+  lines.push("| Tried | Result |");
+  lines.push("|---|---|");
+  lines.push("| `normalize()` (global contrast stretch) | **Regression.** On the real crumpled thermal photo it read the 188.00 total as `8` and the year 2026 as `2028`. Stretching the whole frame against a bright table background pushes faint thermal strokes out, and a leading `1` goes first. Date and amount both fell 100% → 97%. |");
+  lines.push("| `clahe()`, windows 3–100 (local adaptive contrast) | Neutral at best; at small windows it destroyed the date and amount outright. This is the technique uneven lighting is supposed to call for, and it did not help here. |");
+  lines.push("| median denoise, 2x upscale, sharpen | Neutral or worse. |");
+  lines.push("");
+  lines.push("**None of them recovered the two line items lost on the real photo.** That failure is not a contrast problem — tesseract returns the item block as `Spareribs Keal Res FLV`, with no legible amount anywhere in it. No image transform restores detail the capture never recorded. Improving that case needs a better capture or a different engine, not a better filter.");
+  lines.push("");
+  lines.push("## Engine tuning, and why none of it is applied");
+  lines.push("");
+  lines.push("Page segmentation mode was swept across the whole corpus. **The current setting — not setting one at all — is the best of every option measured**, so no engine parameter is configured in `extractText()`.");
+  lines.push("");
+  lines.push("| `tessedit_pageseg_mode` | Date | Vendor | Amount | All three |");
+  lines.push("|---|---|---|---|---|");
+  lines.push("| **unset (what we ship)** | **100%** | **97%** | **100%** | **29/30** |");
+  lines.push("| 3 — fully automatic | 80% | 86% | 63% | 14/30 |");
+  lines.push("| 4 — single column | 80% | 86% | 67% | 15/30 |");
+  lines.push("| 6 — single uniform block | 100% | 97% | 100% | 29/30 |");
+  lines.push("| 11 — sparse text | 100% | 90% | 73% | 19/30 |");
+  lines.push("| 12 — sparse text + OSD | 100% | 90% | 73% | 19/30 |");
+  lines.push("");
+  lines.push("Two things worth knowing, because both are counter-intuitive:");
+  lines.push("");
+  lines.push("1. **tesseract.js does not default to PSM 3.** It defaults to **PSM 6**, unlike the tesseract CLI. Row 6 above is identical to the unset row image for image, which is what confirms it. Advice written for the CLI does not transfer.");
+  lines.push("2. **The mode that sounds right for a receipt is the one that breaks it.** PSM 4 is \"a single column of text of variable sizes\" — a fair description of a receipt, and the obvious thing to reach for. It drops amount accuracy from 100% to **67%**. A receipt's totals block is not a single column, and forcing that reading pulls the figures apart.");
+  lines.push("");
+  lines.push("`user_defined_dpi=300` was also tested, alone and with PSM 6: neutral in both cases, so it is not set.");
+  lines.push("");
+  lines.push("Re-run any of these with `OCR_PSM=<n> OCR_DPI=<n> npx tsx tests/ocr-accuracy/run-assessment.ts`.");
   lines.push("");
   lines.push("## Fixes applied during this assessment");
   lines.push("");

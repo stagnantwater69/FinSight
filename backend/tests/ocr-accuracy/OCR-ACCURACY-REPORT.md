@@ -1,8 +1,8 @@
 # FinSight OCR Accuracy Assessment
 
-Generated: 2026-07-25
+Generated: 2026-07-31
 
-Corpus: **20 receipt images**. Pipeline under test: `extractText()` (tesseract.js) followed by `parseReceiptFields()` — the same two functions the receipt-scan endpoint calls.
+Corpus: **30 receipt images**. Pipeline under test: `extractText()` (tesseract.js) followed by `parseReceiptFields()` and `parseLineItems()` — the same functions the receipt-scan endpoint calls.
 
 A field is **correct** only on an exact match (amounts to the centavo, dates to the day). Vendor matching tolerates light OCR character noise but not a wrong line.
 
@@ -10,21 +10,75 @@ A field is **correct** only on an exact match (amounts to the centavo, dates to 
 
 | Field | Correct | Wrong | Not extracted | Scored | Accuracy |
 |---|---|---|---|---|---|
-| Date | 20 | 0 | 0 | 20 | **100%** |
-| Vendor | 18 | 1 | 0 | 19 | **95%** |
-| Amount | 20 | 0 | 0 | 20 | **100%** |
+| Date | 30 | 0 | 0 | 30 | **100%** |
+| Vendor | 28 | 1 | 0 | 29 | **97%** |
+| Amount | 30 | 0 | 0 | 30 | **100%** |
 
-All three fields correct on the same receipt: **19 of 20** (95%).
+All three fields correct on the same receipt: **29 of 30** (97%).
 
 `n/a` fields are excluded from the denominator — those are receipts where the information genuinely is not present in the image, so there is nothing to extract.
+
+## Line-item extraction
+
+Scored per ITEM, not per receipt. An extracted item is paired with a ground-truth item by **amount**; name and quantity are then scored on that pairing. Quantity is only scored on receipts that actually print a quantity column.
+
+| Measure | Count | Of | Rate |
+|---|---|---|---|
+| Items found (price exact to the centavo) | 65 | 67 | **97%** |
+| ...of those, name also correct | 65 | 65 | **100%** |
+| ...of those, quantity also correct | 11 | 12 | **92%** |
+| **False positives** (extracted, not on the receipt) | 0 | — | — |
+
+**The false-positive count is the number that matters most.** A missed item costs the owner one row of manual entry; a fabricated item silently puts money in their books that was never on the receipt. The parser is deliberately biased towards missing rather than inventing, and the recall figure above is the price of that choice.
+
+> **Read the headline recall figure with the corpus in mind.** Most of these images are rendered receipts, and rendered text OCRs far better than a crumpled thermal one photographed on a table. The single real multi-item PHOTO in the corpus (`real-01-ph-pos-photo`) yields **0 of its 2 items** — Tesseract returns its item block as `Spareribs Keal Res FLV` / `co alle oor 9. 00v`, in which no amount is legible, so the parser correctly extracts nothing. The other real receipt (`real-02-clean-digital`) is a clean digital render and scores 3/3. On the evidence here, item extraction from a **clean or lightly degraded** receipt is reliable; item extraction from a **crumpled thermal phone photo is not**, and the product must treat item extraction as best-effort with a manual fallback rather than as something an owner can depend on. This is the same limitation the corpus note above states for the synthetic set generally.
+
+Multi-item receipts only (15 images, 53 items): **96%** of items found.
+
+Receipts with **no itemised lines at all** (1): 1 of 1 correctly extracted nothing, rather than inventing lines. These are the ones that must fall back to the single-total flow.
+
+### Per-image item detail
+
+| Image | Expected | Found | Name ok | Qty ok | False |
+|---|---|---|---|---|---|
+| `real-01-ph-pos-photo` | 2 | 0 | 0 | — | 0 |
+| `real-02-clean-digital` | 3 | 3 | 3 | 3/3 | 0 |
+| `syn-01-vendor-top-iso-date` | 2 | 2 | 2 | — | 0 |
+| `syn-02-vendor-bottom` | 2 | 2 | 2 | — | 0 |
+| `syn-03-ambiguous-slash-date` | 1 | 1 | 1 | — | 0 |
+| `syn-04-month-name-date` | 1 | 1 | 1 | — | 0 |
+| `syn-05-thousands-separator` | 1 | 1 | 1 | — | 0 |
+| `syn-06-subtotal-then-total` | 1 | 1 | 1 | — | 0 |
+| `syn-07-no-total-keyword` | 1 | 1 | 1 | — | 0 |
+| `syn-08-peso-sign` | 1 | 1 | 1 | — | 0 |
+| `syn-09-two-digit-year` | 1 | 1 | 1 | — | 0 |
+| `syn-10-dd-mm-yyyy` | 1 | 1 | 1 | — | 0 |
+| `syn-11-long-header` | 1 | 1 | 1 | — | 0 |
+| `syn-12-tiny-amount` | 1 | 1 | 1 | — | 0 |
+| `syn-13-many-items` | 7 | 7 | 7 | — | 0 |
+| `syn-14-qty-columns` | 3 | 3 | 3 | 3/3 | 0 |
+| `syn-15-vat-flags` | 2 | 2 | 2 | — | 0 |
+| `syn-16-multiplier-prefix` | 3 | 3 | 3 | 3/3 | 0 |
+| `syn-17-total-only` | 0 | 0 | 0 | — | 0 |
+| `syn-19-savemore-payment-and-tax-lines` | 6 | 6 | 6 | — | 0 |
+| `syn-18-discount-line` | 2 | 2 | 2 | — | 0 |
+| `deg-01-blur` | 2 | 2 | 2 | — | 0 |
+| `deg-02-low-contrast` | 2 | 2 | 2 | — | 0 |
+| `deg-03-rotated` | 1 | 1 | 1 | — | 0 |
+| `deg-04-low-resolution` | 1 | 1 | 1 | — | 0 |
+| `deg-05-dark` | 1 | 1 | 1 | — | 0 |
+| `deg-06-jpeg-artifacts` | 1 | 1 | 1 | — | 0 |
+| `deg-07-many-items-blur` | 7 | 7 | 7 | — | 0 |
+| `deg-08-many-items-low-contrast` | 7 | 7 | 7 | — | 0 |
+| `deg-09-qty-columns-rotated` | 3 | 3 | 3 | 2/3 | 0 |
 
 ## Results by image category
 
 | Category | Images | Date | Vendor | Amount |
 |---|---|---|---|---|
 | real | 2 | 100% | 100% | 100% |
-| synthetic | 12 | 100% | 92% | 100% |
-| degraded | 6 | 100% | 100% | 100% |
+| synthetic | 19 | 100% | 95% | 100% |
+| degraded | 9 | 100% | 100% | 100% |
 
 ## Per-image detail
 
@@ -44,12 +98,22 @@ All three fields correct on the same receipt: **19 of 20** (95%).
 | 12 | `syn-10-dd-mm-yyyy` | Printed, DD/MM/YYYY date (25/07/2026) — resolvable by validity, since 25 cannot be a month | ✅ | ✅ | ✅ |
 | 13 | `syn-11-long-header` | Printed, several administrative lines before the vendor name (TIN/permit block first) | ✅ | ✅ | ✅ |
 | 14 | `syn-12-tiny-amount` | Printed, very small amount (single-digit pesos) | ✅ | ✅ | ✅ |
-| 15 | `deg-01-blur` | Synthetic + Gaussian blur r=1.6 (simulates out-of-focus capture) | ✅ | ✅ | ✅ |
-| 16 | `deg-02-low-contrast` | Synthetic + contrast reduced to 35% (simulates faded thermal print) | ✅ | ✅ | ✅ |
-| 17 | `deg-03-rotated` | Synthetic + rotated 4 degrees (simulates handheld skew) | ✅ | ✅ | ✅ |
-| 18 | `deg-04-low-resolution` | Synthetic + downscaled to 45% then back up (simulates a distant/low-res photo) | ✅ | ✅ | ✅ |
-| 19 | `deg-05-dark` | Synthetic + brightness reduced to 45% (simulates poor lighting) | ✅ | ✅ | ✅ |
-| 20 | `deg-06-jpeg-artifacts` | Synthetic + heavy JPEG compression (quality 12) | ✅ | ✅ | ✅ |
+| 15 | `syn-13-many-items` | Printed, 7 plain name+price item lines (a grocery run) — the common multi-item shape | ✅ | ✅ | ✅ |
+| 16 | `syn-14-qty-columns` | Printed, QTY / UNIT PRICE / AMOUNT columns per item line | ✅ | ✅ | ✅ |
+| 17 | `syn-15-vat-flags` | Printed, BIR-style VAT class flag appended to every item amount (129.00V) | ✅ | ✅ | ✅ |
+| 18 | `syn-16-multiplier-prefix` | Printed, '2 x Item' multiplier prefix on each line | ✅ | ✅ | ✅ |
+| 19 | `syn-17-total-only` | Printed, NO itemised lines at all — only a total. Tests the fallback: item extraction must return nothing rather than invent lines | ✅ | ✅ | ✅ |
+| 20 | `syn-19-savemore-payment-and-tax-lines` | Real PH grocery receipt structure: 6 items followed by a VAT summary block, a TOTAL, and a 'BDO ATM' payment line carrying the same total, plus AuthCode/Order ID | ✅ | ✅ | ✅ |
+| 21 | `syn-18-discount-line` | Printed, a DISCOUNT line sits among the items — must not be read as a purchase | ✅ | ✅ | ✅ |
+| 22 | `deg-01-blur` | Synthetic + Gaussian blur r=1.6 (simulates out-of-focus capture) | ✅ | ✅ | ✅ |
+| 23 | `deg-02-low-contrast` | Synthetic + contrast reduced to 35% (simulates faded thermal print) | ✅ | ✅ | ✅ |
+| 24 | `deg-03-rotated` | Synthetic + rotated 4 degrees (simulates handheld skew) | ✅ | ✅ | ✅ |
+| 25 | `deg-04-low-resolution` | Synthetic + downscaled to 45% then back up (simulates a distant/low-res photo) | ✅ | ✅ | ✅ |
+| 26 | `deg-05-dark` | Synthetic + brightness reduced to 45% (simulates poor lighting) | ✅ | ✅ | ✅ |
+| 27 | `deg-06-jpeg-artifacts` | Synthetic + heavy JPEG compression (quality 12) | ✅ | ✅ | ✅ |
+| 28 | `deg-07-many-items-blur` | 7-item receipt + Gaussian blur r=1.6 | ✅ | ✅ | ✅ |
+| 29 | `deg-08-many-items-low-contrast` | 7-item receipt + contrast reduced to 35% | ✅ | ✅ | ✅ |
+| 30 | `deg-09-qty-columns-rotated` | Quantity-column receipt + rotated 4 degrees | ✅ | ✅ | ✅ |
 
 ✅ correct · ❌ wrong value returned · ⬜ nothing extracted · — not applicable (not present in image)
 
@@ -92,6 +156,47 @@ The vendor heuristic takes the first substantive line, so a store name printed a
 ### 3. OCR losing the transaction-date line entirely on a real photo
 
 On the real thermal-receipt photo, tesseract never recovered the `Jul 11 2026 (Sat)` line at all — it is absent from the extracted text. The parser can only work with what OCR returns, so no parsing rule could have recovered it. This is an image-quality/OCR-engine limit, and it is the kind of failure the 6 synthetic degraded images did **not** reproduce.
+
+## Image preprocessing, and what it was measured to be worth
+
+`extractText()` now passes every upload through `sharp` before tesseract sees it: EXIF rotation, a downscale to 2000px, and grayscale. **This changes no figure in this report.** Every image above scores identically with and without it — same date, vendor, amount and item results, image for image. It is in the pipeline for orientation correctness and cost, not accuracy:
+
+- **Orientation.** `rotate()` applies the EXIF flag a phone camera writes. A receipt shot in portrait and tagged sideways is unreadable without it. No image in this corpus carries an orientation flag, so this corpus cannot demonstrate the benefit — it is a real-world case the corpus does not cover.
+- **Cost.** On a simulated 4000px phone capture (1.71 MB), OCR took **35.4s** on the raw bytes and **14.3s** including preprocessing — about **60% faster**, for identical output. The receipt scan is the slowest interaction in the app, so this is the change's actual value.
+
+### Preprocessing that was tried and rejected
+
+Recorded so it is not retried on the assumption that it obviously ought to help:
+
+| Tried | Result |
+|---|---|
+| `normalize()` (global contrast stretch) | **Regression.** On the real crumpled thermal photo it read the 188.00 total as `8` and the year 2026 as `2028`. Stretching the whole frame against a bright table background pushes faint thermal strokes out, and a leading `1` goes first. Date and amount both fell 100% → 97%. |
+| `clahe()`, windows 3–100 (local adaptive contrast) | Neutral at best; at small windows it destroyed the date and amount outright. This is the technique uneven lighting is supposed to call for, and it did not help here. |
+| median denoise, 2x upscale, sharpen | Neutral or worse. |
+
+**None of them recovered the two line items lost on the real photo.** That failure is not a contrast problem — tesseract returns the item block as `Spareribs Keal Res FLV`, with no legible amount anywhere in it. No image transform restores detail the capture never recorded. Improving that case needs a better capture or a different engine, not a better filter.
+
+## Engine tuning, and why none of it is applied
+
+Page segmentation mode was swept across the whole corpus. **The current setting — not setting one at all — is the best of every option measured**, so no engine parameter is configured in `extractText()`.
+
+| `tessedit_pageseg_mode` | Date | Vendor | Amount | All three |
+|---|---|---|---|---|
+| **unset (what we ship)** | **100%** | **97%** | **100%** | **29/30** |
+| 3 — fully automatic | 80% | 86% | 63% | 14/30 |
+| 4 — single column | 80% | 86% | 67% | 15/30 |
+| 6 — single uniform block | 100% | 97% | 100% | 29/30 |
+| 11 — sparse text | 100% | 90% | 73% | 19/30 |
+| 12 — sparse text + OSD | 100% | 90% | 73% | 19/30 |
+
+Two things worth knowing, because both are counter-intuitive:
+
+1. **tesseract.js does not default to PSM 3.** It defaults to **PSM 6**, unlike the tesseract CLI. Row 6 above is identical to the unset row image for image, which is what confirms it. Advice written for the CLI does not transfer.
+2. **The mode that sounds right for a receipt is the one that breaks it.** PSM 4 is "a single column of text of variable sizes" — a fair description of a receipt, and the obvious thing to reach for. It drops amount accuracy from 100% to **67%**. A receipt's totals block is not a single column, and forcing that reading pulls the figures apart.
+
+`user_defined_dpi=300` was also tested, alone and with PSM 6: neutral in both cases, so it is not set.
+
+Re-run any of these with `OCR_PSM=<n> OCR_DPI=<n> npx tsx tests/ocr-accuracy/run-assessment.ts`.
 
 ## Fixes applied during this assessment
 

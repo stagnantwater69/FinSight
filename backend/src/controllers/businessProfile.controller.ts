@@ -67,3 +67,18 @@ export async function restore(req: Request, res: Response) {
   const profile = await businessProfileService.restoreBusinessProfile(req.user!.id, id);
   res.status(200).json(profile);
 }
+
+export async function uploadLogo(req: Request, res: Response) {
+  const id = parseId(req.params.id!);
+  if (!req.file) {
+    throw new ApiError(400, "Photo file is required");
+  }
+  const profile = await businessProfileService.updateBusinessLogo(
+    req.user!.id,
+    id,
+    req.file.buffer,
+    req.file.mimetype,
+    req.file.originalname,
+  );
+  res.status(200).json(profile);
+}

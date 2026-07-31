@@ -36,7 +36,11 @@ function csv(rows: string[]): Buffer {
   return Buffer.from(["Transaction Date,Particulars,Cash Out,Class", ...rows].join("\n") + "\n");
 }
 
-async function importExpenses(buffer: Buffer, title = "Test batch") {
+async function importExpenses(
+  buffer: Buffer,
+  title = "Test batch",
+  corrections?: Parameters<typeof confirmImport>[1]["corrections"],
+) {
   return confirmImport(ctx.user.id, {
     businessProfileId: ctx.profile.id,
     recordType: "expense",
@@ -44,6 +48,7 @@ async function importExpenses(buffer: Buffer, title = "Test batch") {
     buffer,
     originalname: "test.csv",
     columnMapping: EXPENSE_MAPPING,
+    corrections,
   });
 }
 
@@ -55,11 +60,18 @@ describe("previewCsv", () => {
     expect(result.previewRows).toHaveLength(2);
   });
 
-  it("caps the preview at 20 rows but still reports the true total", () => {
+  it("caps the preview at 50 rows but still reports the true total", () => {
+    const rows = Array.from({ length: 80 }, (_, i) => `${utcDayString(-1)},Item ${i},100,Inventory`);
+    const result = previewCsv(csv(rows));
+    expect(result.totalRows).toBe(80);
+    expect(result.previewRows).toHaveLength(50);
+  });
+
+  it("sends the whole file when it is shorter than the cap", () => {
     const rows = Array.from({ length: 35 }, (_, i) => `${utcDayString(-1)},Item ${i},100,Inventory`);
     const result = previewCsv(csv(rows));
     expect(result.totalRows).toBe(35);
-    expect(result.previewRows).toHaveLength(20);
+    expect(result.previewRows).toHaveLength(35);
   });
 
   it("handles an empty file without throwing", () => {
@@ -101,6 +113,61 @@ describe("import of a wholly valid file", () => {
     expect(categories).toHaveLength(2);
     const record = await prisma.expenseRecord.findFirstOrThrow({ where: { businessProfileId: ctx.profile.id } });
     expect(record.categoryId).toBe(ctx.categories.Inventory);
+  });
+
+  /*
+   * Vendor: mappable, optional, and never a reason to skip a row.
+   * ExpenseRecord.vendor is nullable and the Add Expense form marks it
+   * optional, so an export without a supplier column has to import cleanly —
+   * it just can't fill one in.
+   */
+  it("imports the vendor when a column is mapped to it", async () => {
+    const buffer = Buffer.from(
+      ["Transaction Date,Particulars,Cash Out,Class,Supplier", `${utcDayString(-1)},Rice,1400,Inventory,Aling Nena`].join("\n") + "\n",
+    );
+    await confirmImport(ctx.user.id, {
+      businessProfileId: ctx.profile.id,
+      recordType: "expense",
+      title: "Vendor batch",
+      buffer,
+      originalname: "test.csv",
+      columnMapping: { ...EXPENSE_MAPPING, vendor: "Supplier" },
+    });
+
+    const record = await prisma.expenseRecord.findFirstOrThrow({ where: { businessProfileId: ctx.profile.id } });
+    expect(record.vendor).toBe("Aling Nena");
+  });
+
+  it("imports with no vendor at all when the column isn't mapped", async () => {
+    const result = await importExpenses(csv([`${utcDayString(-1)},Rice,1400,Inventory`]));
+    expect(result.imported).toBe(1);
+    const record = await prisma.expenseRecord.findFirstOrThrow({ where: { businessProfileId: ctx.profile.id } });
+    expect(record.vendor).toBeNull();
+  });
+
+  it("does not skip a row whose vendor cell is empty", async () => {
+    const buffer = Buffer.from(
+      [
+        "Transaction Date,Particulars,Cash Out,Class,Supplier",
+        `${utcDayString(-1)},Has vendor,1400,Inventory,Aling Nena`,
+        `${utcDayString(-2)},No vendor,900,Inventory,`,
+      ].join("\n") + "\n",
+    );
+    const result = await confirmImport(ctx.user.id, {
+      businessProfileId: ctx.profile.id,
+      recordType: "expense",
+      title: "Vendor batch",
+      buffer,
+      originalname: "test.csv",
+      columnMapping: { ...EXPENSE_MAPPING, vendor: "Supplier" },
+    });
+
+    expect(result.imported).toBe(2);
+    expect(result.skipped).toEqual([]);
+    const blank = await prisma.expenseRecord.findFirstOrThrow({
+      where: { businessProfileId: ctx.profile.id, description: "No vendor" },
+    });
+    expect(blank.vendor).toBeNull();
   });
 
   it("stores dates at UTC midnight", async () => {
@@ -154,6 +221,92 @@ describe("import of a file with a mix of valid and invalid rows", () => {
 
     const batch = await prisma.cSVImportBatch.findUniqueOrThrow({ where: { id: result.batchId } });
     expect(batch.status).toBe("Needs Review");
+  });
+
+  /*
+   * Corrections: the cells an owner retypes in the "rows won't import" panel,
+   * applied over the uploaded file so a bad row can be rescued in the same
+   * import rather than sending them back to Excel for a second round trip.
+   */
+  it("imports a row that a correction makes valid", async () => {
+    const result = await importExpenses(
+      csv([`${utcDayString(-1)},Good row,1400,Inventory`, `,Missing date,900,Utilities`]),
+      "Fixed batch",
+      { "3": { date: utcDayString(-2) } },
+    );
+
+    expect(result.imported).toBe(2);
+    expect(result.skipped).toEqual([]);
+    expect(result.status).toBe("Completed");
+
+    const rescued = await prisma.expenseRecord.findFirstOrThrow({
+      where: { businessProfileId: ctx.profile.id, description: "Missing date" },
+    });
+    expect(rescued.date.toISOString()).toBe(`${utcDayString(-2)}T00:00:00.000Z`);
+  });
+
+  it("can correct several fields of the same row at once", async () => {
+    const result = await importExpenses(
+      csv([`,Broken everywhere,not-a-number,`]),
+      "Fixed batch",
+      { "2": { date: utcDayString(-1), amount: "1250.50", category: "Utilities" } },
+    );
+
+    expect(result.imported).toBe(1);
+    const record = await prisma.expenseRecord.findFirstOrThrow({ where: { businessProfileId: ctx.profile.id } });
+    expect(Number(record.amount)).toBe(1250.5);
+    expect(record.categoryId).toBe(ctx.categories.Utilities);
+  });
+
+  it("leaves untouched rows alone when correcting one", async () => {
+    const result = await importExpenses(
+      csv([`${utcDayString(-1)},Keep me,1400,Inventory`, `,Fix me,900,Utilities`]),
+      "Fixed batch",
+      { "3": { date: utcDayString(-2) } },
+    );
+    expect(result.imported).toBe(2);
+    const kept = await prisma.expenseRecord.findFirstOrThrow({
+      where: { businessProfileId: ctx.profile.id, description: "Keep me" },
+    });
+    expect(Number(kept.amount)).toBe(1400);
+    expect(kept.date.toISOString()).toBe(`${utcDayString(-1)}T00:00:00.000Z`);
+  });
+
+  /**
+   * The correction is data, not a bypass. A value that is still invalid gets
+   * skipped with the same reason as if it had come out of the file that way —
+   * so this cannot be used to push an unparseable amount into the database.
+   */
+  it("still skips a row whose correction is also invalid", async () => {
+    const result = await importExpenses(
+      csv([`${utcDayString(-1)},Bad amount,not-a-number,Inventory`]),
+      "Fixed batch",
+      { "2": { amount: "still-not-a-number" } },
+    );
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]!.reason).toContain("Invalid amount");
+    expect(await prisma.expenseRecord.count({ where: { businessProfileId: ctx.profile.id } })).toBe(0);
+  });
+
+  it("ignores a correction for a row number that isn't in the file", async () => {
+    const result = await importExpenses(csv([`${utcDayString(-1)},Only row,1400,Inventory`]), "Fixed batch", {
+      "99": { amount: "5" },
+    });
+    expect(result.imported).toBe(1);
+    const record = await prisma.expenseRecord.findFirstOrThrow({ where: { businessProfileId: ctx.profile.id } });
+    expect(Number(record.amount)).toBe(1400);
+  });
+
+  it("creates a category named only in a correction", async () => {
+    await importExpenses(csv([`${utcDayString(-1)},Needs a category,1400,`]), "Fixed batch", {
+      "2": { category: "Transport" },
+    });
+    const created = await prisma.expenseCategory.findFirstOrThrow({
+      where: { businessProfileId: ctx.profile.id, name: "Transport" },
+    });
+    const record = await prisma.expenseRecord.findFirstOrThrow({ where: { businessProfileId: ctx.profile.id } });
+    expect(record.categoryId).toBe(created.id);
   });
 
   it("records the batch with a stored file reference (NOT NULL in the dictionary)", async () => {
@@ -215,6 +368,56 @@ describe("imported rows still go through the normal flagging rules", () => {
     expect(records).toHaveLength(2);
     expect(records[1]!.duplicateStatus).toBe("Flagged");
     expect(records[1]!.duplicateOfRecordId).toBe(records[0]!.id);
+  });
+
+  /**
+   * Two identical rows inside ONE file.
+   *
+   * This used to be free: rows were inserted one at a time, so the second
+   * row's duplicate SELECT could already see the first. The batched import
+   * inserts them together, which means nothing in the database distinguishes
+   * them at insert time and the link has to be worked out in memory and
+   * written back afterwards — so it is worth a test of its own.
+   */
+  it("flags a row that duplicates an earlier row of the SAME file", async () => {
+    const day = utcDayString(-1);
+    const result = await importExpenses(
+      csv([
+        `${day},Supplier stocks,1400,Inventory`,
+        `${day},Different thing,900,Inventory`,
+        `${day},Supplier stocks,1400,Inventory`,
+      ]),
+      "One batch",
+    );
+
+    expect(result.imported).toBe(3);
+    expect(result.flagged).toBe(1);
+
+    const records = await prisma.expenseRecord.findMany({
+      where: { businessProfileId: ctx.profile.id },
+      orderBy: { id: "asc" },
+    });
+    expect(records).toHaveLength(3);
+    // First occurrence is clean, the unrelated row is clean, the repeat is flagged
+    // and points back at the first occurrence — not at itself, and not at null.
+    expect(records[0]!.duplicateStatus).toBe("Not a Duplicate");
+    expect(records[1]!.duplicateStatus).toBe("Not a Duplicate");
+    expect(records[2]!.duplicateStatus).toBe("Flagged");
+    expect(records[2]!.duplicateOfRecordId).toBe(records[0]!.id);
+  });
+
+  it("raises one notification per flag, linked to the record it is about", async () => {
+    const day = utcDayString(-1);
+    await importExpenses(csv([`${day},Supplier stocks,1400,Inventory`, `${day},Supplier stocks,1400,Inventory`]), "Batch");
+
+    const notifications = await prisma.notification.findMany({
+      where: { businessProfileId: ctx.profile.id, type: "Possible Duplicate" },
+    });
+    expect(notifications).toHaveLength(1);
+    const flagged = await prisma.expenseRecord.findFirst({
+      where: { businessProfileId: ctx.profile.id, duplicateStatus: "Flagged" },
+    });
+    expect(notifications[0]!.expenseRecordId).toBe(flagged!.id);
   });
 });
 

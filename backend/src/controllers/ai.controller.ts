@@ -29,6 +29,21 @@ export async function ask(req: Request, res: Response) {
   res.status(201).json(result);
 }
 
+const suggestCategorySchema = z.object({
+  businessProfileId: z.number().int().positive(),
+  description: z.string().min(1).max(255),
+});
+
+export async function suggestCategory(req: Request, res: Response) {
+  const input = suggestCategorySchema.parse(req.body);
+  const suggestion = await aiService.suggestCategoryForDescription(
+    req.user!.id,
+    input.businessProfileId,
+    input.description
+  );
+  res.status(200).json({ suggestion });
+}
+
 const historyQuerySchema = z.object({
   businessProfileId: z.coerce.number().int().positive(),
   module: z.enum(aiService.INTERACTION_MODULES).optional(),

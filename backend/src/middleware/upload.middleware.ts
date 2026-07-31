@@ -28,3 +28,16 @@ export const uploadCsv = multer({
     cb(null, true);
   },
 });
+
+export const uploadPhoto = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowed.includes(file.mimetype)) {
+      cb(new ApiError(400, "Photo must be JPEG, PNG, or WEBP"));
+      return;
+    }
+    cb(null, true);
+  },
+});

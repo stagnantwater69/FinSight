@@ -1,6 +1,7 @@
 import { supabaseAdmin, createPasswordAuthClient } from "../config/supabase";
 import { prisma } from "../config/prisma";
 import { ApiError } from "../middleware/error.middleware";
+import { uploadUserAvatar } from "./storage.service";
 import type { User } from "@prisma/client";
 
 interface RegisterInput {
@@ -33,6 +34,7 @@ function toProfile(user: User) {
     email: user.email,
     phoneNumber: user.phoneNumber,
     status: user.status,
+    avatarUrl: user.avatarUrl,
     createdAt: user.createdAt,
   };
 }
@@ -144,5 +146,11 @@ export async function updateProfile(userId: number, input: UpdateProfileInput) {
     where: { id: userId },
     data: input,
   });
+  return toProfile(user);
+}
+
+export async function updateAvatar(userId: number, buffer: Buffer, mimetype: string, originalname: string) {
+  const avatarUrl = await uploadUserAvatar(userId, buffer, mimetype, originalname);
+  const user = await prisma.user.update({ where: { id: userId }, data: { avatarUrl } });
   return toProfile(user);
 }

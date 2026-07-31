@@ -8,6 +8,12 @@ import { ApiError } from "../middleware/error.middleware";
 // data dictionary, so a real stored reference is needed, not a fake one.
 const CSV_IMPORT_BUCKET = "csv-imports";
 
+// Public, unlike receipts/csv-imports — a profile photo or business logo is
+// rendered directly as an <img src>, so the URL has to work with no auth
+// header attached. Neither bucket holds anything sensitive enough to need
+// the signed-URL indirection the private buckets require.
+const AVATAR_BUCKET = "avatars";
+
 // One retry, for genuinely transient Storage failures (network blips, 5xx).
 //
 // HISTORICAL NOTE: this retry was originally added to paper over a
@@ -45,8 +51,64 @@ export async function uploadReceiptImage(businessProfileId: number, buffer: Buff
   return path;
 }
 
+/**
+ * How long a receipt image link stays valid. Long enough to open a record,
+ * read the receipt and think about it; short enough that a URL copied out of
+ * devtools or a shared screenshot stops working well before it could be
+ * passed around. The receipts bucket is private precisely so these links are
+ * the only way in.
+ */
+const RECEIPT_URL_TTL_SECONDS = 10 * 60;
+
+/**
+ * A temporary link to a stored receipt image.
+ *
+ * Returns null rather than throwing when the link can't be minted — a record
+ * whose thumbnail is missing should still open and still be editable. Losing
+ * the picture is a degraded page; a 500 here would be a page the owner cannot
+ * use at all, over an image.
+ */
+export async function signedReceiptImageUrl(path: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.storage
+    .from(env.SUPABASE_STORAGE_BUCKET)
+    .createSignedUrl(path, RECEIPT_URL_TTL_SECONDS);
+
+  if (error || !data?.signedUrl) {
+    console.error(`Could not sign receipt image URL for "${path}": ${error?.message ?? "no URL returned"}`);
+    return null;
+  }
+  return data.signedUrl;
+}
+
 export async function uploadCsvFile(businessProfileId: number, buffer: Buffer, originalname: string) {
   const path = `${businessProfileId}/${randomUUID()}-${originalname}`;
   await uploadWithRetry(CSV_IMPORT_BUCKET, path, buffer, "text/csv");
   return path;
+}
+
+// `upsert: true` because a re-uploaded photo reuses the same path (see the
+// callers below) — old avatars/logos are meant to be replaced, not
+// accumulated forever under a new random name each time.
+async function uploadPublicImage(prefix: string, buffer: Buffer, mimetype: string, originalname: string) {
+  const ext = originalname.includes(".") ? originalname.split(".").pop() : mimetype.split("/")[1];
+  const path = `${prefix}.${ext}`;
+  const { error } = await supabaseAdmin.storage
+    .from(AVATAR_BUCKET)
+    .upload(path, buffer, { contentType: mimetype, upsert: true });
+  if (error) {
+    throw new ApiError(502, `Could not upload image to storage: ${error.message}`);
+  }
+  const { data } = supabaseAdmin.storage.from(AVATAR_BUCKET).getPublicUrl(path);
+  // Cache-bust: the path (and therefore the URL) is stable across re-uploads,
+  // so without this the browser and CDN would keep serving the old cached
+  // image after a photo change.
+  return `${data.publicUrl}?v=${Date.now()}`;
+}
+
+export async function uploadUserAvatar(userId: number, buffer: Buffer, mimetype: string, originalname: string) {
+  return uploadPublicImage(`users/${userId}`, buffer, mimetype, originalname);
+}
+
+export async function uploadBusinessLogo(businessProfileId: number, buffer: Buffer, mimetype: string, originalname: string) {
+  return uploadPublicImage(`businesses/${businessProfileId}`, buffer, mimetype, originalname);
 }
