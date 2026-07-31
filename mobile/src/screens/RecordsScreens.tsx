@@ -21,6 +21,7 @@ import {
   gapCentavos,
   type ReconciliationPlan,
 } from "../lib/receiptConfirm";
+import { rowsToApplySuggestionTo, suggestedNewCategory } from "../lib/categorySuggestion";
 import {
   buildExpenseUpdatePayload,
   buildSalesUpdatePayload,
@@ -563,6 +564,8 @@ export function ScanReceiptScreen({ navigation }: any) {
   const [plan, setPlan] = useState<ReconciliationPlan>(null);
   /** The category for the "file it on its own" plan. */
   const [gapCategoryId, setGapCategoryId] = useState<number | null>(null);
+  /** The proposed category currently being created, so its row can show progress. */
+  const [creatingCategoryFor, setCreatingCategoryFor] = useState<string | null>(null);
 
   if (!selected) return null;
 
@@ -676,6 +679,57 @@ export function ScanReceiptScreen({ navigation }: any) {
       setError(errorMessage(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * The standing "nothing fitted this" category, if this business has one.
+   *
+   * Created server-side on demand during a scan, so it may not exist at all,
+   * and matched case-insensitively because an owner who already had their own
+   * keeps it — the same rule the server follows.
+   */
+  const uncategorisedId = categories.find((c) => c.name.toLowerCase() === "uncategorized")?.id ?? null;
+
+  /** See lib/categorySuggestion — the rule has edge cases worth testing. */
+  function suggestedNewCategoryFor(item: { id: number; suggestedCategoryName?: string | null }): string | null {
+    return suggestedNewCategory(
+      item,
+      itemCategories[item.id] ?? null,
+      uncategorisedId,
+      categories.map((c) => c.name),
+    );
+  }
+
+  /**
+   * Accepts a category FinSight proposed for items nothing existing fitted.
+   *
+   * Creates it, then files every UNPLACED row it was proposed for — not only
+   * the row that was tapped. A grocery run proposes "Packaging" on all four
+   * packaging lines, and making the owner create it once then assign it three
+   * more times by hand would be busywork on a decision already made. Rows they
+   * placed themselves are left alone, and everything stays editable.
+   */
+  async function acceptSuggestedCategory(name: string) {
+    setCreatingCategoryFor(name);
+    setError(null);
+    try {
+      const created = await api.post<ExpenseCategory>("/records/categories", {
+        businessProfileId: selected!.id,
+        name,
+      });
+      await refreshCategories();
+      setItemCategories((prev) => {
+        const next = { ...prev };
+        for (const id of rowsToApplySuggestionTo(items, name, prev, uncategorisedId)) {
+          next[id] = created.id;
+        }
+        return next;
+      });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setCreatingCategoryFor(null);
     }
   }
 
@@ -802,6 +856,29 @@ export function ScanReceiptScreen({ navigation }: any) {
                         label={item.name}
                       />
                     </View>
+
+                    {/*
+                      A category FinSight thinks is missing.
+
+                      Phrased as an offer rather than an assignment, because
+                      nothing is created until the owner says so — inventing
+                      categories in someone's books is not FinSight's call.
+                    */}
+                    {suggestedNewCategoryFor(item) ? (
+                      <Pressable
+                        onPress={() => acceptSuggestedCategory(item.suggestedCategoryName!)}
+                        disabled={creatingCategoryFor !== null}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Create the category ${item.suggestedCategoryName} and file ${item.name} under it`}
+                        style={{ marginTop: space.sm, opacity: creatingCategoryFor !== null ? 0.5 : 1 }}
+                      >
+                        <T variant="caption" style={{ color: brand[700] }}>
+                          {creatingCategoryFor === item.suggestedCategoryName
+                            ? "Creating…"
+                            : `✦ Nothing fits this. Create "${item.suggestedCategoryName}"?`}
+                        </T>
+                      </Pressable>
+                    ) : null}
                   </View>
                 ))}
 
