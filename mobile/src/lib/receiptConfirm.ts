@@ -55,3 +55,99 @@ export function buildReceiptConfirmPayload(input: ReceiptConfirmInput): ReceiptC
     splits: [{ categoryId: input.categoryId, amount: input.amount }],
   };
 }
+
+// ============================================================
+// The itemised path — a receipt reviewed line by line
+// ============================================================
+// Used when the server read more than one item off the receipt. The owner
+// puts each line in a category and the SERVER groups them, so the amounts it
+// writes and the item -> record links it writes come from one grouping and
+// cannot disagree. That is why this sends assignments rather than splits it
+// computed itself.
+
+/**
+ * How the owner accounts for a difference between the items and the total.
+ *
+ * A gap is normal, not a mistake: a VAT-exclusive register adds tax on top of
+ * the printed lines, a discount takes money off, and OCR sometimes just
+ * misses a line. `null` means they have not answered yet.
+ */
+export type ReconciliationPlan = "proportional" | "category" | "shrink" | null;
+
+export type Reconciliation =
+  | { mode: "none" }
+  | { mode: "proportional" }
+  | { mode: "category"; categoryId: number };
+
+export interface ItemisedConfirmPayload {
+  date: string;
+  description: string;
+  vendor?: string;
+  amount: number;
+  itemAssignments: { itemId: number; categoryId: number }[];
+  reconciliation: Reconciliation;
+}
+
+export interface ItemisedConfirmInput {
+  date: string;
+  description: string;
+  vendor: string;
+  /** The receipt total as the owner confirmed it against the photo. */
+  totalAmount: number;
+  /** What the item lines actually add up to. */
+  itemsTotal: number;
+  itemAssignments: { itemId: number; categoryId: number }[];
+  plan: ReconciliationPlan;
+  gapCategoryId?: number | null;
+}
+
+/**
+ * The difference between the total and the items, in centavos.
+ *
+ * Whole centavos because 1200.10 + 800.20 is not 2000.30 in binary floating
+ * point, and an owner whose arithmetic is right must never be told it is
+ * wrong by a rounding artefact. The server compares the same way.
+ */
+export function gapCentavos(totalAmount: number, itemsTotal: number): number {
+  return Math.round(totalAmount * 100) - Math.round(itemsTotal * 100);
+}
+
+/**
+ * THE RULE THIS ENCODES: the total the owner confirmed against the photo is
+ * the anchor and is never altered to make the arithmetic work. It is what
+ * left their pocket. The gap is allocated to categories instead.
+ *
+ * The single exception is "shrink", for the genuinely different case where
+ * OCR misread the TOTAL rather than missing an item. There the items are the
+ * trustworthy figure and the total follows them — and it only ever moves DOWN
+ * to figures read off the receipt, never to an invented one.
+ */
+export function buildItemisedConfirmPayload(input: ItemisedConfirmInput): ItemisedConfirmPayload {
+  const description = input.description.trim() || FALLBACK_DESCRIPTION;
+  const vendor = input.vendor.trim();
+  const gap = gapCentavos(input.totalAmount, input.itemsTotal);
+  const shrinking = input.plan === "shrink" && gap !== 0;
+
+  if (input.itemAssignments.length === 0) {
+    throw new Error("Every item on the receipt needs a category");
+  }
+  if (input.plan === "category" && input.gapCategoryId == null) {
+    throw new Error("Choose a category for the remaining amount");
+  }
+
+  return {
+    date: input.date,
+    description,
+    ...(vendor ? { vendor } : {}),
+    amount: shrinking ? input.itemsTotal : input.totalAmount,
+    itemAssignments: input.itemAssignments,
+    reconciliation:
+      gap === 0 || shrinking
+        ? // Nothing left to account for: either the items already reconcile,
+          // or the total has just been moved to meet them.
+          { mode: "none" }
+        : input.plan === "category"
+          ? { mode: "category", categoryId: input.gapCategoryId! }
+          : { mode: "proportional" },
+  };
+}

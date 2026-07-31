@@ -3,7 +3,10 @@ import { confirmSchema } from "../../src/controllers/receiptScan.controller";
 // Imported ACROSS the project boundary on purpose — this is the mobile app's
 // real payload builder, not a copy of it. The file is deliberately free of
 // React Native imports so it can be loaded here.
-import { buildReceiptConfirmPayload } from "../../../mobile/src/lib/receiptConfirm";
+import {
+  buildItemisedConfirmPayload,
+  buildReceiptConfirmPayload,
+} from "../../../mobile/src/lib/receiptConfirm";
 
 /**
  * Client/server contract tests.
@@ -82,6 +85,59 @@ describe("mobile -> POST /records/receipts/:id/confirm", () => {
     // "Assign the receipt to at least one category". That split of
     // responsibility is why the schema alone could not catch the original bug.
     expect(parsed.splits).toEqual([]);
+  });
+});
+
+/**
+ * mobile -> the same endpoint, itemised.
+ *
+ * Mobile now reviews a multi-item receipt line by line, as web does, and
+ * sends `itemAssignments` plus a reconciliation rather than splits it worked
+ * out itself. Checked against the real schema for the same reason as above:
+ * this is the shape most likely to drift, because it has the most parts.
+ */
+describe("mobile -> POST /records/receipts/:id/confirm (itemised)", () => {
+  const base = {
+    date: "2026-07-31",
+    description: "Grocery run",
+    vendor: "Savemore",
+    totalAmount: 1400,
+    itemsTotal: 1400,
+    itemAssignments: [
+      { itemId: 1, categoryId: 7 },
+      { itemId: 2, categoryId: 8 },
+    ],
+    plan: null,
+  } as const;
+
+  it("builds a payload the server accepts when the items reconcile", () => {
+    const result = confirmSchema.safeParse(buildItemisedConfirmPayload({ ...base }));
+    expect(result.success, JSON.stringify(result.error?.issues)).toBe(true);
+  });
+
+  it("builds an accepted payload for every reconciliation plan", () => {
+    const withGap = { ...base, totalAmount: 1568 };
+    const plans = [
+      { ...withGap, plan: "proportional" as const },
+      { ...withGap, plan: "category" as const, gapCategoryId: 9 },
+      { ...withGap, plan: "shrink" as const },
+    ];
+    for (const input of plans) {
+      const result = confirmSchema.safeParse(buildItemisedConfirmPayload(input));
+      expect(result.success, `${input.plan}: ${JSON.stringify(result.error?.issues)}`).toBe(true);
+    }
+  });
+
+  /**
+   * The itemised path must not send splits as well. The server derives its
+   * own from the assignments so the amounts it writes and the item -> record
+   * links it writes come from one grouping; sending both invites them to
+   * disagree.
+   */
+  it("sends assignments rather than splits", () => {
+    const parsed = confirmSchema.parse(buildItemisedConfirmPayload({ ...base }));
+    expect(parsed.itemAssignments).toHaveLength(2);
+    expect(parsed.splits).toBeUndefined();
   });
 });
 

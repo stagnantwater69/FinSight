@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert as RNAlert,
@@ -15,13 +15,18 @@ import { Alert as AlertBanner, AlertBadge, Button, Callout, Card, EmptyState, Er
 import { Field } from "./AuthScreens";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
-import { buildReceiptConfirmPayload } from "../lib/receiptConfirm";
+import {
+  buildItemisedConfirmPayload,
+  buildReceiptConfirmPayload,
+  gapCentavos,
+  type ReconciliationPlan,
+} from "../lib/receiptConfirm";
 import {
   buildExpenseUpdatePayload,
   buildSalesUpdatePayload,
   recordUpdatePath,
 } from "../lib/recordUpdate";
-import { brand, ink, paper, radius, space, TAP } from "../theme/tokens";
+import { brand, ink, paper, radius, space, statusText, TAP } from "../theme/tokens";
 import { RECORD_SOURCE_LABELS, type ExpenseCategory, type RecordItem, type RecordSource } from "../lib/types";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -193,6 +198,91 @@ export function RecordsScreen({ navigation }: any) {
 }
 
 // ---------------------------------------------------------------- Category picker
+
+/**
+ * Chips only — no create field.
+ *
+ * The full CategoryPicker below carries a "new category" input, which is
+ * right when it appears once on a form and wrong when it appears on every row
+ * of an itemised receipt. Same chips, same selected state, none of the
+ * repetition.
+ */
+function CategoryChips({
+  categories,
+  value,
+  onChange,
+  label,
+}: {
+  categories: ExpenseCategory[];
+  value: number | null;
+  onChange: (id: number) => void;
+  label: string;
+}) {
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
+      {categories.map((c) => (
+        <Pressable
+          key={c.id}
+          onPress={() => onChange(c.id)}
+          accessibilityRole="button"
+          accessibilityLabel={`${c.name}, category for ${label}`}
+          accessibilityState={{ selected: value === c.id }}
+          style={{
+            minHeight: TAP - 10,
+            justifyContent: "center",
+            paddingHorizontal: space.md,
+            borderRadius: radius.full,
+            borderWidth: 1,
+            borderColor: value === c.id ? brand[600] : ink[200],
+            backgroundColor: value === c.id ? brand[600] : paper.DEFAULT,
+          }}
+        >
+          <T style={{ fontSize: 12, color: value === c.id ? "#fff" : ink[700] }}>{c.name}</T>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * One answer to "what is this difference".
+ *
+ * A single decision with mutually exclusive answers, so it behaves as a radio
+ * for assistive tech rather than as three unrelated buttons.
+ */
+function GapOption({
+  selected,
+  onPress,
+  title,
+  detail,
+  children,
+}: {
+  selected: boolean;
+  onPress: () => void;
+  title: string;
+  detail: string;
+  children?: ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      style={{
+        borderWidth: 1,
+        borderColor: selected ? brand[600] : ink[200],
+        backgroundColor: selected ? brand[50] : paper.DEFAULT,
+        borderRadius: radius.md,
+        padding: space.md,
+        marginBottom: space.sm,
+      }}
+    >
+      <T style={{ fontSize: 14, color: ink[900], fontFamily: "Inter_500Medium" }}>{title}</T>
+      <T variant="caption" style={{ marginTop: 2 }}>{detail}</T>
+      {children}
+    </Pressable>
+  );
+}
 
 function CategoryPicker({
   categories,
@@ -432,11 +522,22 @@ interface ReceiptScanResult {
    */
   visionAssisted?: boolean;
   /**
-   * The individual lines the server read. Mobile does not review these per
-   * item yet (web does) — the whole receipt is filed under one category
-   * below. Present here so the count can be mentioned honestly.
+   * The individual lines the server read, each with the category it assigned.
+   * A receipt with more than one is reviewed line by line below; anything
+   * less keeps the single-category flow.
    */
-  items?: { id: number; name: string; amount: number; extractedByVision?: boolean }[];
+  items?: {
+    id: number;
+    name: string;
+    quantity: number | null;
+    amount: number;
+    /** What FinSight assigned. Null when nothing on the list fitted. */
+    categoryId: number | null;
+    /** True for a line a vision model produced rather than OCR text. */
+    extractedByVision?: boolean;
+    /** A category FinSight thinks is missing. Only ever an offer. */
+    suggestedCategoryName?: string | null;
+  }[];
 }
 
 export function ScanReceiptScreen({ navigation }: any) {
@@ -450,6 +551,18 @@ export function ScanReceiptScreen({ navigation }: any) {
   const [description, setDescription] = useState("");
   const [vendor, setVendor] = useState("");
   const [amount, setAmount] = useState("");
+
+  /**
+   * The owner's category for each extracted line, keyed by item id.
+   *
+   * Seeded from what the server assigned automatically, then owned by the
+   * owner — every row is editable and nothing is written until Confirm.
+   */
+  const [itemCategories, setItemCategories] = useState<Record<number, number | null>>({});
+  /** How they want to account for any difference between items and total. */
+  const [plan, setPlan] = useState<ReconciliationPlan>(null);
+  /** The category for the "file it on its own" plan. */
+  const [gapCategoryId, setGapCategoryId] = useState<number | null>(null);
 
   if (!selected) return null;
 
@@ -474,6 +587,13 @@ export function ScanReceiptScreen({ navigation }: any) {
       if (result.extractedVendor) setVendor(result.extractedVendor);
       if (result.extractedDescription) setDescription(result.extractedDescription);
       if (result.extractedAmount != null) setAmount(String(result.extractedAmount));
+      // Seed the per-item categories from what FinSight assigned. A starting
+      // point, not a decision — every row stays editable below.
+      setItemCategories(
+        Object.fromEntries((result.items ?? []).map((i) => [i.id, i.categoryId ?? null])),
+      );
+      setPlan(null);
+      setGapCategoryId(null);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -496,19 +616,61 @@ export function ScanReceiptScreen({ navigation }: any) {
     if (!res.canceled && res.assets[0]) await upload(res.assets[0]);
   }
 
+  /*
+   * Two review modes, exactly as web has.
+   *
+   * A receipt whose lines FinSight could read is reviewed ITEM BY ITEM — that
+   * is the point of the feature, and it is what lets "buns" land in
+   * Ingredients while "rice cooker" lands in Equipment without the owner
+   * deciding anything up front. A receipt with one line or none keeps the
+   * single-category flow: a grouping UI for one item would be ceremony around
+   * a decision the category picker already makes.
+   */
+  const items = scan?.items ?? [];
+  const isItemised = items.length > 1;
+  const itemsTotal = items.reduce((sum, i) => sum + i.amount, 0);
+  const totalValue = Number(amount);
+  const gap = Number.isFinite(totalValue) ? gapCentavos(totalValue, itemsTotal) : 0;
+  const everyItemHasCategory = items.every((i) => itemCategories[i.id] != null);
+  // A discount can't become its own expense record — that would be a negative
+  // expense, which nothing downstream understands. The server refuses it too.
+  const canFileGapOnItsOwn = gap > 0;
+  const planResolved =
+    gap === 0 ||
+    plan === "proportional" ||
+    plan === "shrink" ||
+    (plan === "category" && canFileGapOnItsOwn && gapCategoryId != null);
+
   async function confirm() {
-    if (!categoryId) return setError("Choose a category first.");
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) return setError("Enter an amount greater than zero.");
+    if (isItemised) {
+      if (!everyItemHasCategory) return setError("Every item needs a category before this can be saved.");
+      if (!planResolved) return setError("Choose how to account for the difference first.");
+    } else if (!categoryId) {
+      return setError("Choose a category first.");
+    }
+
     setBusy(true);
     setError(null);
     try {
-      // Shape and its rationale live in lib/receiptConfirm, where they can be
-      // tested — this call is what silently broke against the server before.
-      await api.post(
-        `/records/receipts/${scan!.id}/confirm`,
-        buildReceiptConfirmPayload({ date, description, vendor, amount: value, categoryId }),
-      );
+      // Both shapes and their rules live in lib/receiptConfirm, where they can
+      // be tested against the server's schema — this call is what silently
+      // broke against it before.
+      const payload = isItemised
+        ? buildItemisedConfirmPayload({
+            date,
+            description,
+            vendor,
+            totalAmount: value,
+            itemsTotal,
+            itemAssignments: items.map((i) => ({ itemId: i.id, categoryId: itemCategories[i.id]! })),
+            plan,
+            gapCategoryId,
+          })
+        : buildReceiptConfirmPayload({ date, description, vendor, amount: value, categoryId: categoryId! });
+
+      await api.post(`/records/receipts/${scan!.id}/confirm`, payload);
       navigation.goBack();
     } catch (err) {
       setError(errorMessage(err));
@@ -516,6 +678,19 @@ export function ScanReceiptScreen({ navigation }: any) {
       setBusy(false);
     }
   }
+
+  /** Items grouped by the category they are currently in, with a subtotal each. */
+  const itemGroups = (() => {
+    const groups = new Map<number | null, { total: number; count: number }>();
+    for (const item of items) {
+      const key = itemCategories[item.id] ?? null;
+      const g = groups.get(key) ?? { total: 0, count: 0 };
+      g.total += item.amount;
+      g.count += 1;
+      groups.set(key, g);
+    }
+    return [...groups.entries()];
+  })();
 
   return (
     <Screen>
@@ -565,19 +740,188 @@ export function ScanReceiptScreen({ navigation }: any) {
                 until you confirm.
               </T>
             )}
-            <CategoryPicker
-              categories={categories}
-              value={categoryId}
-              onChange={setCategoryId}
-              onCreated={refreshCategories}
-              businessProfileId={selected.id}
-            />
+            {!isItemised ? (
+              <CategoryPicker
+                categories={categories}
+                value={categoryId}
+                onChange={setCategoryId}
+                onCreated={refreshCategories}
+                businessProfileId={selected.id}
+              />
+            ) : null}
             <Field label="Date" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />
             <Field label="Description" value={description} onChangeText={setDescription} />
             <Field label="Vendor" value={vendor} onChangeText={setVendor} />
             <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+
+            {isItemised ? (
+              <View style={{ marginTop: space.sm }}>
+                <T variant="label" style={{ color: ink[700], marginBottom: 4 }}>
+                  Items on this receipt
+                </T>
+                <T variant="caption" style={{ marginBottom: space.sm }}>
+                  FinSight {items.some((i) => i.extractedByVision) ? "found" : "read"} {items.length} items.
+                  Put each one in a category — check them against the photo and change any that are wrong.
+                </T>
+
+                {items.map((item) => (
+                  <View
+                    key={item.id}
+                    style={{
+                      borderTopWidth: 1,
+                      borderTopColor: paper[100],
+                      paddingVertical: space.sm,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm }}>
+                      <T style={{ flex: 1, fontSize: 14, color: ink[900] }} numberOfLines={2}>
+                        {item.name}
+                        {item.quantity != null ? (
+                          <T variant="caption"> × {item.quantity}</T>
+                        ) : null}
+                      </T>
+                      <Money value={item.amount} size={14} weight="semibold" />
+                    </View>
+
+                    {/*
+                      A line a model inferred from a photograph must not look
+                      like one read off text. Marked per row, because the row
+                      is where the owner actually decides.
+                    */}
+                    {item.extractedByVision ? (
+                      <T variant="caption" style={{ marginTop: 2, color: statusText.warning }}>
+                        ✦ AI read this from the photo
+                      </T>
+                    ) : null}
+
+                    <View style={{ marginTop: space.sm }}>
+                      <CategoryChips
+                        categories={categories}
+                        value={itemCategories[item.id] ?? null}
+                        onChange={(id) => setItemCategories((prev) => ({ ...prev, [item.id]: id }))}
+                        label={item.name}
+                      />
+                    </View>
+                  </View>
+                ))}
+
+                {/* What actually gets saved — one record per category group. */}
+                <View
+                  style={{
+                    marginTop: space.md,
+                    padding: space.md,
+                    borderRadius: radius.md,
+                    backgroundColor: paper[100],
+                  }}
+                >
+                  <T variant="label" style={{ color: ink[700], marginBottom: space.xs }}>
+                    What gets saved
+                  </T>
+                  {itemGroups.map(([catId, g]) => (
+                    <View
+                      key={String(catId)}
+                      style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm, marginTop: 2 }}
+                    >
+                      <T style={{ flex: 1, fontSize: 13, color: catId == null ? statusText.warning : ink[700] }}>
+                        {catId == null
+                          ? "Not categorised yet"
+                          : (categories.find((c) => c.id === catId)?.name ?? "Category")}
+                        <T variant="caption"> ({g.count} item{g.count === 1 ? "" : "s"})</T>
+                      </T>
+                      <Money value={g.total} size={13} />
+                    </View>
+                  ))}
+                  <T
+                    variant="caption"
+                    style={{ marginTop: space.sm, color: everyItemHasCategory && planResolved ? statusText.good : statusText.warning }}
+                  >
+                    {!everyItemHasCategory
+                      ? "⚠ Every item needs a category before this can be saved."
+                      : gap === 0
+                        ? `✓ ${itemGroups.length} record${itemGroups.length === 1 ? "" : "s"} will be saved, adding up to the receipt total.`
+                        : plan === "shrink"
+                          ? `✓ The receipt will be saved as PHP ${itemsTotal.toFixed(2)} — the items' own total.`
+                          : planResolved
+                            ? "✓ Ready to save."
+                            : gap > 0
+                              ? `⚠ The items come to PHP ${itemsTotal.toFixed(2)}, which is PHP ${(gap / 100).toFixed(2)} less than the total above.`
+                              : `⚠ The items come to PHP ${itemsTotal.toFixed(2)}, which is PHP ${(-gap / 100).toFixed(2)} more than the total above.`}
+                  </T>
+                </View>
+
+                {/*
+                  Accounting for the difference.
+
+                  A gap is normal rather than a mistake: a VAT-exclusive
+                  register adds tax on top of the printed lines, a discount
+                  takes money off, and OCR sometimes just misses a line. So the
+                  screen asks what the difference IS instead of blocking until
+                  the arithmetic works — which, on a VAT-exclusive receipt, it
+                  never would. The total never changes on its own; only the
+                  last option touches it, and only to figures read off the
+                  receipt.
+                */}
+                {everyItemHasCategory && gap !== 0 ? (
+                  <View style={{ marginTop: space.md }}>
+                    <T variant="label" style={{ color: ink[700], marginBottom: 4 }}>
+                      {gap > 0
+                        ? `What is the missing PHP ${(gap / 100).toFixed(2)}?`
+                        : `What is the extra PHP ${(-gap / 100).toFixed(2)}?`}
+                    </T>
+                    <T variant="caption" style={{ marginBottom: space.sm }}>
+                      {gap > 0
+                        ? "Receipts often add tax or a service charge on top of the item prices, and sometimes a line just doesn't scan."
+                        : "A discount or a voided line usually explains this."}
+                    </T>
+
+                    <GapOption
+                      selected={plan === "proportional"}
+                      onPress={() => setPlan("proportional")}
+                      title={gap > 0 ? "Tax or a service charge" : "A discount on the whole receipt"}
+                      detail="Split across the categories above, in proportion to what each came to. Keeps every category's spending accurate."
+                    />
+                    {canFileGapOnItsOwn ? (
+                      <GapOption
+                        selected={plan === "category"}
+                        onPress={() => setPlan("category")}
+                        title="A separate charge to track on its own"
+                        detail="Saved as its own expense record under one category."
+                      >
+                        {plan === "category" ? (
+                          <View style={{ marginTop: space.sm }}>
+                            <CategoryChips
+                              categories={categories}
+                              value={gapCategoryId}
+                              onChange={setGapCategoryId}
+                              label="the remaining amount"
+                            />
+                          </View>
+                        ) : null}
+                      </GapOption>
+                    ) : null}
+                    <GapOption
+                      selected={plan === "shrink"}
+                      onPress={() => setPlan("shrink")}
+                      title="FinSight misread the receipt total"
+                      detail={`Save PHP ${itemsTotal.toFixed(2)} — the items' own total — instead of the amount above.`}
+                    />
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
             {error ? <ErrorNote>{error}</ErrorNote> : null}
-            <Button title="Save this expense" variant="primary" onPress={confirm} loading={busy} style={{ marginTop: space.md }} />
+            <Button
+              title={
+                isItemised && itemGroups.length > 1
+                  ? `Save ${itemGroups.length} expenses`
+                  : "Save this expense"
+              }
+              variant="primary"
+              onPress={confirm}
+              loading={busy}
+              style={{ marginTop: space.md }}
+            />
             <Button title="Retake photo" variant="ghost" onPress={() => setScan(null)} />
           </Card>
         )}
