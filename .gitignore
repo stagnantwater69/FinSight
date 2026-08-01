@@ -16,3 +16,6 @@ backend/dist/
 # ground-truth.json and the generated reports ARE tracked.
 backend/tests/ocr-accuracy/images/
 backend/tests/ocr-accuracy/.html-tmp/
+# Staging area for receipt photos being added to the corpus. Real receipts
+# carry a business's name, address and purchases — they stay off the remote.
+backend/tests/ocr-accuracy/inbox/

@@ -34,6 +34,17 @@ interface Entry {
   known_ambiguous?: boolean;
   known_layout_risk?: boolean;
   vendor_note?: string;
+  /**
+   * Set by ingest-images.ts on an entry whose expected values were DRAFTED
+   * FROM THE PIPELINE'S OWN OUTPUT rather than read off the paper by a person.
+   *
+   * Such an entry is not ground truth — it is a snapshot of current behaviour,
+   * and scoring against it would grade the system on its own homework, giving
+   * a figure that cannot fall no matter how badly the parser breaks. Entries
+   * carrying this flag are excluded from the run entirely until a human has
+   * checked them and removed it.
+   */
+  needs_review?: boolean;
   expected: {
     date: string | null;
     vendor: string | null;
@@ -72,7 +83,17 @@ function tally(results: Result[], field: "date" | "vendor" | "amount") {
 }
 
 (async () => {
-  const corpus: Entry[] = JSON.parse(readFileSync(join(HERE, "ground-truth.json"), "utf8"));
+  const all: Entry[] = JSON.parse(readFileSync(join(HERE, "ground-truth.json"), "utf8"));
+  const corpus = all.filter((e) => !e.needs_review);
+  const unreviewed = all.length - corpus.length;
+  if (unreviewed > 0) {
+    console.log(
+      `\n  ⚠  Skipping ${unreviewed} entr${unreviewed === 1 ? "y" : "ies"} still marked needs_review.\n` +
+        `     Their expected values were drafted from this pipeline's own output, so scoring\n` +
+        `     against them would measure nothing. Check them against the receipts and remove\n` +
+        `     the flag to bring them in.\n`,
+    );
+  }
   const results: Result[] = [];
 
   for (const entry of corpus) {

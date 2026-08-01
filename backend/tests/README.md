@@ -116,5 +116,32 @@ To rebuild the OCR corpus (needs Chrome and the source photos on disk):
 python3 tests/ocr-accuracy/generate-corpus.py
 ```
 
-Corpus images are not committed — one is a real receipt photograph. `ground-truth.json`
+Corpus images are not committed — some are real receipt photographs. `ground-truth.json`
 and the generated reports are.
+
+### Adding real receipt photos
+
+**This is the highest-value thing anyone can do for extraction accuracy.** The corpus
+is mostly synthetic renders, and a rendered receipt is not a photograph of a creased
+thermal one — every figure in `OCR-ACCURACY-REPORT.md` is qualified by that.
+
+Note what this is and is not: **no model is trained.** Tesseract is a fixed engine and
+the vision model is an API. More images do not make extraction smarter on their own —
+they reveal what is broken and prove a fix works instead of assuming it.
+
+```bash
+# 1. Drop photos into tests/ocr-accuracy/inbox/  (gitignored)
+# 2. Draft the ground-truth entries:
+npx tsx tests/ocr-accuracy/ingest-images.ts
+# 3. Correct the drafts in ground-truth.json, then delete their needs_review flag
+# 4. npx tsx tests/ocr-accuracy/run-assessment.ts
+```
+
+Step 3 is not optional and cannot be skipped. Drafts hold **what FinSight read**, not
+what the receipt says; scoring against them grades the system on its own homework and
+produces a number that cannot fall. `run-assessment.ts` therefore excludes every entry
+still flagged `needs_review` and reports how many it skipped.
+
+Aim for variety over volume — angled, creased, faded, dim, glare, long receipts, and
+plain ones. A photo that already reads perfectly teaches nothing; the useful images are
+the awkward ones.
