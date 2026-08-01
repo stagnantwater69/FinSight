@@ -152,6 +152,13 @@ const FAQS = [
   },
 ];
 
+/** Header anchors. Each `href` must match a section `id` below. */
+const SECTION_LINKS = [
+  { href: "#features", label: "Features" },
+  { href: "#pricing", label: "Pricing" },
+  { href: "#faq", label: "FAQ" },
+];
+
 const FEATURES = [
   {
     icon: "▣",
@@ -234,7 +241,26 @@ export function Landing() {
   const demo = demoAt(salesThisMonth);
 
   return (
-    <div className="min-h-screen bg-paper-50">
+    /*
+      THE PUBLIC PAGE DOES NOT FOLLOW THE APP THEME.
+      ------------------------------------------------------------------
+      `data-theme` is written on <html> and remembered in localStorage, so
+      before this it survived logging out: an owner who used the dashboard in
+      Dark was thrown back to a dark marketing page, which is not a preference
+      they ever expressed about this page — it leaked out of the product.
+
+      Pinning it here rather than clearing the stored choice is what makes
+      that safe. The theme variables are plain attribute selectors, so
+      declaring one on this wrapper re-declares them for this subtree only:
+      the page paints Classic, <html> keeps the owner's real preference
+      untouched, and their next visit to the dashboard is still Dark. Clearing
+      it globally would have "fixed" this by silently discarding a setting
+      they chose.
+
+      Scoped rather than global also means no flash and nothing to undo on
+      unmount — the override disappears with the element.
+    */
+    <div data-theme="classic" className="min-h-screen bg-paper-50">
       <header className="border-b border-edge-brand bg-paper">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 lg:px-6">
           {/* MASCOT SEAM — owl badge mark goes here. */}
@@ -247,7 +273,32 @@ export function Landing() {
             </span>
             <span className="font-display text-lg font-semibold text-ink-900">FinSight</span>
           </span>
-          <nav className="ml-auto flex items-center gap-1.5">
+          {/*
+            In-page anchors, hidden on small screens.
+
+            Every comparable product carries these, and their absence is one
+            of the things that made this page read as a single long scroll
+            rather than a site. They are plain hash links to the section
+            headings — no scroll-spy, no JS — so they work before hydration
+            and honour the browser's own smooth-scroll setting.
+
+            Dropped below `md` rather than folded into a burger menu: there
+            are three of them on a page whose whole content is reachable by
+            scrolling, so a menu would be a control that exists to hide three
+            words.
+          */}
+          <nav className="ml-auto hidden items-center gap-1 md:flex">
+            {SECTION_LINKS.map((s) => (
+              <a
+                key={s.href}
+                href={s.href}
+                className="tap rounded-lg px-3 text-sm font-medium text-ink-600 hover:bg-paper-100 hover:text-ink-900"
+              >
+                {s.label}
+              </a>
+            ))}
+          </nav>
+          <nav className="ml-auto flex items-center gap-1.5 md:ml-4">
             <Link
               to="/login"
               className="tap rounded-lg px-3 text-sm font-medium text-ink-600 hover:bg-paper-100"
@@ -340,6 +391,32 @@ export function Landing() {
           </div>
         </section>
 
+        {/* ---------------- What it is ---------------- */}
+        {/*
+          A plain answer to "what IS this", before the mechanics.
+
+          The hero sells an outcome and "How it works" explains a process;
+          between them there was no sentence a visitor could repeat to someone
+          else. Every comparable product puts one here, and it is the line
+          that decides whether the rest of the page is worth reading.
+        */}
+        <section className="border-t border-edge-brand bg-paper">
+          <div className="mx-auto max-w-3xl px-4 py-12 text-center lg:px-6 lg:py-16">
+            <p className="text-xs font-semibold uppercase tracking-wide text-tone-brand">
+              What is FinSight?
+            </p>
+            <h2 className="mt-3 font-display text-2xl font-bold leading-snug text-ink-900 sm:text-3xl">
+              A simple way to see whether your shop is actually making money
+            </h2>
+            <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-ink-600">
+              You record what you spend and what you sell — by typing it, photographing a receipt, or
+              importing a spreadsheet. FinSight does the adding up, groups the spending, flags what looks
+              unusual, and tells you how much you still need to sell this month to cover it. On a phone or
+              in a browser, with the same records on both.
+            </p>
+          </div>
+        </section>
+
         {/* ---------------- How it works ---------------- */}
         <section className="border-y border-edge-brand bg-paper">
           <div className="mx-auto max-w-6xl px-4 py-12 lg:px-6 lg:py-16">
@@ -390,7 +467,7 @@ export function Landing() {
         </section>
 
         {/* ---------------- Features ---------------- */}
-        <section className="mx-auto max-w-6xl px-4 py-12 lg:px-6 lg:py-16">
+        <section id="features" className="scroll-mt-16 mx-auto max-w-6xl px-4 py-12 lg:px-6 lg:py-16">
           <h2 className="font-display text-2xl font-bold text-ink-900">What you can do with it</h2>
           <div className="mt-8 grid gap-5 sm:grid-cols-2">
             {FEATURES.map((f) => (
@@ -447,7 +524,7 @@ export function Landing() {
           "Pro" and "Enterprise" columns to look like a bigger product would
           be advertising things that cannot be bought.
         */}
-        <section className="mx-auto max-w-6xl px-4 py-12 lg:px-6 lg:py-16">
+        <section id="pricing" className="scroll-mt-16 mx-auto max-w-6xl px-4 py-12 lg:px-6 lg:py-16">
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="font-display text-2xl font-bold text-ink-900">What it costs</h2>
             <p className="mt-2 text-ink-600">
@@ -497,7 +574,7 @@ export function Landing() {
           answers. A hand-rolled version of this is a lot of ARIA to get wrong
           for no gain.
         */}
-        <section className="border-t border-edge-brand bg-paper">
+        <section id="faq" className="scroll-mt-16 border-t border-edge-brand bg-paper">
           <div className="mx-auto max-w-3xl px-4 py-12 lg:px-6 lg:py-16">
             <h2 className="font-display text-2xl font-bold text-ink-900">Questions people ask</h2>
             <div className="mt-8 divide-y divide-paper-200 border-y border-paper-200">
@@ -560,31 +637,78 @@ export function Landing() {
         </section>
       </main>
 
+      {/*
+        A real footer, in columns.
+
+        Deliberately built only from destinations that EXIST. The obvious move
+        when copying a commercial footer is to reproduce its shape — Privacy
+        Policy, Terms, Blog, Careers, social icons — but every one of those
+        would be a link to nothing, and a footer full of dead links reads as
+        less finished than a short honest one. Rows get added here when the
+        pages behind them get written.
+      */}
       <footer className="border-t border-edge-brand bg-paper">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-6 lg:px-6">
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-700 font-display text-xs font-bold text-white"
-            >
-              F
-            </span>
-            <span className="text-sm text-ink-500">FinSight — financial monitoring for small businesses</span>
+        <div className="mx-auto max-w-6xl px-4 py-10 lg:px-6">
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="lg:col-span-2">
+              <div className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-700 font-display text-xs font-bold text-white"
+                >
+                  F
+                </span>
+                <span className="font-display text-base font-semibold text-ink-900">FinSight</span>
+              </div>
+              <p className="mt-3 max-w-sm text-sm leading-relaxed text-ink-500">
+                Financial monitoring for small businesses. Keeps the records you already keep, and tells
+                you what they mean while there is still time to act on them.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="font-display text-sm font-semibold text-ink-900">Product</h3>
+              <ul className="mt-3 space-y-2 text-sm">
+                {SECTION_LINKS.map((s) => (
+                  <li key={s.href}>
+                    <a href={s.href} className="text-ink-500 hover:text-tone-brand">
+                      {s.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="font-display text-sm font-semibold text-ink-900">Get started</h3>
+              <ul className="mt-3 space-y-2 text-sm">
+                <li>
+                  <Link to="/register" className="text-ink-500 hover:text-tone-brand">
+                    Create an account
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/login" className="text-ink-500 hover:text-tone-brand">
+                    Log in
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/recover-password" className="text-ink-500 hover:text-tone-brand">
+                    Forgot your password
+                  </Link>
+                </li>
+              </ul>
+            </div>
           </div>
-          <nav className="flex items-center gap-1.5">
-            <Link
-              to="/login"
-              className="tap rounded-lg px-3 text-sm font-medium text-ink-600 hover:bg-paper-100"
-            >
-              Log in
-            </Link>
-            <Link
-              to="/register"
-              className="tap rounded-lg px-3 text-sm font-medium text-tone-brand hover:bg-tint-brand"
-            >
-              Register
-            </Link>
-          </nav>
+
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-paper-200 pt-6">
+            <p className="text-xs text-ink-400">
+              © {new Date().getFullYear()} FinSight. Free while in active development.
+            </p>
+            <p className="text-xs text-ink-400">
+              A monitoring tool — not a substitute for professional accounting advice.
+            </p>
+          </div>
         </div>
       </footer>
     </div>

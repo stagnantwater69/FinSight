@@ -32,7 +32,12 @@ export function AuthLayout({
   children: ReactNode;
 }) {
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[1.05fr_0.95fr]">
+    // Pinned to Classic for the same reason the landing page is: these are
+    // signed-out pages, and the app theme is a preference about the PRODUCT,
+    // not about the way in to it. Without this, logging out of a dark
+    // dashboard left a light landing page linking to a dark login screen.
+    // Scoped to this subtree, so the stored choice is preserved for the app.
+    <div data-theme="classic" className="min-h-screen lg:grid lg:grid-cols-[1.05fr_0.95fr]">
       {/* ---------------------------- brand panel ---------------------------- */}
       <aside className="surface-ai relative hidden flex-col justify-between overflow-hidden p-14 lg:flex">
         {/* Decorative blooms, matching the mockup's two orbs. */}
