@@ -35,7 +35,7 @@ export function ClosingCta() {
               to="/register"
               variant="primary"
               size="lg"
-              className="bg-accent-400 text-ink-950 hover:bg-accent-300 font-bold shadow-xl shadow-accent-400/20 text-base px-8 py-3.5 rounded-xl transition-all"
+              className="bg-accent-400 text-ink-950 hover:bg-accent-300 font-bold shadow-xl shadow-accent-400/20 text-base px-8 py-3.5 rounded-xl transition"
             >
               <span>Create Your Free Account</span>
               <ArrowRight className="ml-2 h-4 w-4 stroke-[2.5]" />

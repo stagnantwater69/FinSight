@@ -111,8 +111,21 @@ export function PublicLayout({ children }: { children: ReactNode }) {
 
   return (
     <div data-theme="classic" className="flex min-h-screen flex-col bg-paper-50 font-sans antialiased text-ink-900">
-      {/* Sticky Glassmorphism Navigation Bar */}
-      <header className="sticky top-0 z-50 border-b border-paper-200/80 bg-paper/85 backdrop-blur-md transition-all">
+      {/*
+        Sticky header. The frosted-glass effect is DESKTOP ONLY, deliberately.
+
+        `backdrop-blur` forces the browser to re-sample and re-blur everything
+        behind the header, and on a sticky element that happens on every frame
+        of every scroll. It is the single most reliable way to make a page
+        stutter on a budget Android phone — precisely the device most of these
+        shop owners are using.
+
+        Below `md` the bar is near-opaque instead, which costs nothing to
+        composite and looks almost identical at 95% (the blur was only ever
+        showing through 15% of a solid colour). Above `md`, where there is a
+        real GPU, the glass comes back.
+      */}
+      <header className="sticky top-0 z-50 border-b border-paper-200/80 bg-paper/95 transition md:bg-paper/85 md:backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5 lg:px-6">
           <Link to="/" className="tap rounded-xl">
             <Brand />
@@ -153,7 +166,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               to="/register"
               variant="primary"
               size="sm"
-              className="bg-accent-400 text-ink-950 hover:bg-accent-300 font-bold shadow-xs px-4 py-2 rounded-xl transition-all"
+              className="bg-accent-400 text-ink-950 hover:bg-accent-300 font-bold shadow-xs px-4 py-2 rounded-xl transition"
             >
               Get started free
             </ButtonLink>

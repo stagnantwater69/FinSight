@@ -36,7 +36,7 @@ export function ProductShowcase() {
             <button
               type="button"
               onClick={() => setActiveTab("ocr")}
-              className={`flex items-center gap-2.5 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200 ${
+              className={`flex items-center gap-2.5 rounded-xl px-5 py-2.5 text-sm font-semibold transition duration-200 ${
                 activeTab === "ocr"
                   ? "bg-paper text-ink-900 shadow-sm ring-1 ring-paper-200"
                   : "text-ink-500 hover:text-ink-900"
@@ -48,7 +48,7 @@ export function ProductShowcase() {
             <button
               type="button"
               onClick={() => setActiveTab("ai")}
-              className={`flex items-center gap-2.5 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200 ${
+              className={`flex items-center gap-2.5 rounded-xl px-5 py-2.5 text-sm font-semibold transition duration-200 ${
                 activeTab === "ai"
                   ? "bg-paper text-ink-900 shadow-sm ring-1 ring-paper-200"
                   : "text-ink-500 hover:text-ink-900"
@@ -112,7 +112,7 @@ export function ProductShowcase() {
 
                   {/* Scanned Items Preview */}
                   <div className="mt-4 space-y-3">
-                    <div className="rounded-xl border border-paper-200 bg-paper-50 p-3.5 transition-all hover:bg-paper-100">
+                    <div className="rounded-xl border border-paper-200 bg-paper-50 p-3.5 transition hover:bg-paper-100">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-semibold text-ink-900">Beverage Stock (24 Cases)</span>
                         <span className="font-mono text-sm font-bold text-ink-900">₱4,800.00</span>
@@ -123,7 +123,7 @@ export function ProductShowcase() {
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-paper-200 bg-paper-50 p-3.5 transition-all hover:bg-paper-100">
+                    <div className="rounded-xl border border-paper-200 bg-paper-50 p-3.5 transition hover:bg-paper-100">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-semibold text-ink-900">Cooking Oil & Staples</span>
                         <span className="font-mono text-sm font-bold text-ink-900">₱1,450.00</span>

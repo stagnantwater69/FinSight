@@ -47,7 +47,7 @@ export function SafeguardsGrid() {
             return (
               <div
                 key={idx}
-                className="group flex gap-5 rounded-3xl border border-brand-800/70 bg-brand-900/40 p-6 backdrop-blur-md transition-all duration-300 hover:border-brand-600 hover:bg-brand-900/70"
+                className="group flex gap-5 rounded-3xl border border-brand-800/70 bg-brand-900/40 p-6 backdrop-blur-md transition duration-300 hover:border-brand-600 hover:bg-brand-900/70"
               >
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-800/80 text-accent-400 shadow-inner group-hover:bg-accent-400 group-hover:text-ink-950 transition-colors">
                   <Icon className="h-6 w-6 stroke-[2.2]" />

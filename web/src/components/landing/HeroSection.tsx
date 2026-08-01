@@ -105,7 +105,7 @@ export function HeroSection() {
               to="/register"
               variant="primary"
               size="lg"
-              className="bg-accent-400 text-ink-950 hover:bg-accent-300 font-bold shadow-lg shadow-accent-400/20 px-6 py-3.5 rounded-xl transition-all"
+              className="bg-accent-400 text-ink-950 hover:bg-accent-300 font-bold shadow-lg shadow-accent-400/20 px-6 py-3.5 rounded-xl transition"
             >
               <span>Start Tracking Free</span>
               <ArrowRight className="ml-2 h-4 w-4 stroke-[2.5]" />
@@ -176,7 +176,7 @@ export function HeroSection() {
                     key={preset.id}
                     type="button"
                     onClick={() => setSelectedPresetId(preset.id)}
-                    className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                       isSelected
                         ? "bg-brand-700 text-white shadow-xs"
                         : "bg-paper-100 text-ink-600 hover:bg-paper-200"

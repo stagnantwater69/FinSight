@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -8,32 +9,32 @@ import { ConfirmProvider } from "./components/ConfirmDialog";
 import { Landing } from "./pages/Landing";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
-import { RecoverPassword } from "./pages/RecoverPassword";
-import { Faqs } from "./pages/Faqs";
-import { Blogs } from "./pages/Blogs";
-import { Tutorials } from "./pages/Tutorials";
-import { Contact } from "./pages/Contact";
-import { Privacy } from "./pages/Privacy";
-import { Terms } from "./pages/Terms";
-import { Profile } from "./pages/Profile";
-import { BusinessProfiles } from "./pages/BusinessProfiles";
-import { AllBusinessProfiles } from "./pages/AllBusinessProfiles";
-import { CreateBusinessProfile } from "./pages/CreateBusinessProfile";
-import { EditBusinessProfile } from "./pages/EditBusinessProfile";
-import { Records } from "./pages/Records";
-import { AddExpense } from "./pages/AddExpense";
-import { AddSalesRecord } from "./pages/AddSalesRecord";
-import { EditExpense } from "./pages/EditExpense";
-import { EditSalesRecord } from "./pages/EditSalesRecord";
-import { ScanReceipt } from "./pages/ScanReceipt";
-import { ImportCsv } from "./pages/ImportCsv";
-import { FlaggedRecords } from "./pages/FlaggedRecords";
-import { Dashboard } from "./pages/Dashboard";
-import { ExpenseInsight } from "./pages/ExpenseInsight";
-import { RecoveryInsightPage } from "./pages/RecoveryInsightPage";
-import { SpendingImpact } from "./pages/SpendingImpact";
-import { Categories } from "./pages/Categories";
-import { Notifications } from "./pages/Notifications";
+const RecoverPassword = lazy(() => import("./pages/RecoverPassword").then((m) => ({ default: m.RecoverPassword })));
+const Faqs = lazy(() => import("./pages/Faqs").then((m) => ({ default: m.Faqs })));
+const Blogs = lazy(() => import("./pages/Blogs").then((m) => ({ default: m.Blogs })));
+const Tutorials = lazy(() => import("./pages/Tutorials").then((m) => ({ default: m.Tutorials })));
+const Contact = lazy(() => import("./pages/Contact").then((m) => ({ default: m.Contact })));
+const Privacy = lazy(() => import("./pages/Privacy").then((m) => ({ default: m.Privacy })));
+const Terms = lazy(() => import("./pages/Terms").then((m) => ({ default: m.Terms })));
+const Profile = lazy(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
+const BusinessProfiles = lazy(() => import("./pages/BusinessProfiles").then((m) => ({ default: m.BusinessProfiles })));
+const AllBusinessProfiles = lazy(() => import("./pages/AllBusinessProfiles").then((m) => ({ default: m.AllBusinessProfiles })));
+const CreateBusinessProfile = lazy(() => import("./pages/CreateBusinessProfile").then((m) => ({ default: m.CreateBusinessProfile })));
+const EditBusinessProfile = lazy(() => import("./pages/EditBusinessProfile").then((m) => ({ default: m.EditBusinessProfile })));
+const Records = lazy(() => import("./pages/Records").then((m) => ({ default: m.Records })));
+const AddExpense = lazy(() => import("./pages/AddExpense").then((m) => ({ default: m.AddExpense })));
+const AddSalesRecord = lazy(() => import("./pages/AddSalesRecord").then((m) => ({ default: m.AddSalesRecord })));
+const EditExpense = lazy(() => import("./pages/EditExpense").then((m) => ({ default: m.EditExpense })));
+const EditSalesRecord = lazy(() => import("./pages/EditSalesRecord").then((m) => ({ default: m.EditSalesRecord })));
+const ScanReceipt = lazy(() => import("./pages/ScanReceipt").then((m) => ({ default: m.ScanReceipt })));
+const ImportCsv = lazy(() => import("./pages/ImportCsv").then((m) => ({ default: m.ImportCsv })));
+const FlaggedRecords = lazy(() => import("./pages/FlaggedRecords").then((m) => ({ default: m.FlaggedRecords })));
+const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+const ExpenseInsight = lazy(() => import("./pages/ExpenseInsight").then((m) => ({ default: m.ExpenseInsight })));
+const RecoveryInsightPage = lazy(() => import("./pages/RecoveryInsightPage").then((m) => ({ default: m.RecoveryInsightPage })));
+const SpendingImpact = lazy(() => import("./pages/SpendingImpact").then((m) => ({ default: m.SpendingImpact })));
+const Categories = lazy(() => import("./pages/Categories").then((m) => ({ default: m.Categories })));
+const Notifications = lazy(() => import("./pages/Notifications").then((m) => ({ default: m.Notifications })));
 
 /**
  * `/` serves the public landing page to visitors and skips straight to the
@@ -50,6 +51,20 @@ function LandingOrDashboard() {
   return profile ? <Navigate to="/dashboard" replace /> : <Landing />;
 }
 
+/**
+ * Shown while a lazily-loaded route's chunk is in flight.
+ *
+ * Deliberately empty rather than a spinner. On a fast connection the chunk
+ * arrives within a frame or two and a spinner would be a flash of anxiety for
+ * nothing; the app already renders its own skeletons once a page mounts. An
+ * element with the viewport's height is still returned so the footer does not
+ * jump up and back down — that would be a layout shift, which is the thing
+ * this whole change is trying to avoid.
+ */
+function RouteFallback() {
+  return <div className="min-h-screen" aria-busy="true" />;
+}
+
 function App() {
   return (
     // Outermost, so a throw anywhere — including in a provider or the router
@@ -63,6 +78,22 @@ function App() {
         <AuthProvider>
           <ToastProvider>
             <ConfirmProvider>
+              {/*
+                CODE SPLITTING — the reason this Suspense exists.
+
+                Every page used to be imported eagerly, so the build emitted a
+                single 1.19 MB bundle and a visitor who only wanted the landing
+                page downloaded the dashboard, the charting library, the
+                receipt scanner and the CSV importer before anything painted.
+                On the 3G connection a lot of these owners are actually on,
+                that is the difference between a page and a wait.
+
+                Landing, Login and Register stay eager: they are the entry
+                points, and making the first paint wait on a second round trip
+                would trade one problem for another. Everything behind auth is
+                fetched when its route is first visited.
+              */}
+              <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/" element={<LandingOrDashboard />} />
                 <Route path="/login" element={<Login />} />
@@ -102,6 +133,7 @@ function App() {
                   <Route path="/insights/spending-impact" element={<SpendingImpact />} />
                 </Route>
               </Routes>
+              </Suspense>
             </ConfirmProvider>
           </ToastProvider>
         </AuthProvider>

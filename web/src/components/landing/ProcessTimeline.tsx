@@ -53,7 +53,7 @@ export function ProcessTimeline() {
             return (
               <div
                 key={s.n}
-                className="group relative flex flex-col justify-between rounded-3xl border border-paper-200 bg-paper-50/70 p-6 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-brand-300 hover:bg-paper hover:shadow-xl sm:p-8"
+                className="group relative flex flex-col justify-between rounded-3xl border border-paper-200 bg-paper-50/70 p-6 shadow-xs transition duration-300 hover:-translate-y-1 hover:border-brand-300 hover:bg-paper hover:shadow-xl sm:p-8"
               >
                 <div>
                   <div className="flex items-center justify-between">

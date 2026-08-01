@@ -1,14 +1,24 @@
 /* Self-hosted — no runtime CDN request, which matters on slow mobile data. */
-@import "@fontsource/inter/400.css";
-@import "@fontsource/inter/500.css";
-@import "@fontsource/inter/600.css";
-@import "@fontsource/sora/600.css";
-@import "@fontsource/sora/700.css";
-@import "@fontsource/sora/800.css";
-@import "@fontsource/ibm-plex-sans/600.css";
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
-@import "@fontsource/ibm-plex-mono/600.css";
+/* LATIN SUBSETS ONLY.
+
+   The unqualified `@fontsource/inter/400.css` imports every subset the
+   family ships — latin, latin-ext, cyrillic, cyrillic-ext, greek, greek-ext
+   and vietnamese. Across ten weights that was 96 font files and 1.4 MB in
+   the build output, for an app whose entire interface and audience are in
+   English and Filipino. Both are covered by latin.
+
+   Add a subset back the day the interface is translated into a script that
+   needs it, not before. */
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-500.css";
+@import "@fontsource/inter/latin-600.css";
+@import "@fontsource/sora/latin-600.css";
+@import "@fontsource/sora/latin-700.css";
+@import "@fontsource/sora/latin-800.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
 
 @tailwind base;
 @tailwind components;
@@ -634,6 +644,22 @@
     stroke 220ms ease,
     box-shadow 220ms ease !important;
 }
+
+/* ---------------------------------------------------------------
+   A NOTE ON `transition-all`
+   ---------------------------------------------------------------
+   Don't. Tailwind's `transition-all` sets `transition-property: all`, which
+   includes the layout properties — width, height, top, left, margin. Animating
+   any of those makes the browser re-run layout on every frame of the
+   transition, which is what turns a hover effect into jank on a budget phone.
+
+   The bare `transition` utility covers colour, background, border, opacity,
+   box-shadow, transform and filter — everything the interface actually
+   animates — and none of the layout ones. Nineteen `transition-all` uses on
+   the landing page were replaced with it, and not one of them was animating a
+   property the narrower list leaves out.
+
+   --------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------
    prefers-reduced-motion

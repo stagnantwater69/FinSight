@@ -31,7 +31,7 @@ export function BentoGridFeatures() {
         <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           
           {/* Bento Card 1: AI Receipt Reader (Spans 2 columns on lg) */}
-          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl lg:col-span-2">
+          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl lg:col-span-2">
             <div className="flex items-center justify-between">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-50 text-brand-700">
                 <Scan className="h-6 w-6" />
@@ -72,7 +72,7 @@ export function BentoGridFeatures() {
           </div>
 
           {/* Bento Card 2: Recovery Pace Meter */}
-          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
+          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 text-accent-600">
               <TrendingUp className="h-6 w-6" />
             </div>
@@ -102,7 +102,7 @@ export function BentoGridFeatures() {
           </div>
 
           {/* Bento Card 3: AI Assistant Q&A */}
-          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
+          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
               <MessageSquare className="h-6 w-6" />
             </div>
@@ -126,7 +126,7 @@ export function BentoGridFeatures() {
           </div>
 
           {/* Bento Card 4: Expense Anomaly Detector */}
-          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
+          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
               <AlertTriangle className="h-6 w-6" />
             </div>
@@ -151,7 +151,7 @@ export function BentoGridFeatures() {
           </div>
 
           {/* Bento Card 5: Real-Time Sales & Cash Flow */}
-          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
+          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
               <BarChart3 className="h-6 w-6" />
             </div>
@@ -169,7 +169,7 @@ export function BentoGridFeatures() {
               {[40, 65, 45, 90, 75, 100, 85].map((h, idx) => (
                 <div key={idx} className="flex-1 flex flex-col items-center gap-1">
                   <div
-                    className="w-full rounded-t-md bg-brand-500 transition-all hover:bg-brand-600"
+                    className="w-full rounded-t-md bg-brand-500 transition hover:bg-brand-600"
                     style={{ height: `${h}%` }}
                   />
                 </div>
@@ -178,7 +178,7 @@ export function BentoGridFeatures() {
           </div>
 
           {/* Bento Card 6: Multi-Device Sync (Spans 2 cols on lg) */}
-          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl lg:col-span-2">
+          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl lg:col-span-2">
             <div className="flex items-center justify-between">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
                 <Smartphone className="h-6 w-6" />
@@ -215,7 +215,7 @@ export function BentoGridFeatures() {
           </div>
 
           {/* Bento Card 7: Export & Backup */}
-          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
+          <div className="group relative overflow-hidden rounded-3xl border border-paper-200 bg-paper p-6 shadow-xs transition duration-300 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
               <FileSpreadsheet className="h-6 w-6" />
             </div>
