@@ -9,6 +9,7 @@ import {
   View,
   ViewStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ACCENT, brand, font, ink, paper, radius, space, statusText, TAP } from "../theme/tokens";
 import { formatMoney, type AlertKind } from "../lib/money";
 
@@ -358,8 +359,36 @@ export function ErrorNote({ children }: { children: ReactNode }) {
   );
 }
 
-export function Screen({ children, style }: { children: ReactNode; style?: ViewStyle }) {
-  return <View style={[{ flex: 1, backgroundColor: paper[50] }, style]}>{children}</View>;
+/**
+ * A screen's background and its safe area.
+ *
+ * `safeTop` is off by default because most screens sit under a navigation
+ * header, which already clears the status bar — adding the inset there would
+ * push everything down twice. A screen with `headerShown: false` has nothing
+ * above it and must ask for the inset, or its first line renders underneath
+ * the clock and the battery.
+ */
+export function Screen({
+  children,
+  style,
+  safeTop = false,
+}: {
+  children: ReactNode;
+  style?: ViewStyle;
+  safeTop?: boolean;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={[
+        { flex: 1, backgroundColor: paper[50] },
+        safeTop && { paddingTop: insets.top },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 /**

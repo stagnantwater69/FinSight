@@ -74,7 +74,7 @@ export function MoreScreen({ navigation }: any) {
   const { selected, profiles } = useBusinessProfiles();
 
   return (
-    <Screen>
+    <Screen safeTop>
       <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2, gap: space.lg }}>
         <View>
           <T variant="title">More</T>

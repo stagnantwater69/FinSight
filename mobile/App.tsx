@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Font from "expo-font";
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
 import { IBMPlexSans_600SemiBold, IBMPlexSans_700Bold } from "@expo-google-fonts/ibm-plex-sans";
@@ -144,7 +144,62 @@ const TAB_ICONS: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Io
   More: ["ellipsis-horizontal-circle-outline", "ellipsis-horizontal-circle"],
 };
 
+/**
+ * Scanning a receipt, given the middle of the bar.
+ *
+ * It is the thing this app is FOR and the reason someone opens it standing
+ * at a counter, so it gets the easiest target on the screen rather than
+ * being a button on a screen two taps away.
+ *
+ * Raised out of the bar and drawn as a filled circle, so it reads as an
+ * action rather than a fifth destination — it does not navigate to a tab and
+ * never shows a selected state.
+ */
+function ScanTabButton({ onPress }: { onPress: () => void }) {
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "flex-start" }}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel="Scan a receipt"
+        style={({ pressed }) => ({
+          width: 54,
+          height: 54,
+          borderRadius: 27,
+          marginTop: -20,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: pressed ? brand[800] : brand[700],
+          // A ring in the bar's own colour so the circle reads as sitting
+          // above the bar rather than punched through it.
+          borderWidth: 4,
+          borderColor: paper.DEFAULT,
+          shadowColor: ink[900],
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.18,
+          shadowRadius: 5,
+          elevation: 5,
+        })}
+      >
+        <Ionicons name="scan" size={24} color="#fff" />
+      </Pressable>
+    </View>
+  );
+}
+
 function MainTabs() {
+  /*
+   * The phone's own navigation bar sits under ours.
+   *
+   * React Navigation adds the bottom inset for you — but only while you leave
+   * the tab bar's height alone. Setting a fixed height (which this did) throws
+   * that away, and on a device with gesture or button navigation the labels end
+   * up behind the system bar. The inset is added back explicitly here rather
+   * than dropping the height, because the taller bar is what gives the raised
+   * scan button room.
+   */
+  const insets = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -154,9 +209,9 @@ function MainTabs() {
         tabBarStyle: {
           backgroundColor: paper.DEFAULT,
           borderTopColor: paper[200],
-          height: 60,
+          height: 60 + insets.bottom,
           paddingTop: 6,
-          paddingBottom: 8,
+          paddingBottom: 8 + insets.bottom,
         },
         tabBarLabelStyle: { fontFamily: font.sansMedium, fontSize: 11 },
         tabBarIcon: ({ color, focused }) => {
@@ -167,10 +222,39 @@ function MainTabs() {
     >
       <Tab.Screen name="Dashboard" component={DashboardStack} />
       <Tab.Screen name="Records" component={RecordsStack} />
+      {/*
+        A tab in position only. The screen is never rendered: the press is
+        intercepted below and turned into a push onto the Records stack, so
+        Scan behaves like an action and leaves the owner somewhere they can
+        navigate back from.
+      */}
+      <Tab.Screen
+        name="Scan"
+        component={ScanPlaceholder}
+        options={{
+          tabBarLabel: "",
+          tabBarButton: (props) => (
+            <ScanTabButton
+              onPress={() => props.onPress?.({} as never)}
+            />
+          ),
+        }}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            e.preventDefault();
+            navigation.navigate("Records", { screen: "ScanReceipt" });
+          },
+        })}
+      />
       <Tab.Screen name="Insights" component={InsightsStack} />
       <Tab.Screen name="More" component={MoreStack} />
     </Tab.Navigator>
   );
+}
+
+/** Never rendered — the Scan tab's press is intercepted before it mounts. */
+function ScanPlaceholder() {
+  return null;
 }
 
 function AuthStack() {
