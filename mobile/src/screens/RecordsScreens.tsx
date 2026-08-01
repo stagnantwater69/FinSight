@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert as RNAlert,
@@ -664,11 +664,19 @@ interface ReceiptScanResult {
   }[];
 }
 
-export function ScanReceiptScreen({ navigation }: any) {
+export function ScanReceiptScreen({ navigation, route }: any) {
   const { selected, categories, refreshCategories } = useBusinessProfiles();
   const [scan, setScan] = useState<ReceiptScanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Guards the camera launch to once per visit to this screen.
+   *
+   * Without it, a permission denial or a cancelled capture would reopen the
+   * camera on every re-render rather than leaving the owner on the picker —
+   * `takePhoto` is called from an effect, and effects re-run.
+   */
+  const autoLaunchedRef = useRef(false);
 
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [date, setDate] = useState(todayISO());
@@ -700,6 +708,25 @@ export function ScanReceiptScreen({ navigation }: any) {
   >([]);
   /** The extracted line currently being removed, so its row can show progress. */
   const [removingItemId, setRemovingItemId] = useState<number | null>(null);
+
+  /*
+   * The Scan tab button navigates here with autoLaunch: true, and the whole
+   * point of putting Scan in the middle of the bar is that the button IS the
+   * scan action — landing on a screen that still needs a "Take a photo" tap
+   * would make the button a shortcut to the shortcut, not the action itself.
+   *
+   * Ordinary navigation into this screen (the "Scan receipt" button on the
+   * Records list) carries no such param, so the picker still shows first
+   * there — unprompted camera access on an unrelated flow would be a surprise
+   * only it's asking for.
+   */
+  useEffect(() => {
+    if (route?.params?.autoLaunch && !autoLaunchedRef.current) {
+      autoLaunchedRef.current = true;
+      takePhoto();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params?.autoLaunch]);
 
   if (!selected) return null;
 

@@ -242,7 +242,10 @@ function MainTabs() {
         listeners={({ navigation }) => ({
           tabPress: (e) => {
             e.preventDefault();
-            navigation.navigate("Records", { screen: "ScanReceipt" });
+            // autoLaunch opens the camera immediately — the button IS the
+            // scan action, so landing on a screen that still needs a "Take a
+            // photo" tap would make it a shortcut to the shortcut.
+            navigation.navigate("Records", { screen: "ScanReceipt", params: { autoLaunch: true } });
           },
         })}
       />
