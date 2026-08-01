@@ -90,9 +90,21 @@ export function HeroSection() {
 
           <h1 className="mt-5 font-display text-4xl font-extrabold leading-tight tracking-tight text-ink-900 sm:text-5xl lg:text-[3.25rem]">
             Know where your money actually goes —{" "}
-            <span className="bg-gradient-to-r from-brand-700 via-brand-600 to-accent-600 bg-clip-text text-transparent">
-              before the month ends.
-            </span>
+            {/*
+              Solid brand teal, not a gradient.
+
+              The gradient ran brand-700 through to accent-600, and because the
+              emphasised phrase wraps across two lines the ramp restarted per
+              line — so "ends." landed in the olive-brown middle of the blend
+              and read like a rendering fault rather than a colour. A gradient
+              across wrapping text cannot be controlled, since the box it fills
+              changes shape with the viewport.
+
+              A single token also keeps the contrast knowable: brand-700 on
+              paper is a measured value, where a point midway through a blend
+              into amber is not.
+            */}
+            <span className="text-brand-700">before the month ends.</span>
           </h1>
 
           <p className="mt-5 text-base leading-relaxed text-ink-600 sm:text-lg">
