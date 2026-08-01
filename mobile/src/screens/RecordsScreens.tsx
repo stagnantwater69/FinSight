@@ -1411,9 +1411,47 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                     backgroundColor: paper[100],
                   }}
                 >
-                  <T variant="label" style={{ color: ink[700], marginBottom: space.xs }}>
-                    What gets saved
-                  </T>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: space.sm,
+                      marginBottom: space.xs,
+                    }}
+                  >
+                    <T variant="label" style={{ color: ink[700] }}>
+                      What gets saved
+                    </T>
+                    {/*
+                      Whether the receipt balances, stated as a badge rather
+                      than left for the owner to work out by comparing two
+                      numbers in different places. Colour is never the only
+                      signal — the badge carries a glyph and words.
+                    */}
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        paddingHorizontal: space.sm,
+                        paddingVertical: 3,
+                        borderRadius: radius.full,
+                        backgroundColor: gap === 0 ? "#eafaf1" : "#fffbeb",
+                      }}
+                    >
+                      <T
+                        style={{
+                          fontSize: 11,
+                          color: gap === 0 ? statusText.good : statusText.warning,
+                        }}
+                      >
+                        {gap === 0
+                          ? "✓ Balances"
+                          : `⚠ ${gap > 0 ? "Short" : "Over"} PHP ${(Math.abs(gap) / 100).toFixed(2)}`}
+                      </T>
+                    </View>
+                  </View>
                   {itemGroups.map(([catId, g]) => (
                     <View
                       key={String(catId)}
