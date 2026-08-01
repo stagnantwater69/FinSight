@@ -6,6 +6,7 @@ import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as Font from "expo-font";
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
 import { IBMPlexSans_600SemiBold, IBMPlexSans_700Bold } from "@expo-google-fonts/ibm-plex-sans";
@@ -321,13 +322,19 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <NavigationContainer theme={navTheme}>
-        <AuthProvider>
-          <Root />
-        </AuthProvider>
-      </NavigationContainer>
-      <StatusBar style="dark" />
-    </SafeAreaProvider>
+    // GestureHandlerRootView must be the OUTERMOST view, above the navigation
+    // container. Swipeable record rows do nothing at all on Android without
+    // it — and fail silently rather than erroring, which is the worst way for
+    // a gesture to be broken.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <NavigationContainer theme={navTheme}>
+          <AuthProvider>
+            <Root />
+          </AuthProvider>
+        </NavigationContainer>
+        <StatusBar style="dark" />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

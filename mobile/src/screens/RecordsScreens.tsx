@@ -24,6 +24,9 @@ import {
 import { rowsToApplySuggestionTo, suggestedNewCategory } from "../lib/categorySuggestion";
 import { useDebounced } from "../lib/useDebounced";
 import { SkeletonList } from "../components/Skeleton";
+import { DateField, DateRangeChips } from "../components/DateField";
+import { Swipeable } from "react-native-gesture-handler";
+import { Ionicons } from "@expo/vector-icons";
 import * as haptics from "../lib/haptics";
 import { RecordOriginPanel, type RecordOrigin } from "../components/RecordOrigin";
 import {
@@ -47,8 +50,65 @@ function badges(r: RecordItem) {
   );
 }
 
-function RecordCard({ r, categoryName, onPress }: { r: RecordItem; categoryName: string; onPress?: () => void }) {
+/**
+ * The action revealed behind a swiped row.
+ *
+ * Full-height and colour-filled so the gesture reads as uncovering something
+ * rather than dragging the card off its own background.
+ */
+function SwipeAction({
+  label,
+  icon,
+  colour,
+  onPress,
+}: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  colour: string;
+  onPress: () => void;
+}) {
   return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={{
+        width: 84,
+        marginBottom: space.sm,
+        backgroundColor: colour,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: radius.lg,
+      }}
+    >
+      <Ionicons name={icon} size={20} color="#fff" />
+      <T style={{ color: "#fff", fontSize: 11, marginTop: 2 }}>{label}</T>
+    </Pressable>
+  );
+}
+
+function RecordCard({
+  r,
+  categoryName,
+  onPress,
+  onDelete,
+  onResolve,
+}: {
+  r: RecordItem;
+  categoryName: string;
+  onPress?: () => void;
+  onDelete?: () => void;
+  onResolve?: () => void;
+}) {
+  /*
+   * Swipe reveals; it never acts on its own.
+   *
+   * A swipe that deleted on release would be a destructive action triggered by
+   * a gesture people make accidentally while scrolling a list. Revealing a
+   * button that must then be tapped keeps the shortcut without the hazard —
+   * and `onDelete` still asks for confirmation on top of that.
+   */
+  const card = (
     <Pressable onPress={onPress} disabled={!onPress}>
       <Card style={{ marginBottom: space.sm }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.md }}>
@@ -68,6 +128,39 @@ function RecordCard({ r, categoryName, onPress }: { r: RecordItem; categoryName:
         </T>
       </Card>
     </Pressable>
+  );
+
+  // No actions wired means no gesture layer at all — a swipe that reveals
+  // nothing is worse than a row that does not swipe.
+  if (!onDelete && !onResolve) return card;
+
+  const needsResolving = r.reviewStatus === "Needs Review" || r.duplicateStatus === "Flagged";
+
+  return (
+    <Swipeable
+      overshootRight={false}
+      overshootLeft={false}
+      onSwipeableWillOpen={() => haptics.tapped()}
+      renderRightActions={
+        onDelete
+          ? () => <SwipeAction label="Delete" icon="trash-outline" colour={statusText.critical} onPress={onDelete} />
+          : undefined
+      }
+      renderLeftActions={
+        onResolve && needsResolving
+          ? () => (
+              <SwipeAction
+                label="Resolve"
+                icon="checkmark-circle-outline"
+                colour={statusText.good}
+                onPress={onResolve}
+              />
+            )
+          : undefined
+      }
+    >
+      {card}
+    </Swipeable>
   );
 }
 
@@ -115,6 +208,8 @@ export function RecordsScreen({ navigation }: any) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  /** Which whole-period shortcut is in effect, if any. */
+  const [rangeLabel, setRangeLabel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,9 +257,69 @@ export function RecordsScreen({ navigation }: any) {
     setSource(null);
     setDateFrom("");
     setDateTo("");
+    setRangeLabel(null);
   }
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  /**
+   * Deleting from a swipe still asks first.
+   *
+   * The gesture only reveals the button; this is the second gate. A record is
+   * evidence for figures on every other screen, and a mis-swipe while
+   * scrolling must not be able to destroy one.
+   */
+  function confirmDelete(record: RecordItem) {
+    RNAlert.alert(
+      "Delete this record?",
+      `"${record.description}" will be removed. This cannot be undone.`,
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            // Optimistic: the row leaves immediately and comes back if the
+            // server refuses, rather than the owner watching a spinner over a
+            // row they have already decided about.
+            const previous = records;
+            setRecords((rows) => rows.filter((x) => !(x.type === record.type && x.id === record.id)));
+            try {
+              await api.delete(recordUpdatePath(record.type, record.id));
+              haptics.committed();
+            } catch (err) {
+              setRecords(previous);
+              setError(errorMessage(err));
+              haptics.failed();
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  /** Clears a flag from the list, without a trip to the review screen. */
+  async function resolve(record: RecordItem) {
+    const previous = records;
+    setRecords((rows) =>
+      rows.map((x) =>
+        x.type === record.type && x.id === record.id
+          ? { ...x, reviewStatus: "Reviewed" as const, duplicateStatus: "Not a Duplicate" as const }
+          : x,
+      ),
+    );
+    try {
+      await api.patch(recordUpdatePath(record.type, record.id), {
+        duplicateStatus: "Not a Duplicate",
+        reviewStatus: "Reviewed",
+      });
+      haptics.succeeded();
+    } catch (err) {
+      setRecords(previous);
+      setError(errorMessage(err));
+      haptics.failed();
+    }
+  }
 
   if (!selected) {
     return (
@@ -281,12 +436,53 @@ export function RecordsScreen({ navigation }: any) {
                 </View>
               </View>
 
+              <View>
+                <T variant="caption" style={{ marginBottom: 4 }}>When</T>
+                {/*
+                  Most filtering is "this week" or "this month" rather than two
+                  specific dates, so those cost one tap and the pickers below
+                  are only needed for a genuinely custom range.
+                */}
+                <DateRangeChips
+                  activeLabel={rangeLabel}
+                  onPick={(from, to, label) => {
+                    setDateFrom(from);
+                    setDateTo(to);
+                    setRangeLabel(label);
+                  }}
+                />
+              </View>
+
               <View style={{ flexDirection: "row", gap: space.sm }}>
                 <View style={{ flex: 1 }}>
-                  <Field label="From" value={dateFrom} onChangeText={setDateFrom} placeholder="YYYY-MM-DD" />
+                  <DateField
+                    label="From"
+                    value={dateFrom}
+                    optional
+                    onChange={(v) => {
+                      setDateFrom(v);
+                      setRangeLabel(null);
+                    }}
+                    onClear={() => {
+                      setDateFrom("");
+                      setRangeLabel(null);
+                    }}
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Field label="To" value={dateTo} onChangeText={setDateTo} placeholder="YYYY-MM-DD" />
+                  <DateField
+                    label="To"
+                    value={dateTo}
+                    optional
+                    onChange={(v) => {
+                      setDateTo(v);
+                      setRangeLabel(null);
+                    }}
+                    onClear={() => {
+                      setDateTo("");
+                      setRangeLabel(null);
+                    }}
+                  />
                 </View>
               </View>
 
@@ -318,6 +514,8 @@ export function RecordsScreen({ navigation }: any) {
               r={r}
               categoryName={categoryName(r.categoryId)}
               onPress={() => navigation.navigate("EditRecord", { record: r })}
+              onDelete={() => confirmDelete(r)}
+              onResolve={() => resolve(r)}
             />
           ))
         )}
@@ -550,7 +748,7 @@ export function AddExpenseScreen({ navigation }: any) {
             onCreated={refreshCategories}
             businessProfileId={selected.id}
           />
-          <Field label="Date" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />
+          <DateField label="Date" value={date} onChange={setDate} />
           <Field label="Description" value={description} onChangeText={setDescription} placeholder="e.g. Rice sacks" />
           <Field label="Vendor (optional)" value={vendor} onChangeText={setVendor} />
           <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
@@ -602,7 +800,7 @@ export function AddSalesScreen({ navigation }: any) {
           <T variant="caption" style={{ marginBottom: space.md }}>
             A sales figure you record for monitoring — not a receipt for a customer.
           </T>
-          <Field label="Date" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />
+          <DateField label="Date" value={date} onChange={setDate} />
           <Field label="Description" value={description} onChangeText={setDescription} />
           <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
           {error ? <ErrorNote>{error}</ErrorNote> : null}
@@ -1032,7 +1230,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                 businessProfileId={selected.id}
               />
             ) : null}
-            <Field label="Date" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />
+            <DateField label="Date" value={date} onChange={setDate} />
             <Field label="Description" value={description} onChangeText={setDescription} />
             <Field label="Vendor" value={vendor} onChangeText={setVendor} />
             <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
@@ -1630,7 +1828,7 @@ export function EditRecordScreen({ route, navigation }: any) {
                 businessProfileId={selected.id}
               />
             ) : null}
-            <Field label="Date" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />
+            <DateField label="Date" value={date} onChange={setDate} />
             <Field label="Description" value={description} onChangeText={setDescription} />
             {isExpense ? <Field label="Vendor" value={vendor} onChangeText={setVendor} /> : null}
             <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
