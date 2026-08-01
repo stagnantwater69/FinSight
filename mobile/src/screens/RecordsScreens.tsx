@@ -1295,7 +1295,10 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                       <CategoryChips
                         categories={categories}
                         value={itemCategories[item.id] ?? null}
-                        onChange={(id) => setItemCategories((prev) => ({ ...prev, [item.id]: id }))}
+                        onChange={(id) => {
+                          haptics.tapped();
+                          setItemCategories((prev) => ({ ...prev, [item.id]: id }));
+                        }}
                         label={item.name}
                       />
                     </View>
@@ -1470,14 +1473,20 @@ export function ScanReceiptScreen({ navigation, route }: any) {
 
                     <GapOption
                       selected={plan === "proportional"}
-                      onPress={() => setPlan("proportional")}
+                      onPress={() => {
+                        haptics.tapped();
+                        setPlan("proportional");
+                      }}
                       title={gap > 0 ? "Tax or a service charge" : "A discount on the whole receipt"}
                       detail="Split across the categories above, in proportion to what each came to. Keeps every category's spending accurate."
                     />
                     {canFileGapOnItsOwn ? (
                       <GapOption
                         selected={plan === "category"}
-                        onPress={() => setPlan("category")}
+                        onPress={() => {
+                          haptics.tapped();
+                          setPlan("category");
+                        }}
                         title="A separate charge to track on its own"
                         detail="Saved as its own expense record under one category."
                       >
@@ -1495,7 +1504,10 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                     ) : null}
                     <GapOption
                       selected={plan === "shrink"}
-                      onPress={() => setPlan("shrink")}
+                      onPress={() => {
+                        haptics.tapped();
+                        setPlan("shrink");
+                      }}
                       title="FinSight misread the receipt total"
                       detail={`Save PHP ${itemsTotal.toFixed(2)} — the items' own total — instead of the amount above.`}
                     />

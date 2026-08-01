@@ -1,17 +1,32 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Dimensions,
+  Easing,
   FlatList,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
+  StyleSheet,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+/**
+ * How much of the screen the sheet covers.
+ *
+ * Tall enough for a real conversation, short enough that the dimmed strip
+ * above it still reads as "the screen you came from" — which is what makes a
+ * sheet feel dismissible rather than like a new page.
+ */
+const SHEET_HEIGHT = Math.round(Dimensions.get("window").height * 0.88);
 import { Button, ErrorNote, T } from "./ui";
 import { api, errorMessage } from "../lib/api";
+import * as haptics from "../lib/haptics";
 import { brand, font, ink, paper, radius, space, TAP } from "../theme/tokens";
 import type { AIInteraction, AskResponse, InteractionModule } from "../lib/types";
 
@@ -67,6 +82,80 @@ export function AskFinSight({
   module: InteractionModule;
 }) {
   const copy = MODULE_COPY[module];
+
+  /*
+   * The sheet's own animation.
+   *
+   * Driven by the JS Animated API rather than a library: translateY and
+   * opacity are both native-driver properties, so the slide runs off the JS
+   * thread and stays smooth while history is being fetched — the exact moment
+   * the JS thread is busy and a non-native animation would jank.
+   *
+   * Reanimated + a bottom-sheet library would give the same result and a much
+   * larger native dependency, for one sheet.
+   */
+  const insets = useSafeAreaInsets();
+  const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
+  const backdrop = useRef(new Animated.Value(0)).current;
+
+  const animateTo = useCallback(
+    (to: "open" | "closed", onDone?: () => void) => {
+      Animated.parallel([
+        Animated.timing(translateY, {
+          toValue: to === "open" ? 0 : SHEET_HEIGHT,
+          duration: to === "open" ? 260 : 200,
+          easing: to === "open" ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdrop, {
+          toValue: to === "open" ? 0.45 : 0,
+          duration: to === "open" ? 260 : 200,
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (finished) onDone?.();
+      });
+    },
+    [translateY, backdrop],
+  );
+
+  /** Slides out first, THEN unmounts — closing instantly would look like a crash. */
+  const close = useCallback(() => {
+    animateTo("closed", onClose);
+  }, [animateTo, onClose]);
+
+  useEffect(() => {
+    if (visible) {
+      translateY.setValue(SHEET_HEIGHT);
+      animateTo("open");
+    }
+  }, [visible, animateTo, translateY]);
+
+  /*
+   * Drag-to-dismiss, attached to the handle only.
+   *
+   * Downward drags follow the finger; upward ones are ignored rather than
+   * letting the sheet be pulled above its own top edge. Released past a third
+   * of the height, or thrown down fast, it closes — otherwise it springs back,
+   * so a half-hearted drag is never destructive.
+   */
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 4,
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) translateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        const flung = g.vy > 0.8;
+        if (g.dy > SHEET_HEIGHT / 3 || flung) {
+          animateTo("closed", onClose);
+        } else {
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
+        }
+      },
+    }),
+  ).current;
+  const dragHandlers = pan.panHandlers;
   const [messages, setMessages] = useState<AIInteraction[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -113,13 +202,56 @@ export function AskFinSight({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet">
-      <SafeAreaView style={{ flex: 1, backgroundColor: paper[50] }} edges={["top", "bottom"]}>
-        <View style={{ backgroundColor: brand[800], padding: space.lg }}>
+    <Modal visible={visible} animationType="none" transparent onRequestClose={onClose}>
+      {/*
+        A dimmed backdrop that closes on tap. `pageSheet` gave this behaviour
+        on iOS for free and nothing at all on Android, where it fell back to an
+        opaque full-screen modal — so the sheet is built here instead and both
+        platforms get the same thing.
+      */}
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: "#0b1416", opacity: backdrop },
+        ]}
+      >
+        <Pressable
+          style={{ flex: 1 }}
+          onPress={close}
+          accessibilityRole="button"
+          accessibilityLabel="Close Ask FinSight"
+        />
+      </Animated.View>
+
+      <Animated.View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: SHEET_HEIGHT,
+          backgroundColor: paper[50],
+          borderTopLeftRadius: radius.xl,
+          borderTopRightRadius: radius.xl,
+          overflow: "hidden",
+          transform: [{ translateY }],
+        }}
+      >
+        <View style={{ backgroundColor: brand[800], paddingHorizontal: space.lg, paddingBottom: space.lg }}>
+          {/*
+            The drag handle, and the ONLY part that responds to a drag. Putting
+            the pan responder on the whole sheet would make it fight the
+            message list for every vertical gesture, so scrolling up would
+            close the sheet instead.
+          */}
+          <View {...dragHandlers} style={{ paddingVertical: space.md, alignItems: "center" }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: brand[500] }} />
+          </View>
+
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <T style={{ color: "#fff", fontFamily: font.display, fontSize: 16, flex: 1 }}>✦ {copy.title}</T>
             <Pressable
-              onPress={onClose}
+              onPress={close}
               accessibilityRole="button"
               accessibilityLabel="Close Ask FinSight"
               hitSlop={12}
@@ -174,7 +306,10 @@ export function AskFinSight({
                     {copy.starters.map((s) => (
                       <Pressable
                         key={s}
-                        onPress={() => setInput(s)}
+                        onPress={() => {
+                          haptics.tapped();
+                          setInput(s);
+                        }}
                         style={{
                           minHeight: TAP,
                           justifyContent: "center",
@@ -193,11 +328,18 @@ export function AskFinSight({
             }
           />
 
+          {/*
+            The composer clears the home indicator itself. The sheet is a bare
+            Animated.View rather than a SafeAreaView, because the safe area
+            belongs at the BOTTOM of the sheet only — applying it to the whole
+            sheet would inset the dark header away from the rounded top corners.
+          */}
           <View
             style={{
               flexDirection: "row",
               gap: space.sm,
               padding: space.md,
+              paddingBottom: space.md + insets.bottom,
               borderTopWidth: 1,
               borderTopColor: ink[200],
               backgroundColor: paper.DEFAULT,
@@ -224,7 +366,7 @@ export function AskFinSight({
             <Button title="Send" onPress={() => send(input)} disabled={!input.trim() || sending} />
           </View>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </Animated.View>
     </Modal>
   );
 }
