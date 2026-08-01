@@ -14,6 +14,7 @@ import {
   type ParsedLineItem,
   type ParsedReceiptFields,
 } from "./ocr.service";
+import { findKnownVendorInText, normaliseForMatch } from "../lib/historyMatching";
 import { categoriseReceiptItems, UNCATEGORISED } from "./ai.service";
 import { extractReceiptWithVision } from "./visionOcr.service";
 import { createExpenseRecord } from "./expenseRecord.service";
@@ -149,6 +150,73 @@ function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = []) {
 }
 
 /**
+ * How many past records are read to build the list of vendors this business
+ * already deals with.
+ *
+ * Deduplicated afterwards, so a shop that buys from the same three suppliers
+ * every week still yields three names from a hundred rows — the query is sized
+ * to reach back far enough to include the occasional supplier, not to cap the
+ * number of distinct names.
+ */
+const VENDOR_LOOKBACK = 200;
+
+/**
+ * Corrects a vendor reading against the ones this business has confirmed.
+ *
+ * The reference data is `ExpenseRecord.vendor`, which is what the OWNER
+ * submitted on the confirm screen — not what OCR guessed. That distinction is
+ * the whole point: these names were verified by the person who was standing at
+ * the counter, which makes them better evidence than anything the pipeline can
+ * derive from the pixels.
+ *
+ * Two failures get fixed here, and they are different:
+ *
+ *   - a known vendor read with noise ("SAVEM0RE MARKET") snaps to its
+ *     confirmed spelling; and
+ *   - a vendor read off the WRONG LINE is overruled when a known name appears
+ *     anywhere else on the receipt. This is the harder failure and the one
+ *     behind the original complaint: a stylised logo mangled into a short
+ *     scrap can outscore the real registered name printed below it.
+ *
+ * Nothing happens for a business with no history, or a receipt from a genuinely
+ * new shop — findKnownVendorInText returns null and the parser's answer stands.
+ * So this only ever gets stronger as the business uses FinSight, and it never
+ * makes a first-time scan worse.
+ */
+async function snapVendorToHistory(
+  businessProfileId: number,
+  text: string,
+  parsedVendor: string | null,
+): Promise<string | null> {
+  const rows = await prisma.expenseRecord.findMany({
+    where: { businessProfileId, vendor: { not: null } },
+    select: { vendor: true },
+    orderBy: { id: "desc" },
+    take: VENDOR_LOOKBACK,
+  });
+
+  const known = [...new Set(rows.map((r) => r.vendor!).filter((v) => v.trim().length > 0))];
+  if (known.length === 0) return parsedVendor;
+
+  const match = findKnownVendorInText(text, known);
+  if (match === null) return parsedVendor;
+  /*
+   * Compared literally, NOT on the normalised forms. Normalising folds the
+   * confusable glyphs, so "SAVEM0RE MARKET" and "SAVEMORE MARKET" compare
+   * equal there — and an early return on that basis handed back the reading
+   * with the zero still in it, silently skipping the correction this function
+   * exists to make. Only an exact string match means there is nothing to do.
+   */
+  if (parsedVendor === match.value) return parsedVendor;
+
+  console.info(
+    `[vendor-history] business=${businessProfileId} read=${JSON.stringify(parsedVendor)} ` +
+      `corrected=${JSON.stringify(match.value)} score=${match.score.toFixed(3)}`,
+  );
+  return match.value;
+}
+
+/**
  * Which line to point at when a receipt does not add up.
  *
  * Returns null when the items reconcile, when there is nothing to compare
@@ -227,14 +295,17 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
   const deterministicItems = parseLineItems(text);
 
   const rescued = await rescueWithVision(input, parsed, deterministicItems, ocr);
+  const vendor = await snapVendorToHistory(input.businessProfileId, text, rescued.vendor);
 
   const scan = await prisma.receiptScan.create({
     data: {
       businessProfileId: input.businessProfileId,
       imageFile: imagePath,
       extractedDate: rescued.date ? new Date(rescued.date) : undefined,
-      extractedVendor: rescued.vendor ?? undefined,
-      extractedDescription: rescued.description ?? undefined,
+      extractedVendor: vendor ?? undefined,
+      // Rebuilt from the settled vendor, so a name corrected from history is
+      // the one the owner sees rather than the raw OCR reading.
+      extractedDescription: vendor ? `Purchase from ${vendor}` : rescued.description ?? undefined,
       extractedAmount: rescued.amount ?? undefined,
       confirmationStatus: "Pending",
       rawText: text,
@@ -249,7 +320,7 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
     input.businessProfileId,
     scan.id,
     rescued.items,
-    rescued.vendor,
+    vendor,
     rescued.itemsFromVision,
     rescued.itemsFromVision ? [] : rescued.items.map((i) => confidenceForValue(ocr.lines, i.amount.toFixed(2))),
   );

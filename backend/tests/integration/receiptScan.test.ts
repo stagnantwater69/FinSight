@@ -460,6 +460,109 @@ describe("vision rescue for receipts OCR could not read", () => {
 });
 
 /**
+ * Correcting a vendor against the ones this business has confirmed before.
+ *
+ * The reference data is what the OWNER typed on the confirm screen, so these
+ * tests all establish history the honest way — by confirming a receipt — rather
+ * than writing vendor rows straight into the database.
+ */
+describe("vendor corrected from confirmed history", () => {
+  /** Confirms one receipt so the business has a known vendor on record. */
+  async function establishHistory(vendor: string) {
+    extractTextMock.mockResolvedValue(
+      [vendor, "Date: 2026-07-20", "Rice 25kg 1220.00", "Cooking oil 180.00", "TOTAL 1400.00"].join("\n"),
+    );
+    const scan = await upload();
+    await confirmReceipt(ctx.user.id, scan.id, {
+      date: "2026-07-20",
+      description: `Purchase from ${vendor}`,
+      vendor,
+      amount: 1400,
+      itemAssignments: scan.items.map((i) => ({ itemId: i.id, categoryId: ctx.categories.Inventory })),
+    });
+  }
+
+  it("snaps a noisy reading to the confirmed spelling", async () => {
+    await establishHistory("SAVEMORE MARKET");
+
+    // Same shop, read with a zero for the O.
+    extractTextMock.mockResolvedValue(
+      ["SAVEM0RE MARKET", "Date: 2026-07-21", "Bread 60.00", "TOTAL 60.00"].join("\n"),
+    );
+    const scan = await upload();
+    expect(scan.extractedVendor).toBe("SAVEMORE MARKET");
+  });
+
+  /**
+   * The original complaint. A stylised logo mangles into a short scrap that
+   * outranks the real registered name printed below it — until the business's
+   * own history says which of the two is a shop it actually buys from.
+   */
+  it("overrules a vendor read off the wrong line", async () => {
+    await establishHistory("SANFORD MARKETING CORPORATION");
+
+    extractTextMock.mockResolvedValue(
+      ["Dore", "SANFORD MARKETING CORPORATION", "Date: 2026-07-21", "Bread 60.00", "TOTAL 60.00"].join("\n"),
+    );
+    const scan = await upload();
+    expect(scan.extractedVendor).toBe("SANFORD MARKETING CORPORATION");
+    // The description the owner reads is rebuilt from the corrected name.
+    expect(scan.extractedDescription).toBe("Purchase from SANFORD MARKETING CORPORATION");
+  });
+
+  it("leaves a receipt from a genuinely new shop alone", async () => {
+    await establishHistory("SAVEMORE MARKET");
+
+    extractTextMock.mockResolvedValue(
+      ["MERCURY DRUG STORE", "Date: 2026-07-21", "Paracetamol 60.00", "TOTAL 60.00"].join("\n"),
+    );
+    const scan = await upload();
+    expect(scan.extractedVendor).toBe("MERCURY DRUG STORE");
+  });
+
+  /** A business with no confirmed receipts yet must behave exactly as before. */
+  it("changes nothing for a business with no history", async () => {
+    const scan = await upload();
+    expect(scan.extractedVendor).toBe("ABC SARI-SARI STORE");
+  });
+
+  /**
+   * History corrects the NAME and nothing else. A vendor match must never
+   * reach the figures — those are the owner's money, and they come off the
+   * receipt in front of them, not off a previous one.
+   */
+  it("never lets history touch the amount or the date", async () => {
+    await establishHistory("SAVEMORE MARKET");
+
+    extractTextMock.mockResolvedValue(
+      ["SAVEM0RE MARKET", "Date: 2026-07-29", "Bread 60.00", "TOTAL 60.00"].join("\n"),
+    );
+    const scan = await upload();
+    expect(scan.extractedVendor).toBe("SAVEMORE MARKET");
+    expect(scan.extractedAmount).toBe(60);
+    expect(scan.extractedDate?.toISOString().slice(0, 10)).toBe("2026-07-29");
+  });
+
+  /** One business's suppliers must never leak into another's readings. */
+  it("does not use another business's vendors", async () => {
+    await establishHistory("SAVEMORE MARKET");
+    const other = await makeOwnerWithProfile();
+
+    extractTextMock.mockResolvedValue(
+      ["SAVEM0RE MARKET", "Date: 2026-07-21", "Bread 60.00", "TOTAL 60.00"].join("\n"),
+    );
+    const scan = await uploadAndScan(other.user.id, {
+      businessProfileId: other.profile.id,
+      buffer: Buffer.from("fake-image-bytes"),
+      mimetype: "image/jpeg",
+      originalname: "receipt.jpg",
+    });
+    // Uncorrected: this business has never confirmed that vendor.
+    expect(scan.extractedVendor).toBe("SAVEM0RE MARKET");
+  });
+});
+
+/**
  * Re-reading a receipt tesseract DID read, but read badly.
  *
  * The rescue above only ever fired on an empty result, so there was never a
