@@ -209,11 +209,24 @@ export interface UnusualExpense {
   categoryStdDev: number;
 }
 
+/** One day's expense total, for the spending trend. */
+export interface DailyExpenseTotal {
+  date: string;
+  total: number;
+  count: number;
+}
+
 export interface ExpenseBehavior {
   periodStart: string;
   periodEnd: string;
   previousPeriodStart: string;
   previousPeriodEnd: string;
+  /**
+   * Daily totals across the period. The endpoint has always returned these —
+   * mobile's copy of the type simply never declared them, so the data arrived
+   * and was thrown away. Web has charted them all along.
+   */
+  dailyTotals: DailyExpenseTotal[];
   categoryTrends: CategoryTrend[];
   unusualExpenses: UnusualExpense[];
   insufficientHistoryCategories: { categoryId: number; categoryName: string; historyCount: number }[];

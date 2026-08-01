@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { Ionicons } from "@expo/vector-icons";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -19,6 +20,7 @@ import { BusinessProfileProvider } from "./src/context/BusinessProfileContext";
 import { LoginScreen, RegisterScreen, RecoverPasswordScreen } from "./src/screens/AuthScreens";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { NotificationsScreen } from "./src/screens/NotificationsScreen";
+import { MoreScreen } from "./src/screens/MoreScreen";
 import {
   AddExpenseScreen,
   AddSalesScreen,
@@ -103,57 +105,70 @@ function InsightsStack() {
   );
 }
 
-function BusinessStack() {
+/**
+ * Everything that is not a daily task, behind one tab.
+ *
+ * "Business" previously held a whole bottom-bar slot, putting profile
+ * settings — a once-a-month errand — at the same level as recording an
+ * expense. Alerts lives here too, so it is reachable without going via the
+ * Dashboard.
+ */
+function MoreStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="BusinessProfiles" component={BusinessProfilesScreen} options={{ title: "Business" }} />
-      <Stack.Screen name="BusinessProfileForm" component={BusinessProfileFormScreen} options={{ title: "Business profile" }} />
+      <Stack.Screen name="MoreHome" component={MoreScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: "My account" }} />
+      <Stack.Screen name="BusinessProfiles" component={BusinessProfilesScreen} options={{ title: "Businesses" }} />
+      <Stack.Screen name="BusinessProfileForm" component={BusinessProfileFormScreen} options={{ title: "Business profile" }} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: "Alerts" }} />
     </Stack.Navigator>
   );
 }
 
 /**
- * Bottom tabs, mirroring the web app's own bottom nav exactly — same four
- * destinations, same order, same glyphs (web/src/components/AppShell.tsx
- * NAV_ITEMS). Someone moving between phone and laptop shouldn't have to
- * relearn where anything lives.
+ * Bottom tabs.
+ *
+ * Three places work happens, then everything else. The icons are a real icon
+ * set rather than the Unicode geometric shapes (◧ ☰ ◔ ▣) that stood in
+ * before — those rendered differently on every device and read as
+ * placeholders, because that is what they were.
+ *
+ * Outline when inactive, filled when active: the selected tab is the only one
+ * carrying weight, which is a second signal beyond the tint for anyone who
+ * cannot separate the two colours.
  */
-function TabIcon({ glyph, color }: { glyph: string; color: string }) {
-  return <Text style={{ fontSize: 18, color }}>{glyph}</Text>;
-}
+const TAB_ICONS: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap]> = {
+  Dashboard: ["grid-outline", "grid"],
+  Records: ["receipt-outline", "receipt"],
+  Insights: ["bar-chart-outline", "bar-chart"],
+  More: ["ellipsis-horizontal-circle-outline", "ellipsis-horizontal-circle"],
+};
 
 function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: brand[700],
         tabBarInactiveTintColor: ink[500],
-        tabBarStyle: { backgroundColor: paper.DEFAULT, borderTopColor: brand[100] },
+        tabBarStyle: {
+          backgroundColor: paper.DEFAULT,
+          borderTopColor: paper[200],
+          height: 60,
+          paddingTop: 6,
+          paddingBottom: 8,
+        },
         tabBarLabelStyle: { fontFamily: font.sansMedium, fontSize: 11 },
-      }}
+        tabBarIcon: ({ color, focused }) => {
+          const pair = TAB_ICONS[route.name];
+          return <Ionicons name={pair ? pair[focused ? 1 : 0] : "ellipse-outline"} size={22} color={color} />;
+        },
+      })}
     >
-      <Tab.Screen
-        name="Dashboard"
-        component={DashboardStack}
-        options={{ tabBarIcon: ({ color }) => <TabIcon glyph="◧" color={color} /> }}
-      />
-      <Tab.Screen
-        name="Records"
-        component={RecordsStack}
-        options={{ tabBarIcon: ({ color }) => <TabIcon glyph="☰" color={color} /> }}
-      />
-      <Tab.Screen
-        name="Insights"
-        component={InsightsStack}
-        options={{ tabBarIcon: ({ color }) => <TabIcon glyph="◔" color={color} /> }}
-      />
-      <Tab.Screen
-        name="Business"
-        component={BusinessStack}
-        options={{ tabBarIcon: ({ color }) => <TabIcon glyph="▣" color={color} /> }}
-      />
+      <Tab.Screen name="Dashboard" component={DashboardStack} />
+      <Tab.Screen name="Records" component={RecordsStack} />
+      <Tab.Screen name="Insights" component={InsightsStack} />
+      <Tab.Screen name="More" component={MoreStack} />
     </Tab.Navigator>
   );
 }

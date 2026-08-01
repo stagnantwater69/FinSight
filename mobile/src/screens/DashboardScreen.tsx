@@ -1,13 +1,14 @@
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { Alert, AlertBadge, Button, Card, EmptyState, ErrorNote, Money, Screen, SetupProgress, StatTile, T } from "../components/ui";
+import { Alert, Button, Card, EmptyState, ErrorNote, Screen, ScreenHeader, SetupProgress, StatTile, T } from "../components/ui";
 import { RecoveryMeter } from "../components/RecoveryMeter";
+import { CategoryBreakdown } from "../components/charts";
 import { AskFinSight, AskFinSightButton } from "../components/AskFinSight";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
 import { alertKindFromType } from "../lib/money";
-import { brand, categorical, ink, radius, space, TAP } from "../theme/tokens";
+import { brand, ink, paper, radius, space, TAP } from "../theme/tokens";
 import type { DashboardSummary } from "../lib/types";
 
 const PERIODS = [
@@ -75,12 +76,14 @@ export function DashboardScreen({ navigation }: any) {
         contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2, gap: space.lg }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={brand[600]} />}
       >
-        <View style={{ gap: space.md }}>
-          <T variant="title" numberOfLines={2}>
-            {selected.name}
-          </T>
+        <View>
+          <ScreenHeader
+            eyebrow="Dashboard"
+            title={selected.name}
+            subtitle={`Last ${periodDays} day${periodDays === 1 ? "" : "s"}`}
+          />
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "center" }}>
-            <View style={{ flexDirection: "row", backgroundColor: "#fff", borderRadius: radius.md, padding: 3, borderWidth: 1, borderColor: brand[100] }}>
+            <View style={{ flexDirection: "row", backgroundColor: paper[100], borderRadius: radius.md, padding: 3 }}>
               {PERIODS.map((p) => (
                 <Pressable
                   key={p.days}
@@ -156,14 +159,10 @@ export function DashboardScreen({ navigation }: any) {
             </Pressable>
 
             <Card>
-              <T variant="heading" style={{ marginBottom: space.md }}>
-                Where your money went
-              </T>
-              {summary.expenseCategoryBreakdown.length === 0 ? (
-                <T variant="caption">Once you record an expense, this shows which categories use the most.</T>
-              ) : (
-                <CategoryBars breakdown={summary.expenseCategoryBreakdown} />
-              )}
+              <CategoryBreakdown
+                data={summary.expenseCategoryBreakdown}
+                subtitle={`Last ${summary.periodDays} day${summary.periodDays === 1 ? "" : "s"}, largest first`}
+              />
             </Card>
 
             <Card>
@@ -214,44 +213,5 @@ export function DashboardScreen({ navigation }: any) {
         module="Dashboard"
       />
     </Screen>
-  );
-}
-
-/**
- * Category breakdown as labelled bars rather than a charting library.
- *
- * Same conclusion the web app reached below its own breakpoint: on a narrow
- * touch screen a tooltip is unreachable, so the figure has to be on the row.
- * At that point a chart library adds weight without adding information.
- */
-export function CategoryBars({
-  breakdown,
-}: {
-  breakdown: DashboardSummary["expenseCategoryBreakdown"];
-}) {
-  const max = Math.max(...breakdown.map((c) => c.total), 1);
-  return (
-    <View style={{ gap: space.md }}>
-      {breakdown.map((c, i) => (
-        <View key={c.categoryId}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
-            <T style={{ fontSize: 13, flex: 1 }} numberOfLines={1}>
-              {c.categoryName}
-            </T>
-            <Money value={c.total} size={13} />
-          </View>
-          <View style={{ height: 8, backgroundColor: ink[100], borderRadius: 4, overflow: "hidden" }}>
-            <View
-              style={{
-                width: `${(c.total / max) * 100}%`,
-                height: "100%",
-                backgroundColor: categorical[i % categorical.length],
-                borderRadius: 4,
-              }}
-            />
-          </View>
-        </View>
-      ))}
-    </View>
   );
 }

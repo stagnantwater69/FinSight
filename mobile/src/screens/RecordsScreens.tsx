@@ -11,7 +11,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { Alert as AlertBanner, AlertBadge, Button, Callout, Card, EmptyState, ErrorNote, Money, Screen, T } from "../components/ui";
+import { Alert as AlertBanner, AlertBadge, Button, Callout, Card, EmptyState, ErrorNote, Money, Screen, ScreenHeader, T } from "../components/ui";
 import { Field } from "./AuthScreens";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
@@ -182,9 +182,7 @@ export function RecordsScreen({ navigation }: any) {
         contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={brand[600]} />}
       >
-        <T variant="title" numberOfLines={2} style={{ marginBottom: space.md }}>
-          Records
-        </T>
+        <ScreenHeader eyebrow="Your money" title="Records" subtitle="Everything you've recorded" />
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md }}>
           <Button title="+ Expense" onPress={() => navigation.navigate("AddExpense")} />

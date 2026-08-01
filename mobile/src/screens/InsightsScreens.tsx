@@ -3,10 +3,11 @@ import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from "react
 import { useFocusEffect } from "@react-navigation/native";
 import { Alert as AlertBanner, Card, EmptyState, ErrorNote, Money, Screen, T } from "../components/ui";
 import { RecoveryMeter } from "../components/RecoveryMeter";
+import { CategoryChange, CoverageColumns, SpendTrend } from "../components/charts";
 import { AskFinSight, AskFinSightButton } from "../components/AskFinSight";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
-import { ACCENT, brand, ink, paper, radius, space, status, statusText, TAP } from "../theme/tokens";
+import { ACCENT, brand, ink, paper, radius, space, statusText, TAP } from "../theme/tokens";
 import type { ExpenseBehavior, RecoveryInsight, SpendingImpact } from "../lib/types";
 
 /** Shared sub-navigation across the three insight screens. */
@@ -113,6 +114,30 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
           <ActivityIndicator color={brand[600]} style={{ marginTop: space.xl }} />
         ) : (
           <View style={{ gap: space.lg }}>
+            {/*
+              The shape first, the figures second. The chart answers "is this
+              period unusual"; the list below answers "by how much, and where".
+            */}
+            <Card>
+              <SpendTrend
+                data={data.dailyTotals ?? []}
+                subtitle={`${data.periodStart.slice(5, 10)} to ${data.periodEnd.slice(5, 10)}`}
+              />
+            </Card>
+
+            <Card>
+              <CategoryChange
+                data={data.categoryTrends
+                  .filter((t) => t.percentChange !== null)
+                  .map((t) => ({
+                    categoryName: t.categoryName,
+                    percentChange: t.percentChange!,
+                    direction: t.direction,
+                  }))}
+                subtitle="Against the period before"
+              />
+            </Card>
+
             <Card>
               <T variant="heading" style={{ marginBottom: space.md }}>Category trends</T>
               {data.categoryTrends.length === 0 ? (
@@ -370,8 +395,21 @@ export function RecoveryTargetScreen({ navigation }: any) {
               </View>
             </Card>
 
+            {/*
+              The columns show the run of days at a glance and where the
+              target line sits; the rows below keep the exact figure and the
+              gap for each day, which a 110px chart cannot carry.
+            */}
             <Card>
-              <T variant="heading" style={{ marginBottom: space.md }}>Daily coverage</T>
+              <CoverageColumns
+                data={data.dailyCoverage.map((d) => ({ date: d.date, amount: d.sales }))}
+                target={data.dailyNeededTarget}
+                subtitle="Sales each day against the target"
+              />
+            </Card>
+
+            <Card>
+              <T variant="heading" style={{ marginBottom: space.md }}>Day by day</T>
               {data.dailyCoverage.map((d) => {
                 const c =
                   d.status === "below" ? statusText.critical : d.status === "at" ? statusText.warning : statusText.good;

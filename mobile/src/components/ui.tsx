@@ -362,6 +362,53 @@ export function Screen({ children, style }: { children: ReactNode; style?: ViewS
   return <View style={[{ flex: 1, backgroundColor: paper[50] }, style]}>{children}</View>;
 }
 
+/**
+ * The top of a screen: an optional eyebrow, a title, an optional line of
+ * context, and room for one action.
+ *
+ * Every screen was building its own out of a `T variant="title"` and ad-hoc
+ * margins, so no two had the same spacing above the first card. Sharing one
+ * component is most of what makes a set of screens feel like one app rather
+ * than several.
+ */
+export function ScreenHeader({
+  eyebrow,
+  title,
+  subtitle,
+  action,
+}: {
+  eyebrow?: string;
+  title: string;
+  subtitle?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md, marginBottom: space.lg }}>
+      <View style={{ flex: 1 }}>
+        {eyebrow ? (
+          <T variant="label" style={{ textTransform: "uppercase", letterSpacing: 0.6, color: ink[400] }}>
+            {eyebrow}
+          </T>
+        ) : null}
+        <T variant="title" numberOfLines={2}>
+          {title}
+        </T>
+        {subtitle ? (
+          <T variant="caption" style={{ marginTop: 2 }}>
+            {subtitle}
+          </T>
+        ) : null}
+      </View>
+      {action}
+    </View>
+  );
+}
+
+/** A hairline between rows inside a card. */
+export function Divider({ style }: { style?: ViewStyle }) {
+  return <View style={[{ height: 1, backgroundColor: paper[200] }, style]} />;
+}
+
 const styles = StyleSheet.create({
   button: {
     minHeight: TAP,
@@ -373,12 +420,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: space.sm,
   },
+  /*
+   * A card is a sheet of paper, not a coloured box.
+   *
+   * The border used to be brand[100], which tinted every surface in the app
+   * faintly green and read as decoration applied to everything equally. A
+   * neutral hairline plus a very soft shadow does the actual job — separating
+   * the sheet from the background — and lets colour mean something when it
+   * does appear.
+   *
+   * Both shadow systems are set because they are not interchangeable: iOS
+   * reads shadowColor/Offset/Opacity/Radius, Android reads elevation only.
+   * Giving one and not the other is how a card ends up flat on half the
+   * devices it ships to.
+   */
   card: {
     backgroundColor: paper.DEFAULT,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: brand[100],
+    borderColor: paper[200],
     padding: space.lg,
+    shadowColor: ink[900],
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   alert: { flexDirection: "row", borderRadius: radius.md, overflow: "hidden" },
   alertBody: { flex: 1, padding: space.md },
