@@ -446,6 +446,25 @@ const DONUT_TOP_N = 6;
 /** The remainder slice. Deliberately outside the categorical ramp. */
 const OTHER_COLOR = "#8b9a9e";
 
+const DONUT_RADIUS = 62;
+const DONUT_STROKE = 22;
+
+/**
+ * The largest font size at which a total still fits inside the ring.
+ *
+ * Kept in step with the web donut, which had the same defect: a fixed size
+ * chosen against short test amounts, which a real business's six- and
+ * seven-figure totals then ran straight over. The figure face is monospaced,
+ * so the width is predictable from the character count — roughly 0.6em each —
+ * and the clear space is derived from the ring rather than hard-coded, so it
+ * survives a change to either dimension. 12px comes off so the figure has
+ * breathing room instead of touching the segments.
+ */
+function fitDonutLabel(label: string): number {
+  const holeWidth = 2 * (DONUT_RADIUS - DONUT_STROKE / 2) - 12;
+  return Math.max(10, Math.min(15, Math.floor(holeWidth / (label.length * 0.6))));
+}
+
 export function DonutChart({
   data,
   title = "Share of spending",
@@ -476,8 +495,10 @@ export function DonutChart({
 
   const total = slices.reduce((s, d) => s + d.total, 0);
   const SIZE = 168;
-  const RADIUS = 62;
-  const STROKE = 22;
+  // From the module constants, so the ring and the label that has to fit
+  // inside it can never disagree about how big the hole is.
+  const RADIUS = DONUT_RADIUS;
+  const STROKE = DONUT_STROKE;
   const circumference = 2 * Math.PI * RADIUS;
   const centre = SIZE / 2;
   /* The 2px surface gap that keeps touching segments countable. */
@@ -518,10 +539,18 @@ export function DonutChart({
               return circle;
             })}
           </Svg>
-          {/* The hole is not decoration — it carries the total. */}
+          {/*
+            The hole is not decoration — it carries the total.
+
+            The figure is sized to FIT that hole rather than set to a fixed
+            15px, which only looked right because the amounts it was tried
+            with were short. The face is monospaced, so the width a total
+            needs is predictable: past about seven figures a fixed size runs
+            straight over the ring.
+          */}
           <View style={{ position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" }}>
             <T variant="caption">Total</T>
-            <Money value={total} size={15} weight="semibold" />
+            <Money value={total} size={fitDonutLabel(formatMoney(total))} weight="semibold" />
           </View>
         </View>
 

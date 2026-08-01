@@ -26,6 +26,33 @@ const SIZE = 168;
 const RADIUS = 62;
 const STROKE = 22;
 
+/**
+ * The clear space inside the ring — the only room the centre total has.
+ *
+ * Derived from the ring rather than written as a number, so it stays correct
+ * if RADIUS or STROKE is ever adjusted. The 12px comes off so the figure has
+ * breathing room instead of touching the segments.
+ */
+const HOLE_WIDTH = 2 * (RADIUS - STROKE / 2) - 12;
+
+/**
+ * Approximate advance width of one character in the mono figure face, in em.
+ *
+ * Used to size the centre total to fit rather than picking a fixed class and
+ * hoping. `text-lg` was the fixed class, and at 18px a ten-character
+ * "PHP 96,917" needs ~108px against a 102px hole — so it overflowed the ring
+ * on any business past five figures. Amounts only get longer from there.
+ */
+const MONO_ADVANCE_EM = 0.6;
+const MAX_LABEL_PX = 18;
+const MIN_LABEL_PX = 10;
+
+/** The largest size at which the whole figure still fits inside the ring. */
+function fitLabelSize(label: string): number {
+  const ideal = HOLE_WIDTH / (label.length * MONO_ADVANCE_EM);
+  return Math.max(MIN_LABEL_PX, Math.min(MAX_LABEL_PX, Math.floor(ideal)));
+}
+
 export function DonutChart({ breakdown }: { breakdown: { categoryName: string; total: number }[] }) {
   const palette = useCategoricalPalette();
   const sorted = [...breakdown].filter((b) => b.total > 0).sort((a, b) => b.total - a.total);
@@ -41,6 +68,7 @@ export function DonutChart({ breakdown }: { breakdown: { categoryName: string; t
   ];
 
   const total = slices.reduce((s, d) => s + d.total, 0);
+  const totalLabel = formatMoney(total);
   const circumference = 2 * Math.PI * RADIUS;
   const center = SIZE / 2;
 
@@ -74,8 +102,11 @@ export function DonutChart({ breakdown }: { breakdown: { categoryName: string; t
           })}
         </svg>
         <div className="pointer-events-none absolute inset-0 grid place-content-center text-center">
-          <span className="figure block text-lg font-bold leading-none text-ink-900">
-            {formatMoney(total)}
+          <span
+            className="figure block font-bold leading-none text-ink-900"
+            style={{ fontSize: fitLabelSize(totalLabel), maxWidth: HOLE_WIDTH }}
+          >
+            {totalLabel}
           </span>
           <span className="mt-1 block text-[11px] text-ink-500">total</span>
         </div>
