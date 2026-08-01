@@ -85,6 +85,73 @@ const STEPS = [
   },
 ];
 
+/**
+ * What FinSight does to keep a business's records to itself.
+ *
+ * Every line here is a property the code actually has, not an aspiration —
+ * the isolation is enforced server-side on every request, the receipts bucket
+ * really is private, and the link TTL really is ten minutes. A security claim
+ * on a landing page is the easiest thing in the world to overstate and the
+ * worst thing to be caught overstating, so nothing goes in this list that
+ * cannot be pointed at in the source.
+ */
+const SAFEGUARDS = [
+  {
+    icon: "▦",
+    title: "Your records stay yours",
+    body: "Every request is checked against the business profile it belongs to, on the server. One owner's records are never reachable from another's account.",
+  },
+  {
+    icon: "◈",
+    title: "Receipt photos are kept private",
+    body: "Images are stored in private storage, never on a public address. Opening one creates a link that stops working after ten minutes.",
+  },
+  {
+    icon: "✦",
+    title: "The assistant only sees your figures",
+    body: "Answers are built from your own records and nothing else. It is never given another business's data, and it says so plainly when your records don't contain the answer.",
+  },
+  {
+    icon: "◍",
+    title: "Nothing is saved until you say so",
+    body: "Anything read from a receipt photo is shown to you first. FinSight marks the figures it is unsure about instead of quietly filing them.",
+  },
+];
+
+/**
+ * Questions a visitor actually has before signing up.
+ *
+ * Answered honestly, including where the answer is "no" — the offline one
+ * especially. A landing page that pretends there are no limits is one the
+ * owner stops believing the first time they hit one.
+ */
+const FAQS = [
+  {
+    q: "Do I need to know accounting to use this?",
+    a: "No. FinSight is built around how small shops already keep records — what you spent, what you sold. There is no chart of accounts to set up and no bookkeeping terms to learn.",
+  },
+  {
+    q: "What if it reads my receipt wrong?",
+    a: "You see everything before it is saved, and you can change any of it. FinSight also checks whether the items add up to the printed total, and points at the line it is least sure of when they don't.",
+  },
+  {
+    q: "Does it work on my phone?",
+    a: "Yes. There is an Android app with the core features — recording expenses and sales, scanning receipts, and the dashboard — so a phone alone is enough to run it. The web version works in any browser.",
+  },
+  {
+    q: "Does it work without internet?",
+    a: "Not yet. Records and receipt scanning both need a connection, because the reading and the analysis happen on the server. Offline recording is something we want to add, not something that works today.",
+  },
+  {
+    q: "Can it replace my accountant?",
+    a: "No, and it isn't meant to. FinSight is a monitoring tool — it shows you what your own numbers say, while there is still time to act on them. It does not produce official financial statements or file anything for you.",
+  },
+  {
+    q: "What does it cost?",
+    a: "Nothing. FinSight is free to use while it is in active development, and no card is asked for at sign-up.",
+  },
+];
+
 const FEATURES = [
   {
     icon: "▣",
@@ -134,7 +201,7 @@ const FEATURES = [
  */
 function VideoPlaceholder() {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-paper-200 bg-gradient-to-br from-brand-100/70 via-accent-50 to-paper-100 shadow-sm">
+    <div className="relative overflow-hidden rounded-2xl border border-paper-200 bg-gradient-to-br from-tint-brand via-tint-accent to-paper-100 shadow-sm">
       {/* aspect-video reserves the 16:9 box now, so the real player drops in
           without the surrounding page shifting. */}
       <div className="flex aspect-video flex-col items-center justify-center gap-3 p-6 text-center">
@@ -168,7 +235,7 @@ export function Landing() {
 
   return (
     <div className="min-h-screen bg-paper-50">
-      <header className="border-b border-brand-100 bg-paper">
+      <header className="border-b border-edge-brand bg-paper">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 lg:px-6">
           {/* MASCOT SEAM — owl badge mark goes here. */}
           <span className="flex items-center gap-2">
@@ -224,15 +291,32 @@ export function Landing() {
 
             {/* The live meter. Real component, sample numbers. */}
             <div className="relative">
-              {/* MASCOT SEAM — the full owl illustration anchors here, behind
-                  and offset from the meter card, so the mascot is the visual
-                  anchor and the meter reads as the product evidence in front
-                  of it. They occupy different focal points by design. */}
               <div
                 aria-hidden
-                className="absolute -inset-4 -z-10 rounded-[2rem] bg-gradient-to-br from-brand-100/70 via-accent-50 to-paper-100"
+                className="absolute -inset-4 -z-10 rounded-[2rem] bg-gradient-to-br from-tint-brand via-tint-accent to-paper-100"
               />
-              <div className="rounded-2xl bg-paper p-5 shadow-lg border border-paper-200 sm:p-6">
+              {/*
+                The mascot, peering over the meter from behind it.
+
+                aria-hidden and empty alt: it carries no information a screen
+                reader needs, and announcing "owl illustration" before the
+                actual product evidence would be noise. Hidden below `sm` —
+                on a phone the meter needs the full width more than the page
+                needs decoration.
+
+                It sits BEHIND the card (-z-10) and is deliberately clipped by
+                it, which is what makes the two read as one composition rather
+                than a picture placed next to a widget.
+              */}
+              <img
+                src="/finsight-owl.png"
+                alt=""
+                aria-hidden
+                width={512}
+                height={609}
+                className="pointer-events-none absolute -top-16 right-2 -z-10 hidden h-32 w-auto drop-shadow-sm sm:block lg:-top-20 lg:h-40"
+              />
+              <div className="relative rounded-2xl bg-paper p-5 shadow-lg border border-paper-200 sm:p-6">
                 <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wide text-ink-400">
@@ -257,7 +341,7 @@ export function Landing() {
         </section>
 
         {/* ---------------- How it works ---------------- */}
-        <section className="border-y border-brand-100 bg-paper">
+        <section className="border-y border-edge-brand bg-paper">
           <div className="mx-auto max-w-6xl px-4 py-12 lg:px-6 lg:py-16">
             <h2 className="font-display text-2xl font-bold text-ink-900">How it works</h2>
             <p className="mt-2 max-w-2xl text-ink-600">
@@ -324,8 +408,119 @@ export function Landing() {
           </div>
         </section>
 
+        {/* ---------------- Safeguards ---------------- */}
+        {/*
+          Placed straight after the features, because the feature list is what
+          raises the question. "It reads my receipts and answers questions
+          about my money" is exactly the point at which an owner wonders who
+          else can see any of it.
+        */}
+        <section className="border-y border-edge-brand bg-tint-brand/40">
+          <div className="mx-auto max-w-6xl px-4 py-12 lg:px-6 lg:py-16">
+            <h2 className="font-display text-2xl font-bold text-ink-900">Your money, kept to yourself</h2>
+            <p className="mt-2 max-w-2xl text-ink-600">
+              A record of what a business buys and earns is sensitive. These are the specific things
+              FinSight does about that.
+            </p>
+            <div className="mt-8 grid gap-5 sm:grid-cols-2">
+              {SAFEGUARDS.map((s) => (
+                <div key={s.title} className="flex gap-4 rounded-2xl bg-paper p-5 border border-paper-200">
+                  <span
+                    aria-hidden
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-tint-brand text-lg text-tone-brand"
+                  >
+                    {s.icon}
+                  </span>
+                  <div>
+                    <h3 className="font-display text-base font-semibold text-ink-900">{s.title}</h3>
+                    <p className="mt-1.5 text-sm leading-relaxed text-ink-600">{s.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ---------------- Pricing ---------------- */}
+        {/*
+          One card, not a three-tier table. There is one plan, and inventing
+          "Pro" and "Enterprise" columns to look like a bigger product would
+          be advertising things that cannot be bought.
+        */}
+        <section className="mx-auto max-w-6xl px-4 py-12 lg:px-6 lg:py-16">
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="font-display text-2xl font-bold text-ink-900">What it costs</h2>
+            <p className="mt-2 text-ink-600">
+              One plan, and it is free. FinSight is in active development, and the shops using it now are
+              helping shape it.
+            </p>
+          </div>
+
+          <div className="mx-auto mt-8 max-w-md">
+            <div className="rounded-2xl border border-edge-brand bg-paper p-7 text-center shadow-sm">
+              <span className="inline-flex rounded-full bg-tint-accent px-3 py-1 text-xs font-semibold text-tone-accent">
+                Free while in development
+              </span>
+              <p className="mt-4 font-display text-4xl font-bold text-ink-900">
+                ₱0
+                <span className="ml-1 align-middle text-base font-medium text-ink-500">/ month</span>
+              </p>
+              <ul className="mt-6 space-y-2.5 text-left text-sm text-ink-600">
+                {[
+                  "Every feature — nothing held back for a paid tier",
+                  "Web and Android, with the same records on both",
+                  "Unlimited records, receipts and business profiles",
+                  "No card required to sign up",
+                ].map((line) => (
+                  <li key={line} className="flex gap-2.5">
+                    <span aria-hidden className="mt-0.5 font-semibold text-tone-brand">
+                      ✓
+                    </span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-7">
+                <ButtonLink to="/register" variant="primary" size="lg" fullWidth>
+                  Create your free account
+                </ButtonLink>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ---------------- FAQ ---------------- */}
+        {/*
+          Native <details>/<summary> rather than a JavaScript accordion: it is
+          keyboard-operable and screen-reader-correct for free, it survives
+          with JS disabled, and the browser's own find-in-page can reach the
+          answers. A hand-rolled version of this is a lot of ARIA to get wrong
+          for no gain.
+        */}
+        <section className="border-t border-edge-brand bg-paper">
+          <div className="mx-auto max-w-3xl px-4 py-12 lg:px-6 lg:py-16">
+            <h2 className="font-display text-2xl font-bold text-ink-900">Questions people ask</h2>
+            <div className="mt-8 divide-y divide-paper-200 border-y border-paper-200">
+              {FAQS.map((f) => (
+                <details key={f.q} className="group py-4">
+                  <summary className="tap flex cursor-pointer list-none items-center justify-between gap-4 font-medium text-ink-900 marker:content-none">
+                    <span>{f.q}</span>
+                    <span
+                      aria-hidden
+                      className="shrink-0 text-lg leading-none text-tone-brand transition-transform group-open:rotate-45"
+                    >
+                      +
+                    </span>
+                  </summary>
+                  <p className="mt-2.5 pr-8 text-sm leading-relaxed text-ink-600">{f.a}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* ---------------- Context ---------------- */}
-        <section className="border-t border-brand-100 bg-paper">
+        <section className="border-t border-edge-brand bg-paper">
           <div className="mx-auto max-w-3xl px-4 py-12 lg:px-6 lg:py-16">
             <h2 className="font-display text-xl font-bold text-ink-900">Why it works this way</h2>
             <div className="mt-4 space-y-4 text-sm leading-relaxed text-ink-600">
@@ -365,7 +560,7 @@ export function Landing() {
         </section>
       </main>
 
-      <footer className="border-t border-brand-100 bg-paper">
+      <footer className="border-t border-edge-brand bg-paper">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-6 lg:px-6">
           <div className="flex items-center gap-2">
             <span
