@@ -3,7 +3,10 @@ import { ApiError } from "../middleware/error.middleware";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { uploadReceiptImage } from "./storage.service";
 import {
+  confidenceForValue,
+  extractReceipt,
   extractText,
+  overallConfidence,
   parseLineItems,
   parseReceiptFields,
   type ParsedLineItem,
@@ -98,6 +101,23 @@ function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = []) {
      */
     visionAssisted: scan.visionAssisted,
     /**
+     * How sure the OCR engine was about this page, 0-100. Null when it was
+     * not measured — an older scan, or a vision-assisted read where the
+     * figure would describe text tesseract could not make sense of.
+     */
+    ocrConfidence: scan.ocrConfidence,
+    /**
+     * The line most likely to be misread, when the items do not add up to the
+     * total.
+     *
+     * A receipt whose items reconcile needs no suspicion. When they do NOT,
+     * one of the amounts is usually a single misread digit — and the lowest-
+     * confidence amount is the best available guess at which. This only ever
+     * POINTS; it never changes a figure, because the correct value is not
+     * something the engine knows.
+     */
+    suspectItemId: suspectItemId(scan, items),
+    /**
      * The lines read off the receipt, each with the category FinSight
      * assigned it. Empty when the receipt has no parseable item lines — the
      * client then keeps the single-total flow, unchanged.
@@ -120,8 +140,37 @@ function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = []) {
       suggestedCategoryName: i.suggestedCategoryName,
       /** True for a line a vision model produced rather than OCR text. */
       extractedByVision: i.extractedByVision,
+      /** How sure OCR was about THIS amount, 0-100, or null if not measured. */
+      amountConfidence: i.amountConfidence,
     })),
   };
+}
+
+/**
+ * Which line to point at when a receipt does not add up.
+ *
+ * Returns null when the items reconcile, when there is nothing to compare
+ * against, or when no amount was measured — an unmeasured line is not a
+ * suspicious one, and saying otherwise would send the owner to check a figure
+ * for no reason.
+ *
+ * The reasoning is narrow on purpose: the total is usually read confidently
+ * (it is large, isolated and printed clearly), the items are where a single
+ * digit goes wrong, and tesseract already said which digit it was least sure
+ * of. That is a strong enough hint to point with — and nowhere near strong
+ * enough to correct with, which is why this returns an id and not a value.
+ */
+function suspectItemId(scan: ReceiptScan, items: ReceiptScanItem[]): number | null {
+  if (scan.extractedAmount === null || items.length === 0) return null;
+
+  const totalCentavos = Math.round(Number(scan.extractedAmount) * 100);
+  const itemsCentavos = items.reduce((sum, i) => sum + Math.round(Number(i.amount) * 100), 0);
+  if (totalCentavos === itemsCentavos) return null;
+
+  const measured = items.filter((i) => i.amountConfidence !== null && !i.addedByOwner);
+  if (measured.length === 0) return null;
+
+  return measured.reduce((worst, i) => (i.amountConfidence! < worst.amountConfidence! ? i : worst)).id;
 }
 
 /**
@@ -157,7 +206,11 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
     input.originalname
   );
 
-  const text = await extractText(input.buffer);
+  // extractReceipt rather than extractText: the same read, but keeping the
+  // per-word confidences tesseract reports so the confirm screen can say which
+  // figure it doubts instead of asking the owner to check everything equally.
+  const ocr = await extractReceipt(input.buffer);
+  const text = ocr.text;
   const parsed = parseReceiptFields(text);
   const deterministicItems = parseLineItems(text);
 
@@ -174,6 +227,9 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
       confirmationStatus: "Pending",
       rawText: text,
       visionAssisted: rescued.visionAssisted,
+      // Null on a vision-assisted read: the figure would describe text
+      // tesseract could not make sense of, which is not what it looks like.
+      ocrConfidence: rescued.visionAssisted ? null : overallConfidence(ocr),
     },
   });
 
@@ -183,6 +239,7 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
     rescued.items,
     rescued.vendor,
     rescued.itemsFromVision,
+    rescued.itemsFromVision ? [] : rescued.items.map((i) => confidenceForValue(ocr.lines, i.amount.toFixed(2))),
   );
   return toDTO(scan, items);
 }
@@ -358,6 +415,8 @@ async function persistCategorisedItems(
   parsedItems: { name: string; quantity: number | null; unitPrice: number | null; amount: number }[],
   vendor: string | null,
   extractedByVision = false,
+  /** Per-item OCR confidence, positionally aligned with parsedItems. */
+  amountConfidences: (number | null)[] = [],
 ): Promise<ReceiptScanItem[]> {
   if (parsedItems.length === 0) return [];
 
@@ -409,6 +468,7 @@ async function persistCategorisedItems(
         categoryId: (match ? idByName.get(match.toLowerCase()) : null) ?? uncategorisedId,
         suggestedCategoryName: suggestNewByIndex.get(i) ?? null,
         extractedByVision,
+        amountConfidence: amountConfidences[i] ?? null,
       };
     }),
   });

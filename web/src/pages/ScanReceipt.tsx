@@ -34,6 +34,10 @@ interface ScanResult {
    * a picture rather than of text, and the screen says so — see the callout.
    */
   visionAssisted?: boolean;
+  /** How sure OCR was about this page, 0-100. Null when not measured. */
+  ocrConfidence?: number | null;
+  /** The line most likely misread, when the items don't add up. */
+  suspectItemId?: number | null;
 }
 
 interface ScannedItem {
@@ -63,6 +67,8 @@ interface ScannedItem {
    * what the categoriser's grounding rules exist to prevent.
    */
   suggestedCategoryName?: string | null;
+  /** How sure OCR was about THIS amount, 0-100, or null if not measured. */
+  amountConfidence?: number | null;
 }
 
 /**
@@ -881,6 +887,33 @@ export function ScanReceipt() {
             )}
 
 
+            {/*
+              How sure the engine was, stated as a number rather than left to
+              the owner to infer from how mangled the names look. Only shown
+              when it was actually measured — a vision-assisted read has no
+              tesseract confidence, and a missing figure must not read as a
+              low one.
+            */}
+            {scan.ocrConfidence !== null && scan.ocrConfidence !== undefined ? (
+              <p className="-mt-1 text-xs text-ink-500">
+                FinSight's reading confidence for this photo:{" "}
+                <b
+                  className={`font-semibold ${
+                    scan.ocrConfidence >= 80
+                      ? "text-tone-brand"
+                      : scan.ocrConfidence >= 60
+                        ? "text-tone-accent"
+                        : "text-tone-danger"
+                  }`}
+                >
+                  {scan.ocrConfidence}%
+                </b>
+                {scan.ocrConfidence < 80
+                  ? " — check the figures below especially carefully."
+                  : " — still worth a glance against the photo."}
+              </p>
+            ) : null}
+
             <ScannedField
               label="Date"
               htmlFor="date"
@@ -1009,6 +1042,19 @@ export function ScanReceipt() {
                           <td className="px-3 py-2 text-ink-800">
                             {item.name}
                             {/*
+                              When the items do not add up, the server names
+                              the line it is least sure of. Pointing beats
+                              asking the owner to re-read all nine — and it
+                              never changes the figure, because the right
+                              value is not something the engine knows.
+                            */}
+                            {scan.suspectItemId === item.id ? (
+                              <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-tint-accent px-1.5 py-0.5 text-[10px] font-medium text-tone-accent ring-1 ring-edge-accent align-middle">
+                                <span aria-hidden>⚠</span>
+                                Check this one first
+                              </span>
+                            ) : null}
+                            {/*
                               Marked per row, not just once at the top, because
                               the row is where the owner decides. A line a model
                               inferred from a photograph should look different
@@ -1031,6 +1077,20 @@ export function ScanReceipt() {
                                 which made three correct prices look like they
                                 did not add up to their own correct subtotal. */}
                             <Money value={item.amount} decimals />
+                            {/*
+                              The engine's own doubt about THIS figure. Shown
+                              only when it is low enough to act on — a
+                              percentage beside every correct price would be
+                              noise, and noise is what stops people checking.
+                            */}
+                            {typeof item.amountConfidence === "number" && item.amountConfidence < 75 ? (
+                              <span
+                                className="mt-0.5 block text-[10px] font-medium text-tone-accent"
+                                title="How sure FinSight was when it read this amount"
+                              >
+                                {item.amountConfidence}% sure
+                              </span>
+                            ) : null}
                           </td>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-1.5">

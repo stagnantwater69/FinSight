@@ -17,7 +17,28 @@ vi.mock("../../src/services/storage.service", () => ({
 const { extractTextMock } = vi.hoisted(() => ({ extractTextMock: vi.fn() }));
 vi.mock("../../src/services/ocr.service", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/ocr.service")>();
-  return { ...actual, extractText: extractTextMock };
+  /*
+   * extractReceipt is derived from the same mock rather than being a second
+   * one. The service reads receipts through it (text PLUS tesseract's
+   * per-word confidences); leaving it unmocked ran real OCR against
+   * Buffer.from("fake-image-bytes") and every test failed with "Error
+   * attempting to read image". Deriving it means a test that sets the OCR
+   * text still controls the whole read, and the two can never disagree about
+   * what this receipt says.
+   *
+   * `lines` is empty: these tests assert on grouping and failure handling,
+   * not on confidence, so an empty list is the honest "not measured" input
+   * and confidenceForValue correctly returns null for every field.
+   */
+  return {
+    ...actual,
+    extractText: extractTextMock,
+    extractReceipt: async (...args: unknown[]) => ({
+      text: await extractTextMock(...args),
+      confidence: 0,
+      lines: [],
+    }),
+  };
 });
 
 // The line-item model is mocked for the same reason OCR is: what this suite

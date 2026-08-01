@@ -180,11 +180,16 @@ describe("vendor parsing", () => {
     expect(parsed.vendor).not.toBeNull();
   });
 
-  // KNOWN LIMITATION, measured: a store name printed in the footer is read
-  // wrong. No cheap heuristic separates a footer store name from a "thank you"
-  // line, so this is left to the confirm screen. Pinned so the behaviour is
-  // recorded rather than assumed to work.
-  it("KNOWN LIMITATION: reads the wrong vendor when the name is in the footer", () => {
+  /*
+   * WAS a known limitation, now fixed by scoring candidates instead of taking
+   * the first one. A footer store name used to lose to whatever appeared
+   * above it; it now wins on the strength of reading like a business name
+   * while the lines above are an invoice header, a date and a purchase.
+   *
+   * Position still counts — this is not a promise that the footer always
+   * wins, only that being lower down no longer disqualifies a real name.
+   */
+  it("finds a store name printed in the footer", () => {
     const parsed = receipt([
       "*** SALES INVOICE ***",
       "Date: 2026-07-18",
@@ -193,7 +198,7 @@ describe("vendor parsing", () => {
       "TINDAHAN NI MANG JOSE",
       "Thank you, come again!",
     ]);
-    expect(parsed.vendor).not.toBe("TINDAHAN NI MANG JOSE");
+    expect(parsed.vendor).toBe("TINDAHAN NI MANG JOSE");
   });
 });
 
@@ -204,5 +209,47 @@ describe("description", () => {
 
   it("falls back to a generic description when no vendor is readable", () => {
     expect(receipt(["", "  "]).description).toBe("Receipt purchase");
+  });
+});
+
+// ============================================================
+// Vendor selection — scored, not first-past-the-post
+// ============================================================
+// REGRESSION, from a real Savemore receipt photographed on a phone: tesseract
+// made a 4-letter smudge ("Dore") out of the stylised wordmark above the
+// store name, and taking the first substantive line meant that smudge beat the
+// real business name printed three lines below it.
+
+describe("choosing the vendor among several header lines", () => {
+  it("prefers a real business name over a short logo smudge above it", () => {
+    const parsed = receipt([
+      "Dore",
+      "BASAK",
+      "SANFORD MARKETING CORPORATION",
+      "SAVEMORE MARKET BASAK #31 JP RIZAL ST",
+      "TOTAL DUE  PHP 689.75",
+    ]);
+    expect(parsed.vendor).not.toBe("Dore");
+    expect(parsed.vendor).toMatch(/MARKET/i);
+  });
+
+  /** An item line is a purchase, not a shop name, however business-y it reads. */
+  it("never picks a line that ends in a money amount", () => {
+    const parsed = receipt(["ALING NENA STORE", "Cleaning supplies 675.00", "TOTAL 675.00"]);
+    expect(parsed.vendor).toBe("ALING NENA STORE");
+  });
+
+  /**
+   * "BARANGAY SUPPLY DEPOT" is a shop whose name starts with a word that also
+   * appears in addresses. Penalising address words flatly cost this vendor,
+   * so the penalty is skipped when the line already reads as a business.
+   */
+  it("keeps a business name that happens to contain an address word", () => {
+    const parsed = receipt(["BARANGAY SUPPLY DEPOT", "Jul 05, 2026", "Cleaning supplies 675.00", "TOTAL 675.00"]);
+    expect(parsed.vendor).toBe("BARANGAY SUPPLY DEPOT");
+  });
+
+  it("still finds a plain vendor with no keyword at all", () => {
+    expect(receipt(["ALING NENA", "Date: 2026-07-20", "TOTAL 100.00"]).vendor).toBe("ALING NENA");
   });
 });

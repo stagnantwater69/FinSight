@@ -849,6 +849,10 @@ interface ReceiptScanResult {
    * reading of a picture, and the screen has to say so.
    */
   visionAssisted?: boolean;
+  /** How sure OCR was about this page, 0-100. Null when not measured. */
+  ocrConfidence?: number | null;
+  /** The line most likely misread, when the items don't add up to the total. */
+  suspectItemId?: number | null;
   /**
    * The individual lines the server read, each with the category it assigned.
    * A receipt with more than one is reviewed line by line below; anything
@@ -865,6 +869,8 @@ interface ReceiptScanResult {
     extractedByVision?: boolean;
     /** A category FinSight thinks is missing. Only ever an offer. */
     suggestedCategoryName?: string | null;
+    /** How sure OCR was about THIS amount, 0-100, or null if not measured. */
+    amountConfidence?: number | null;
   }[];
 }
 
@@ -1291,6 +1297,21 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                       </T>
                     ) : null}
 
+                    {/*
+                      The server names the line it is least sure of when the
+                      items do not add up. Pointing at one row beats asking the
+                      owner to re-read all nine.
+                    */}
+                    {scan.suspectItemId === item.id ? (
+                      <T variant="caption" style={{ marginTop: 2, color: statusText.warning }}>
+                        ⚠ Check this one first — the items don't add up to the total
+                      </T>
+                    ) : typeof item.amountConfidence === "number" && item.amountConfidence < 75 ? (
+                      <T variant="caption" style={{ marginTop: 2 }}>
+                        FinSight was {item.amountConfidence}% sure of this amount
+                      </T>
+                    ) : null}
+
                     <View style={{ marginTop: space.sm }}>
                       <CategoryChips
                         categories={categories}
@@ -1420,9 +1441,14 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                       marginBottom: space.xs,
                     }}
                   >
-                    <T variant="label" style={{ color: ink[700] }}>
-                      What gets saved
-                    </T>
+                    <View style={{ flex: 1 }}>
+                      <T variant="label" style={{ color: ink[700] }}>
+                        What gets saved
+                      </T>
+                      {scan.ocrConfidence != null ? (
+                        <T variant="caption">Reading confidence {scan.ocrConfidence}%</T>
+                      ) : null}
+                    </View>
                     {/*
                       Whether the receipt balances, stated as a badge rather
                       than left for the owner to work out by comparing two

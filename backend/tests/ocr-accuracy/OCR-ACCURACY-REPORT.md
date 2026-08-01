@@ -1,6 +1,6 @@
 # FinSight OCR Accuracy Assessment
 
-Generated: 2026-07-31
+Generated: 2026-08-01
 
 Corpus: **31 receipt images**. Pipeline under test: `extractText()` (tesseract.js) followed by `parseReceiptFields()` and `parseLineItems()` — the same functions the receipt-scan endpoint calls.
 

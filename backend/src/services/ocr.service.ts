@@ -77,6 +77,88 @@ export interface OcrEngineOptions {
   dpi?: string;
 }
 
+/** One word tesseract read, with how sure it was of it (0-100). */
+export interface OcrWord {
+  text: string;
+  confidence: number;
+}
+
+/** One printed line, with its own confidence and the words that make it up. */
+export interface OcrLine {
+  text: string;
+  confidence: number;
+  words: OcrWord[];
+}
+
+/**
+ * What tesseract actually returned, confidence and all.
+ *
+ * The plain text is what the parsers work on; the per-line and per-word
+ * confidences are what let the confirm screen say WHICH figure it is unsure
+ * about instead of a single number for the whole receipt. Tesseract knows
+ * that a digit was marginal — until now nothing asked it.
+ */
+export interface OcrResult {
+  text: string;
+  /** Mean confidence across the page, 0-100. */
+  confidence: number;
+  lines: OcrLine[];
+}
+
+/**
+ * Reads a receipt, keeping the confidence tesseract reports.
+ *
+ * `blocks: true` is required — tesseract.js omits the block/paragraph/line
+ * tree by default and returns only flat text, so the per-word confidences
+ * simply are not there unless asked for.
+ */
+export async function extractReceipt(buffer: Buffer, options: OcrEngineOptions = {}): Promise<OcrResult> {
+  let image = buffer;
+  try {
+    image = await preprocessReceiptImage(buffer);
+  } catch (err) {
+    console.error("Receipt image preprocessing failed; reading the original image instead:", err);
+  }
+
+  const worker = await createWorker(env.TESSERACT_LANG);
+  try {
+    const params: Record<string, string> = {};
+    if (options.pageSegMode) params.tessedit_pageseg_mode = options.pageSegMode;
+    if (options.dpi) params.user_defined_dpi = options.dpi;
+    if (Object.keys(params).length > 0) await worker.setParameters(params);
+
+    const { data } = await worker.recognize(image, {}, { blocks: true, text: true });
+
+    const lines: OcrLine[] = [];
+    // The tree is block -> paragraph -> line -> word. Typed loosely because
+    // tesseract.js's own types do not describe the optional block output.
+    for (const block of ((data as unknown as { blocks?: unknown[] }).blocks ?? []) as any[]) {
+      for (const paragraph of block?.paragraphs ?? []) {
+        for (const line of paragraph?.lines ?? []) {
+          lines.push({
+            text: String(line?.text ?? ""),
+            confidence: Number(line?.confidence ?? 0),
+            words: (line?.words ?? []).map((w: any) => ({
+              text: String(w?.text ?? ""),
+              confidence: Number(w?.confidence ?? 0),
+            })),
+          });
+        }
+      }
+    }
+
+    return { text: data.text, confidence: Number(data.confidence ?? 0), lines };
+  } finally {
+    await worker.terminate();
+  }
+}
+
+/**
+ * The text only.
+ *
+ * Kept because the parsers and the whole accuracy corpus are text-in,
+ * text-out — that is what makes them fast and deterministic to test.
+ */
 export async function extractText(buffer: Buffer, options: OcrEngineOptions = {}): Promise<string> {
   /*
    * A preprocessing failure must not cost the owner their scan.
@@ -247,30 +329,104 @@ const NOT_A_VENDOR =
   /^[\W_]*(sales\s+invoice|official\s+receipt|invoice|receipt|cash\s+invoice|statement|order\s+slip)[\W_]*$/i;
 
 /**
- * Best guess at the store name: the first substantive line.
+ * Words that mark a line as a business name rather than an address or a
+ * scrap of OCR noise. Deliberately Philippine-retail flavoured, because that
+ * is the market — a "sari-sari store" or a "marketing corporation" is a shop,
+ * a line reading "Dore" is almost certainly a mangled logo.
+ */
+const VENDOR_KEYWORD =
+  /\b(store|shop|mart|market|supermarket|grocery|groceries|trading|enterprise|enterprises|corporation|corp|incorporated|inc|company|co|merchandise|merchandising|pharmacy|bakery|hardware|sari-?sari|foods?|restaurant|cafe|coffee|eatery|carinderia|depot|supply|supplies|center|centre)\b/i;
+
+/**
+ * Best guess at the store name.
  *
- * KNOWN LIMITATION, measured and not fixed here: this assumes the vendor is at
- * the TOP. Receipts that print the store name in a footer are read wrong, and
- * no cheap heuristic distinguishes a footer store name from a "thank you"
- * line. See the accuracy report — it is the largest remaining vendor failure
- * class. The confirm screen is where the owner corrects it.
+ * SCORED, not first-past-the-post. It used to take the first substantive line,
+ * which is wrong whenever OCR makes something out of the logo above the name —
+ * a real Savemore receipt produced a 4-letter smudge, "Dore", from the
+ * stylised wordmark, and that beat "SAVEMORE MARKET BASAK" three lines below
+ * purely by being first.
+ *
+ * So candidates are ranked instead. A business-name keyword is worth more than
+ * position, length beats brevity (a smudge is short, a shop name is not), and
+ * a line that is mostly digits or reads like an address loses. Position still
+ * counts — the name really is usually near the top — but it no longer decides
+ * on its own.
+ *
+ * KNOWN LIMITATION, unchanged: a store name printed only in the FOOTER is
+ * still read wrong when something plausible sits at the top. The confirm
+ * screen is where the owner fixes it.
  */
 function parseVendor(text: string): string | null {
-  const candidates = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 1 && /[a-zA-Z]/.test(l))
+  const lines = text.split("\n").map((l) => l.trim());
+
+  const candidates = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => line.length > 1 && /[a-zA-Z]/.test(line))
     // Skip registration/permit blocks, which many PH receipts print above the
     // store name, and skip bare "SALES INVOICE"-style headers.
-    .filter((l) => !ADMINISTRATIVE_LINE.test(l))
-    .filter((l) => !NOT_A_VENDOR.test(l.replace(/[*=~-]/g, " ").trim()))
+    .filter(({ line }) => !ADMINISTRATIVE_LINE.test(line))
+    .filter(({ line }) => !NOT_A_VENDOR.test(line.replace(/[*=~-]/g, " ").trim()))
     // A line that is mostly digits/punctuation is a reference number, not a name.
-    .filter((l) => {
-      const letters = (l.match(/[a-zA-Z]/g) ?? []).length;
-      return letters >= 3 && letters / l.replace(/\s/g, "").length > 0.4;
+    .filter(({ line }) => {
+      const letters = (line.match(/[a-zA-Z]/g) ?? []).length;
+      return letters >= 3 && letters / line.replace(/\s/g, "").length > 0.4;
     });
 
-  return candidates[0] ?? text.split("\n").map((l) => l.trim()).find((l) => l.length > 1 && /[a-zA-Z]/.test(l)) ?? null;
+  if (candidates.length === 0) {
+    return lines.find((l) => l.length > 1 && /[a-zA-Z]/.test(l)) ?? null;
+  }
+
+  const score = ({ line, index }: { line: string; index: number }): number => {
+    let points = 0;
+
+    // The strongest signal available: the line says what kind of business it is.
+    if (VENDOR_KEYWORD.test(line)) points += 60;
+
+    // Near the top still matters, it just no longer decides alone. Only the
+    // first handful of lines get anything, and the bonus decays.
+    if (index < 8) points += (8 - index) * 3;
+
+    /*
+     * Length, capped. A wordmark tesseract half-read comes out as a short
+     * fragment ("Dore"); a real shop name is longer. Capped so a rambling
+     * address line cannot win on sheer size alone.
+     */
+    const letters = (line.match(/[a-zA-Z]/g) ?? []).length;
+    points += Math.min(letters, 24);
+
+    // Two or more words reads like a name; one short token reads like noise.
+    const words = line.split(/\s+/).filter((w) => w.length > 1);
+    if (words.length >= 2) points += 8;
+    if (letters <= 5) points -= 25;
+
+    /*
+     * A line ending in a money amount is a PURCHASE, not a shop name. This is
+     * the strongest disqualifier available and it is worth more than any of
+     * the bonuses above — without it "Cleaning supplies 675.00" outscores the
+     * real vendor purely because "supplies" is a business word.
+     */
+    if (/\d+[.,]\d{2}\s*[A-Z]?\s*$/.test(line)) points -= 80;
+
+    /*
+     * An address sits right beside the name and must not be mistaken for it —
+     * but ONLY when the line does not already look like a business. Measured:
+     * "BARANGAY SUPPLY DEPOT" is a shop whose name happens to start with a
+     * word that also appears in addresses, and penalising it flatly cost a
+     * vendor the corpus had been reading correctly.
+     */
+    if (
+      !VENDOR_KEYWORD.test(line) &&
+      /\b(st|street|ave|avenue|rd|road|blk|block|brgy|barangay|city|purok|zone|highway|bldg|building)\b/i.test(line)
+    ) {
+      points -= 30;
+    }
+    // Digits belong to addresses and reference numbers far more than to names.
+    points -= (line.match(/\d/g) ?? []).length * 2;
+
+    return points;
+  };
+
+  return candidates.reduce((best, c) => (score(c) > score(best) ? c : best)).line;
 }
 
 // ============================================================
@@ -555,4 +711,60 @@ export function parseReceiptFields(text: string): ParsedReceiptFields {
     description: vendor ? `Purchase from ${vendor}` : "Receipt purchase",
     amount: parseAmount(text),
   };
+}
+
+// ============================================================
+// Confidence — how sure tesseract was, per field
+// ============================================================
+// A single number for the whole receipt is nearly useless: a page that reads
+// 62% overall may have a perfectly crisp total and one mangled item name, and
+// the owner needs to know WHICH. These map a parsed value back to the words it
+// came from, so the confirm screen can point at the doubtful figure.
+
+/** Comparable form: case and separators removed, so "1,220.00" matches "1220.00". */
+function normaliseToken(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9.]/g, "");
+}
+
+/**
+ * How sure tesseract was about a value it read.
+ *
+ * Returns the confidence of the WORD carrying the value where one can be
+ * found, falling back to the line's own confidence, and null when the value
+ * cannot be located at all — which happens when the parser derived it rather
+ * than reading it (a computed unit price, say). Null means "not measured",
+ * never "zero", and the UI must show those differently.
+ */
+export function confidenceForValue(lines: OcrLine[], value: string | number | null): number | null {
+  if (value === null || value === "") return null;
+  const target = normaliseToken(String(value));
+  if (!target) return null;
+
+  let best: number | null = null;
+
+  for (const line of lines) {
+    for (const word of line.words) {
+      const w = normaliseToken(word.text);
+      // An exact word wins outright — that is the token the value came from.
+      if (w === target) return Math.round(word.confidence);
+      if (target.length >= 3 && w.includes(target)) {
+        best = Math.max(best ?? 0, Math.round(word.confidence));
+      }
+    }
+    if (best === null && target.length >= 3 && normaliseToken(line.text).includes(target)) {
+      best = Math.round(line.confidence);
+    }
+  }
+
+  return best;
+}
+
+/**
+ * The overall figure, as a percentage the owner can read.
+ *
+ * The mean tesseract itself reports, deliberately — inventing a friendlier
+ * scale on top would be presenting a guess about a guess.
+ */
+export function overallConfidence(result: OcrResult): number {
+  return Math.round(result.confidence);
 }

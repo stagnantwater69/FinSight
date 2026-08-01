@@ -251,6 +251,10 @@ model ReceiptScan {
   /// plainly — these values were guessed from an image, not read off text,
   /// and the owner is told to check them harder than usual.
   visionAssisted       Boolean   @default(false) @map("ReceiptScan_VisionAssisted")
+  /// How sure the OCR engine was about this page overall, 0-100. Null on
+  /// scans read before this was recorded, and on vision-assisted reads, where
+  /// the figure would describe text tesseract could not read anyway.
+  ocrConfidence        Int?      @map("ReceiptScan_OcrConfidence")
   createdAt            DateTime  @default(now()) @map("ReceiptScan_CreatedAt")
 
   businessProfile BusinessProfile?  @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
@@ -293,6 +297,9 @@ model ReceiptScanItem {
   /// so the claim "FinSight read this off your receipt" is never quietly
   /// stretched to cover a line it did not read that way.
   extractedByVision Boolean @default(false) @map("ReceiptScanItem_ExtractedByVision")
+  /// How sure the OCR engine was about this line's AMOUNT, 0-100 — the field
+  /// the books actually depend on. Null when it was derived rather than read.
+  amountConfidence  Int?    @map("ReceiptScanItem_AmountConfidence")
   createdAt       DateTime @default(now()) @map("ReceiptScanItem_CreatedAt")
 
   receiptScan   ReceiptScan      @relation(fields: [receiptScanId], references: [id], onDelete: Cascade)
