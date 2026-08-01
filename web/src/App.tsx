@@ -9,6 +9,12 @@ import { Landing } from "./pages/Landing";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { RecoverPassword } from "./pages/RecoverPassword";
+import { Faqs } from "./pages/Faqs";
+import { Blogs } from "./pages/Blogs";
+import { Tutorials } from "./pages/Tutorials";
+import { Contact } from "./pages/Contact";
+import { Privacy } from "./pages/Privacy";
+import { Terms } from "./pages/Terms";
 import { Profile } from "./pages/Profile";
 import { BusinessProfiles } from "./pages/BusinessProfiles";
 import { AllBusinessProfiles } from "./pages/AllBusinessProfiles";
@@ -62,6 +68,16 @@ function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/recover-password" element={<RecoverPassword />} />
+
+                {/* Public help-centre pages. Outside AuthenticatedLayout —
+                    they are reachable signed out, and each renders its own
+                    PublicLayout chrome. */}
+                <Route path="/faqs" element={<Faqs />} />
+                <Route path="/blogs" element={<Blogs />} />
+                <Route path="/tutorials" element={<Tutorials />} />
+                <Route path="/contact" element={<Contact />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="/terms" element={<Terms />} />
 
                 <Route element={<AuthenticatedLayout />}>
                   <Route path="/profile" element={<Profile />} />
