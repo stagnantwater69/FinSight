@@ -59,7 +59,10 @@ export function Register() {
       footnote="Your records stay organised per business profile."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        {/* Stacks below `sm`: at 320px two side-by-side name fields leave
+            about 130px each, which is not enough for a long surname to be
+            readable while typing. */}
+        <div className="grid gap-3 sm:grid-cols-2">
           <Field label="First name" htmlFor="firstName" required>
             <TextInput
               required
