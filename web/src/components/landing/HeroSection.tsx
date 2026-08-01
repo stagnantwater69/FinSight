@@ -121,22 +121,17 @@ export function HeroSection() {
             </ButtonLink>
           </div>
 
-          {/* Social Proof Trust Stack */}
-          <div className="mt-8 flex items-center gap-3 border-t border-paper-200/80 pt-6">
-            <div className="flex -space-x-2 overflow-hidden">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="inline-block h-8 w-8 rounded-full ring-2 ring-paper bg-brand-200 text-brand-900 text-xs font-bold flex items-center justify-center"
-                >
-                  {["N", "R", "G"][i]}
-                </div>
-              ))}
-            </div>
-            <div className="text-xs text-ink-600">
-              <span className="font-bold text-ink-900">500+ Philippines store owners</span> rely on FinSight daily
-            </div>
-          </div>
+          {/*
+            A "500+ Philippines store owners rely on FinSight daily" badge sat
+            here, with three stacked avatars reading N, R and G — the initials
+            of the three invented testimonial authors deleted earlier. It was
+            the last piece of that fabrication still on the page.
+
+            Nothing replaces it. An empty space is the honest state until there
+            is a real number to put in it, and the strongest evidence on this
+            page is the panel to the right: the actual RecoveryMeter component
+            running on figures that say they are an example.
+          */}
         </div>
 
         {/* Right Live Interactive Demo Meter Column */}
