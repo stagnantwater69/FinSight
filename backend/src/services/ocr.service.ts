@@ -768,3 +768,126 @@ export function confidenceForValue(lines: OcrLine[], value: string | number | nu
 export function overallConfidence(result: OcrResult): number {
   return Math.round(result.confidence);
 }
+
+// ============================================================
+// Reconciliation — do the items account for the total?
+// ============================================================
+
+/** Why a receipt did or didn't add up. */
+export type ReconciliationReason =
+  | "not-comparable"
+  | "exact"
+  | "matches-subtotal"
+  | "explained-by-adjustment"
+  | "unexplained";
+
+export interface Reconciliation {
+  /** Sum of the item amounts, or null when there are none. */
+  itemsTotal: number | null;
+  /** The receipt's printed total, as parsed. */
+  total: number | null;
+  /** total - itemsTotal. Positive means the items fall short. */
+  difference: number | null;
+  /**
+   * True when the items account for the total — either exactly, or with a
+   * gap the receipt itself explains. False ONLY for an unexplained gap.
+   */
+  reconciled: boolean;
+  reason: ReconciliationReason;
+}
+
+/**
+ * Money that legitimately sits between the items and the total.
+ *
+ * Kept separate from NOT_AN_ITEM, which is a broader denylist covering payment
+ * lines and register furniture too. This is specifically the subset that
+ * ADJUSTS the bill, and using the wider list here would let a "CASH 500.00"
+ * tender line excuse a real 500.00 misread.
+ */
+const ADJUSTMENT_LINE = new RegExp(
+  [
+    String.raw`\b[vy]at\b`,
+    String.raw`\b(tax|service\s*charge|svc\s*chg|rounding|round\s*off)\b`,
+    String.raw`\b(discounts?|disc\.|less|senior|pwd|rebates?)\b`,
+  ].join("|"),
+  "i",
+);
+
+const SUBTOTAL_LINE = /\bsub\s*-?\s*total\b/i;
+const RECONCILE_MONEY = /(\d+(?:,\d{3})*\.\d{2})/;
+
+function moneyOnLine(line: string): number | null {
+  const m = line.match(RECONCILE_MONEY);
+  return m ? Number(m[1]!.replace(/,/g, "")) : null;
+}
+
+/** Centavos, so comparisons are integer-exact rather than float-approximate. */
+function centavos(n: number): number {
+  return Math.round(n * 100);
+}
+
+/**
+ * Whether the item lines add up to the printed total.
+ *
+ * WHY THIS IS NOT JUST `sum === total`: measured against the corpus, a naive
+ * equality check called 6 receipts broken and was RIGHT about 1. The other 5
+ * were fine and simply carried tax or a discount — `1000.00` of goods against
+ * a `1120.00` total is the Philippine 12% VAT, not a misread. A check that
+ * cries wolf 5 times out of 6 trains owners to ignore it, which is worse than
+ * not checking at all.
+ *
+ * So a gap is only reported when the receipt does not explain it:
+ *
+ *   - the items match a printed SUBTOTAL — whatever sits between that and the
+ *     total is tax and charges, and the items themselves are sound; or
+ *   - the gap equals an adjustment the receipt prints (a VAT line, a senior
+ *     discount), individually or summed.
+ *
+ * What remains is a gap no line on the receipt accounts for, which is real
+ * evidence that a figure was read wrong. That evidence is what earns the right
+ * to spend an API call re-reading the image, and to point the owner at a line.
+ */
+export function reconcileItems(
+  text: string,
+  items: { amount: number }[],
+  total: number | null,
+): Reconciliation {
+  if (total === null || items.length === 0) {
+    return { itemsTotal: null, total, difference: null, reconciled: true, reason: "not-comparable" };
+  }
+
+  const itemsTotal = items.reduce((sum, i) => sum + centavos(i.amount), 0);
+  const totalC = centavos(total);
+  const difference = (totalC - itemsTotal) / 100;
+  const base = { itemsTotal: itemsTotal / 100, total, difference };
+
+  if (itemsTotal === totalC) return { ...base, reconciled: true, reason: "exact" };
+
+  const lines = text.split("\n");
+
+  // A printed subtotal the items match settles it: the items are right, and
+  // the remainder is the receipt's own tax and charges.
+  for (const line of lines) {
+    if (!SUBTOTAL_LINE.test(line)) continue;
+    const sub = moneyOnLine(line);
+    if (sub !== null && centavos(sub) === itemsTotal) {
+      return { ...base, reconciled: true, reason: "matches-subtotal" };
+    }
+  }
+
+  // Otherwise the gap has to be accounted for by adjustment lines — each on
+  // its own (the common case: one VAT line, one discount) or all together.
+  const adjustments = lines
+    .filter((line) => ADJUSTMENT_LINE.test(line) && !SUBTOTAL_LINE.test(line))
+    .map(moneyOnLine)
+    .filter((n): n is number => n !== null)
+    .map(centavos);
+
+  const gap = Math.abs(totalC - itemsTotal);
+  const summed = adjustments.reduce((a, b) => a + b, 0);
+  if (adjustments.some((a) => a === gap) || (adjustments.length > 1 && summed === gap)) {
+    return { ...base, reconciled: true, reason: "explained-by-adjustment" };
+  }
+
+  return { ...base, reconciled: false, reason: "unexplained" };
+}

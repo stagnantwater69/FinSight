@@ -9,6 +9,8 @@ import {
   overallConfidence,
   parseLineItems,
   parseReceiptFields,
+  reconcileItems,
+  type OcrResult,
   type ParsedLineItem,
   type ParsedReceiptFields,
 } from "./ocr.service";
@@ -159,13 +161,23 @@ function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = []) {
  * digit goes wrong, and tesseract already said which digit it was least sure
  * of. That is a strong enough hint to point with — and nowhere near strong
  * enough to correct with, which is why this returns an id and not a value.
+ *
+ * The reconciliation is delegated rather than done here with a bare
+ * `sum !== total`, which is what this originally did and which was WRONG: on
+ * any receipt carrying 12% VAT the items never equal the total, so every such
+ * scan pointed the owner at a perfectly good line. Measured on the corpus that
+ * was 5 false alarms against 1 real one. reconcileItems only reports a gap the
+ * receipt itself cannot explain.
  */
 function suspectItemId(scan: ReceiptScan, items: ReceiptScanItem[]): number | null {
   if (scan.extractedAmount === null || items.length === 0) return null;
 
-  const totalCentavos = Math.round(Number(scan.extractedAmount) * 100);
-  const itemsCentavos = items.reduce((sum, i) => sum + Math.round(Number(i.amount) * 100), 0);
-  if (totalCentavos === itemsCentavos) return null;
+  const reconciliation = reconcileItems(
+    scan.rawText ?? "",
+    items.map((i) => ({ amount: Number(i.amount) })),
+    Number(scan.extractedAmount),
+  );
+  if (reconciliation.reconciled) return null;
 
   const measured = items.filter((i) => i.amountConfidence !== null && !i.addedByOwner);
   if (measured.length === 0) return null;
@@ -214,7 +226,7 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
   const parsed = parseReceiptFields(text);
   const deterministicItems = parseLineItems(text);
 
-  const rescued = await rescueWithVision(input, parsed, deterministicItems);
+  const rescued = await rescueWithVision(input, parsed, deterministicItems, ocr);
 
   const scan = await prisma.receiptScan.create({
     data: {
@@ -245,6 +257,32 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
 }
 
 /**
+ * Page confidence at or below which tesseract is treated as having guessed.
+ *
+ * CHOSEN FROM MEASUREMENT, and the measurement is narrower than the number
+ * looks — see tests/ocr-accuracy/confidence-calibration.ts, which reports the
+ * confidence of every corpus image against whether its parse was right.
+ *
+ * The separation is real and it is stark: every receipt that parsed cleanly
+ * scored 90-95, and the two that were misread scored 33 and 56. But the clean
+ * reads bottom out at 90 and the worst broken one is a 89, so a threshold
+ * fitted to the corpus would sit one point from a correct read — precision
+ * that 31 images cannot support.
+ *
+ * 75 sits in the middle of the empty band between 56 and 89 instead. It is
+ * deliberately NOT the value that maximises corpus score; it is the value that
+ * is furthest from being wrong in either direction if real receipts land
+ * slightly differently than these did.
+ *
+ * The corpus's low-confidence cases are its only two real photographs, which
+ * is also the honest limit of this calibration: it rests on n=2. What keeps
+ * that from mattering much is that this is the WEAKEST of the four triggers —
+ * an empty read, a missing total and a receipt that does not add up all fire
+ * on their own evidence, whatever the confidence says.
+ */
+const LOW_CONFIDENCE = 75;
+
+/**
  * What the scan ended up with, and whether a model had a hand in it.
  */
 interface RescuedFields extends ParsedReceiptFields {
@@ -259,12 +297,24 @@ interface RescuedFields extends ParsedReceiptFields {
  * Falls back to reading the photograph when the deterministic parse came up
  * short.
  *
- * WHEN THIS FIRES: only when tesseract's text yielded no line items, or no
- * total at all. A receipt it read is never sent to a model — this can only
- * ever add to an empty result, never overwrite a real one.
+ * WHEN THIS FIRES — four triggers, in descending order of how certain the
+ * evidence is that something is actually wrong:
  *
- * The merge rule is "the deterministic answer wins wherever it exists", and
- * the DATE deserves its own note, because it is the one field where the
+ *   no-items          tesseract's text yielded no line items at all
+ *   no-total          no total could be found
+ *   does-not-add-up   the items fail to account for the total, and no line on
+ *                     the receipt explains the gap (see reconcileItems). This
+ *                     is arithmetic, so it is the strongest evidence of the
+ *                     four that a figure was misread, and it is the one that
+ *                     catches a CONFIDENTLY misread digit — the case that
+ *                     motivated all of this, where a 82 read as 62 left the
+ *                     items exactly 20.00 short of the printed total.
+ *   low-confidence    tesseract's own mean confidence is below LOW_CONFIDENCE
+ *
+ * The first two say the deterministic read produced nothing; the last two say
+ * it produced something that does not hold up.
+ *
+ * The DATE deserves its own note, because it is the one field where the
  * parser is better even though the model reads more:
  *
  *   A date like "03/09/2026" cannot be resolved by reading harder. Both
@@ -282,9 +332,27 @@ async function rescueWithVision(
   input: UploadInput,
   parsed: ParsedReceiptFields,
   deterministicItems: ParsedLineItem[],
+  ocr: OcrResult,
 ): Promise<RescuedFields> {
-  const nothingToShow = deterministicItems.length === 0 || parsed.amount === null;
-  if (!nothingToShow) {
+  const reconciliation = reconcileItems(ocr.text, deterministicItems, parsed.amount);
+  const pageConfidence = overallConfidence(ocr);
+
+  /*
+   * Ordered most-certain-first, so the log says the strongest reason the call
+   * was made rather than whichever check happened to run first.
+   */
+  const trigger =
+    deterministicItems.length === 0
+      ? "no-items"
+      : parsed.amount === null
+        ? "no-total"
+        : !reconciliation.reconciled
+          ? "does-not-add-up"
+          : pageConfidence < LOW_CONFIDENCE
+            ? "low-confidence"
+            : null;
+
+  if (trigger === null) {
     return { ...parsed, items: deterministicItems, visionAssisted: false, itemsFromVision: false };
   }
 
@@ -298,21 +366,23 @@ async function rescueWithVision(
    * Logged because this call is BILLED and fires more often than the "rescue"
    * framing suggests.
    *
-   * The trigger is "no items or no total", which is true of receipts that
-   * legitimately have neither — a shop that prints only a total is a normal
-   * case in this market, not a failure. On those the model is asked, finds
-   * nothing to add, and the deterministic answer stands: correct, but paid
-   * for. The corpus has one such image (syn-17-total-only) against one
-   * genuine rescue (the crumpled thermal photo), so roughly half of all
-   * firings there buy nothing.
+   * Some triggers fire on receipts that are perfectly fine. A shop printing
+   * only a total is a normal case in this market, not a failure; the model is
+   * asked, finds nothing to add, and the deterministic answer stands —
+   * correct, but paid for.
    *
-   * `recovered` is what separates the two. If it stays low in real use, the
-   * trigger is worth tightening; without this line there is no way to know.
+   * `trigger` is logged precisely so that cost can be attributed. The four are
+   * not equally worth their money, and only production traffic can say which
+   * ones earn it: `does-not-add-up` fires on proof that something is wrong and
+   * should nearly always buy something, while `low-confidence` rests on a
+   * threshold calibrated against two photographs and is the one to watch. If a
+   * trigger's firings rarely change the answer, tighten or drop that trigger
+   * specifically rather than raising the bar on all four.
    */
   const recovered = vision ? (deterministicItems.length === 0 ? vision.items.length : 0) : 0;
   console.info(
-    `[vision-ocr] business=${input.businessProfileId} reached=${vision !== null} ` +
-      `recoveredItems=${recovered} hadTotal=${parsed.amount !== null} ms=${elapsedMs}`,
+    `[vision-ocr] business=${input.businessProfileId} trigger=${trigger} reached=${vision !== null} ` +
+      `recoveredItems=${recovered} hadTotal=${parsed.amount !== null} confidence=${pageConfidence} ms=${elapsedMs}`,
   );
 
   if (!vision) {
@@ -332,8 +402,29 @@ async function rescueWithVision(
     amount: i.amount,
   }));
 
-  const items = deterministicItems.length === 0 ? visionItems : deterministicItems;
-  const itemsFromVision = deterministicItems.length === 0 && visionItems.length > 0;
+  /*
+   * WHICH READING WINS.
+   *
+   * The old rule was "the deterministic answer wins wherever it exists", which
+   * was right while the only trigger was an EMPTY result — there was never a
+   * competing answer to choose between. Now that a doubtful-but-present read
+   * also triggers, there is, and "deterministic always wins" would fetch a
+   * better reading and then discard it.
+   *
+   * Vision replaces the items only on an OBJECTIVE test, never a preference:
+   * the deterministic items failed to account for the total and the model's
+   * items do. That is arithmetic agreeing with the receipt's own printed
+   * total, not a judgement that the model reads better. Where the model's
+   * items also fail to add up there is no evidence it did better, so the
+   * deterministic read stands.
+   */
+  const visionReconciles =
+    visionItems.length > 0 &&
+    reconcileItems(ocr.text, visionItems, parsed.amount ?? vision.amount).reconciled;
+  const visionSettlesTheGap = !reconciliation.reconciled && visionReconciles;
+
+  const itemsFromVision = visionItems.length > 0 && (deterministicItems.length === 0 || visionSettlesTheGap);
+  const items = itemsFromVision ? visionItems : repairItemNames(deterministicItems, visionItems, trigger);
   const vendor = parsed.vendor ?? vision.vendor;
   const amount = parsed.amount ?? vision.amount;
   const date = parsed.date ?? vision.date;
@@ -349,11 +440,48 @@ async function rescueWithVision(
     items,
     visionAssisted:
       itemsFromVision ||
+      items.some((item, i) => item.name !== deterministicItems[i]?.name) ||
       (parsed.amount === null && amount !== null) ||
       (parsed.vendor === null && vendor !== null) ||
       (parsed.date === null && date !== null),
     itemsFromVision,
   };
+}
+
+/**
+ * Takes the model's wording for lines whose AMOUNTS both readings agree on.
+ *
+ * This is the narrow case the confidence trigger exists for. When the items
+ * add up to the printed total, the arithmetic corroborates every amount — the
+ * numbers are sound. What is not corroborated is the TEXT beside them, and on
+ * a page tesseract read at 56% that text is where the damage is: a real
+ * Savemore line reading "Del Monte Pineapple Tidbits" came back as "Sey".
+ *
+ * So the amounts are kept exactly as OCR read them — they are the figures that
+ * reach the owner's books, and they have independent corroboration the names
+ * do not — while the names are taken from the model, which reads the same
+ * receipt without tesseract's character-level guessing.
+ *
+ * Matching is by amount, and each vision line is consumed once so two items at
+ * the same price cannot both claim the same name. A line the model did not
+ * report keeps the name OCR gave it.
+ */
+function repairItemNames(
+  deterministic: ParsedLineItem[],
+  visionItems: ParsedLineItem[],
+  trigger: string,
+): ParsedLineItem[] {
+  // Only where the trigger was doubt about the READING. A receipt sent for a
+  // missing total was never in doubt about its item names.
+  if (trigger !== "low-confidence" && trigger !== "does-not-add-up") return deterministic;
+
+  const unclaimed = [...visionItems];
+  return deterministic.map((item) => {
+    const i = unclaimed.findIndex((v) => Math.round(v.amount * 100) === Math.round(item.amount * 100));
+    if (i === -1) return item;
+    const match = unclaimed.splice(i, 1)[0]!;
+    return match.name.trim() ? { ...item, name: match.name.trim() } : item;
+  });
 }
 
 /**

@@ -1213,12 +1213,27 @@ export function ScanReceiptScreen({ navigation, route }: any) {
               owner is entitled to know which produced the numbers they are
               about to accept — the same warning the web confirm screen shows.
             */}
-            {scan.visionAssisted ? (
+            {scan.items?.some((i) => i.extractedByVision) ? (
               <View style={{ marginBottom: space.md, marginTop: space.sm }}>
                 <Callout tone="warn">
                   FinSight couldn't read this receipt's text. These values were interpreted from the photo
                   by AI, so treat them as a first guess rather than something read off the paper — check
                   every one, including the total, against the photo.
+                </Callout>
+              </View>
+            ) : scan.visionAssisted ? (
+              /*
+                The amounts here WERE read off the paper and they add up to the
+                printed total; only the wording beside them came from a model.
+                Showing the stronger warning would be false, and false in the
+                direction that teaches owners to skip warnings. Same three-way
+                split as the web confirm screen.
+              */
+              <View style={{ marginBottom: space.md, marginTop: space.sm }}>
+                <Callout tone="warn">
+                  Some item names were filled in by AI. The amounts were read from the receipt and match
+                  its total, but the printing was faint enough that FinSight wasn't sure of the wording —
+                  check the item names against the photo.
                 </Callout>
               </View>
             ) : (

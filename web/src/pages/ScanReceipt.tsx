@@ -871,12 +871,30 @@ export function ScanReceipt() {
               that is interpretation, not reading, and the owner is entitled to
               know which one produced the numbers they are about to accept.
             */}
-            {scan.visionAssisted ? (
+            {scan.items.some((i) => i.extractedByVision) ? (
               <Callout tone="warn">
                 <b className="font-semibold">FinSight couldn't read this receipt's text.</b> These
                 values were interpreted from the photo by AI, so treat them as a first guess rather
                 than something read off the paper — check every one, including the total, against the
                 photo before saving.
+              </Callout>
+            ) : scan.visionAssisted ? (
+              /*
+                The middle case, and it needs its own words rather than the
+                strongest ones.
+
+                Here FinSight DID read the receipt — the amounts came off the
+                paper and they add up to the printed total, which is the
+                arithmetic corroborating them. What it was unsure of was the
+                wording beside them, so it asked a model to name the lines.
+                Telling this owner "FinSight couldn't read this receipt" would
+                be false, and false in the direction that makes every warning
+                on this screen worth less.
+              */
+              <Callout tone="warn">
+                <b className="font-semibold">Some item names were filled in by AI.</b> The amounts
+                were read from the receipt and match its total, but the printing was faint enough
+                that FinSight wasn't sure of the wording — check the item names against the photo.
               </Callout>
             ) : (
               <Callout tone="warn">

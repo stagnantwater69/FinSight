@@ -14,7 +14,12 @@ vi.mock("../../src/services/storage.service", () => ({
 // vi.mock is hoisted above ordinary declarations, so the spy has to be created
 // inside vi.hoisted to exist by the time the factory runs. parseReceiptFields is
 // kept real — this test asserts on its actual parsing of the OCR text.
-const { extractTextMock } = vi.hoisted(() => ({ extractTextMock: vi.fn() }));
+const { extractTextMock, confidenceRef } = vi.hoisted(() => ({
+  extractTextMock: vi.fn(),
+  // Page confidence the mocked read reports. A mutable ref rather than a
+  // second vi.fn so a test can say "this receipt was read badly" in one line.
+  confidenceRef: { value: 95 },
+}));
 vi.mock("../../src/services/ocr.service", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/ocr.service")>();
   /*
@@ -29,13 +34,19 @@ vi.mock("../../src/services/ocr.service", async (importOriginal) => {
    * `lines` is empty: these tests assert on grouping and failure handling,
    * not on confidence, so an empty list is the honest "not measured" input
    * and confidenceForValue correctly returns null for every field.
+   *
+   * The default confidence is 95 — a clean read — and that default is load-
+   * bearing now that a low page confidence sends the receipt to the vision
+   * model. It was previously 0, which after the trigger landed meant every
+   * test in this file silently exercised the rescue path. Tests that want the
+   * rescue set confidenceRef.value themselves.
    */
   return {
     ...actual,
     extractText: extractTextMock,
     extractReceipt: async (...args: unknown[]) => ({
       text: await extractTextMock(...args),
-      confidence: 0,
+      confidence: confidenceRef.value,
       lines: [],
     }),
   };
@@ -86,6 +97,7 @@ beforeEach(async () => {
   categoriseMock.mockResolvedValue([]);
   visionMock.mockReset();
   visionMock.mockResolvedValue(null);
+  confidenceRef.value = 95;
   extractTextMock.mockResolvedValue(RECEIPT_TEXT);
 });
 
@@ -444,6 +456,139 @@ describe("vision rescue for receipts OCR could not read", () => {
 
     const scan = await upload();
     expect(scan.items[0]!.categoryId).toBe(ctx.categories.Inventory);
+  });
+});
+
+/**
+ * Re-reading a receipt tesseract DID read, but read badly.
+ *
+ * The rescue above only ever fired on an empty result, so there was never a
+ * competing answer to choose between. These two triggers fire on a result that
+ * exists and is doubtful, which makes the merge rule — who wins — the thing
+ * worth testing rather than the call itself.
+ */
+describe("vision re-read when the OCR result is doubtful", () => {
+  /** Items 20.00 short of the printed total, with nothing explaining the gap. */
+  const MISREAD = [
+    "ABC SARI-SARI STORE",
+    "Date: 2026-07-20",
+    "Del Monte Pineapple    62.00",
+    "Rice 25kg             607.75",
+    "TOTAL                 689.75",
+  ].join("\n");
+
+  it("re-reads a receipt whose items do not account for the total", async () => {
+    extractTextMock.mockResolvedValue(MISREAD);
+    await upload();
+    expect(visionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads a receipt tesseract itself was unsure of", async () => {
+    confidenceRef.value = 40;
+    await upload();
+    expect(visionMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The false-alarm guard, and the reason reconciliation is not a bare
+   * `sum !== total`: on a 12% VAT receipt the items never equal the total, so
+   * a naive check would send every VAT receipt in the country to a billed API.
+   */
+  it("does not re-read a confident receipt whose gap is explained by VAT", async () => {
+    extractTextMock.mockResolvedValue(
+      ["ABC STORE", "Date: 2026-07-20", "Goods 1000.00", "SUBTOTAL 1000.00", "VAT 12% 120.00", "TOTAL 1120.00"].join(
+        "\n",
+      ),
+    );
+    await upload();
+    expect(visionMock).not.toHaveBeenCalled();
+  });
+
+  it("does not re-read a confident receipt that adds up", async () => {
+    await upload();
+    expect(visionMock).not.toHaveBeenCalled();
+  });
+
+  it("takes the model's items when they settle the gap and OCR's did not", async () => {
+    extractTextMock.mockResolvedValue(MISREAD);
+    visionMock.mockResolvedValue({
+      date: "2026-07-20",
+      vendor: "ABC SARI-SARI STORE",
+      amount: 689.75,
+      items: [
+        { name: "Del Monte Pineapple", quantity: null, amount: 82 },
+        { name: "Rice 25kg", quantity: null, amount: 607.75 },
+      ],
+    });
+
+    const scan = await upload();
+    expect(scan.items.map((i) => i.amount)).toEqual([82, 607.75]);
+    expect(scan.items.every((i) => i.extractedByVision)).toBe(true);
+    // Nothing is flagged once the receipt adds up.
+    expect(scan.suspectItemId).toBeNull();
+  });
+
+  /**
+   * The conservative half of the rule. If the model's reading does not add up
+   * either, there is no evidence it did better — so the OCR figures stand and
+   * the owner is pointed at the doubtful line instead.
+   */
+  it("keeps OCR's amounts when the model's items also fail to add up", async () => {
+    extractTextMock.mockResolvedValue(MISREAD);
+    visionMock.mockResolvedValue({
+      date: null,
+      vendor: null,
+      amount: null,
+      items: [
+        { name: "Del Monte Pineapple Tidbits", quantity: null, amount: 62 },
+        { name: "Rice 25kg", quantity: null, amount: 500 },
+      ],
+    });
+
+    const scan = await upload();
+    expect(scan.items.map((i) => i.amount)).toEqual([62, 607.75]);
+  });
+
+  /**
+   * The targeted repair: where the arithmetic already corroborates every
+   * amount, only the NAMES are in doubt, and only those are taken from the
+   * model. This is the "DelMontePttCrspOrg read as Sey" case.
+   */
+  it("takes the model's wording but keeps OCR's amounts on a low-confidence read", async () => {
+    confidenceRef.value = 40;
+    extractTextMock.mockResolvedValue(
+      ["ABC SARI-SARI STORE", "Date: 2026-07-20", "Sey 82.00", "Rice 25kg 607.75", "TOTAL 689.75"].join("\n"),
+    );
+    visionMock.mockResolvedValue({
+      date: "2026-07-20",
+      vendor: "ABC SARI-SARI STORE",
+      amount: 689.75,
+      items: [
+        { name: "Del Monte Pineapple Tidbits", quantity: null, amount: 82 },
+        { name: "Rice 25kg", quantity: null, amount: 607.75 },
+      ],
+    });
+
+    const scan = await upload();
+    expect(scan.items.map((i) => i.name)).toEqual(["Del Monte Pineapple Tidbits", "Rice 25kg"]);
+    expect(scan.items.map((i) => i.amount)).toEqual([82, 607.75]);
+    expect(scan.visionAssisted).toBe(true);
+  });
+
+  it("keeps OCR's name for a line the model did not report", async () => {
+    confidenceRef.value = 40;
+    extractTextMock.mockResolvedValue(
+      ["ABC SARI-SARI STORE", "Date: 2026-07-20", "Sey 82.00", "Rice 25kg 607.75", "TOTAL 689.75"].join("\n"),
+    );
+    visionMock.mockResolvedValue({
+      date: null,
+      vendor: null,
+      amount: null,
+      items: [{ name: "Del Monte Pineapple Tidbits", quantity: null, amount: 82 }],
+    });
+
+    const scan = await upload();
+    expect(scan.items.map((i) => i.name)).toEqual(["Del Monte Pineapple Tidbits", "Rice 25kg"]);
   });
 });
 
