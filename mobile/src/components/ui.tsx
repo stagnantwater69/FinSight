@@ -250,6 +250,100 @@ export function AlertBadge({ kind, label }: { kind: AlertKind; label?: string })
   );
 }
 
+// ---------------------------------------------------------------- Pill
+
+export function Pill({
+  tone = "neutral",
+  children,
+}: {
+  tone?: "ok" | "warn" | "danger" | "info" | "neutral";
+  children: ReactNode;
+}) {
+  const bg = {
+    ok: brand[50],
+    warn: "#fffbeb",
+    danger: "#fef2f2",
+    info: brand[50],
+    neutral: paper[100],
+  }[tone];
+  const fg = {
+    ok: brand[700],
+    warn: statusText.warning,
+    danger: statusText.critical,
+    info: brand[700],
+    neutral: ink[600],
+  }[tone];
+  const border = {
+    ok: brand[200],
+    warn: "#fde68a",
+    danger: "#fecaca",
+    info: brand[200],
+    neutral: ink[200],
+  }[tone];
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        backgroundColor: bg,
+        borderColor: border,
+        borderWidth: 1,
+        borderRadius: radius.full,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        alignSelf: "flex-start",
+      }}
+    >
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: fg }} />
+      <T style={{ fontSize: 12, fontFamily: font.sansSemibold, color: fg }}>{children}</T>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------- Executive Summary Card
+
+export function ExecutiveSummaryCard({
+  title = "This month at a glance",
+  subtitle = "Composed from your records — not AI-written",
+  children,
+  action,
+}: {
+  title?: string;
+  subtitle?: string;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        backgroundColor: brand[900],
+        borderRadius: radius.lg,
+        padding: space.lg,
+        shadowColor: ink[900],
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+        elevation: 4,
+      }}
+    >
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: space.xs }}>
+        <T style={{ fontFamily: font.displayBold, fontSize: 16, color: "#ffffff" }}>{title}</T>
+        <View style={{ backgroundColor: brand[700], borderRadius: radius.full, paddingHorizontal: 8, paddingVertical: 2 }}>
+          <T style={{ fontSize: 11, fontFamily: font.sansMedium, color: brand[100] }}>✦ AI Digest</T>
+        </View>
+      </View>
+      <T style={{ fontSize: 12, color: brand[200], marginBottom: space.md }}>{subtitle}</T>
+      <View style={{ marginVertical: space.xs }}>
+        <T style={{ fontSize: 14, lineHeight: 22, color: paper[50] }}>{children}</T>
+      </View>
+      {action ? <View style={{ marginTop: space.md, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: brand[800] }}>{action}</View> : null}
+    </View>
+  );
+}
+
+
 // ---------------------------------------------------------------- Empty state
 
 export function EmptyState({
