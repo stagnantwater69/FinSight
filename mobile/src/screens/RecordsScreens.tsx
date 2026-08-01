@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert as RNAlert,
@@ -669,14 +669,6 @@ export function ScanReceiptScreen({ navigation, route }: any) {
   const [scan, setScan] = useState<ReceiptScanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /**
-   * Guards the camera launch to once per visit to this screen.
-   *
-   * Without it, a permission denial or a cancelled capture would reopen the
-   * camera on every re-render rather than leaving the owner on the picker —
-   * `takePhoto` is called from an effect, and effects re-run.
-   */
-  const autoLaunchedRef = useRef(false);
 
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [date, setDate] = useState(todayISO());
@@ -719,14 +711,29 @@ export function ScanReceiptScreen({ navigation, route }: any) {
    * Records list) carries no such param, so the picker still shows first
    * there — unprompted camera access on an unrelated flow would be a surprise
    * only it's asking for.
+   *
+   * FOCUS-based, not a plain mount effect, and the param is cleared the
+   * instant it is read rather than guarded with a ref. React Navigation can
+   * reuse this screen's instance rather than remounting it — pressing Scan a
+   * second time without backing out first navigates to an ALREADY-MOUNTED
+   * "ScanReceipt" and merges params into it rather than creating a fresh
+   * instance. A ref guard survives that fine on the visit that set it, but a
+   * dependency array keyed on `route.params.autoLaunch` does not: the value
+   * is `true` both times, `Object.is(true, true)` is true, and a plain
+   * `useEffect` simply never runs again — so the second and every later tap
+   * of the button would silently stop opening the camera. Clearing the param
+   * immediately after reading it means the NEXT press always arrives as a
+   * fresh `undefined -> true` transition, on a reused instance or a new one.
    */
-  useEffect(() => {
-    if (route?.params?.autoLaunch && !autoLaunchedRef.current) {
-      autoLaunchedRef.current = true;
-      takePhoto();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route?.params?.autoLaunch]);
+  useFocusEffect(
+    useCallback(() => {
+      if (route?.params?.autoLaunch) {
+        navigation.setParams({ autoLaunch: undefined });
+        takePhoto();
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [route?.params?.autoLaunch]),
+  );
 
   if (!selected) return null;
 
