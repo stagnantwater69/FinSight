@@ -669,13 +669,15 @@ export function ScanReceipt() {
 
   const readyToConfirm = isItemised ? itemsAreComplete : splitsAreComplete;
 
-  /**
-   * The amount actually sent, and the reconciliation that goes with it.
+  /*
+   * The amount actually sent is derived in lib/receiptConfirm, not here.
    *
-   * "shrink" is the only plan that moves the total, and it moves it DOWN to
-   * figures read off the receipt — it never invents a line to close a gap.
+   * A duplicate of that rule used to sit at this spot, left behind when the
+   * payload shapes moved into the builder. It was unreferenced — so it was
+   * dead weight that still had to be kept in step with the real rule, and it
+   * failed the production build under noUnusedLocals. The builder is the one
+   * place that decides, and it is tested against the server's schema.
    */
-  const confirmedAmountCentavos = gapPlan === "shrink" && gapNeedsAPlan ? itemsTotalCentavos : totalCentavos;
 
   function addAddedItem() {
     setAddedItems((prev) => [

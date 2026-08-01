@@ -108,6 +108,60 @@ const FEATURES = [
   },
 ];
 
+/**
+ * Where the product walkthrough will go.
+ *
+ * A deliberate placeholder rather than an embed pointed at nothing: it holds
+ * the exact 16:9 box the real video will occupy, so dropping the video in
+ * later cannot reflow the page around it, and it says plainly that the video
+ * is coming rather than looking like a player that failed to load. A visitor
+ * who clicks a broken play button learns something worse about the product
+ * than one who reads "coming soon".
+ *
+ * TO SWAP IN THE REAL VIDEO: replace the inner div with the player and keep
+ * the aspect-video wrapper. A self-hosted <video> with `controls` and a
+ * `poster` is preferable to a YouTube iframe — no third-party cookies, no
+ * consent banner, and nothing loads from another origin.
+ *
+ *   <video className="h-full w-full rounded-2xl" controls poster="/demo-poster.jpg">
+ *     <source src="/finsight-walkthrough.mp4" type="video/mp4" />
+ *     <track kind="captions" src="/finsight-walkthrough.vtt" srcLang="en" label="English" default />
+ *   </video>
+ *
+ * Captions are not optional. The audience is small business owners who watch
+ * with the sound off in a noisy shop, and a walkthrough nobody can follow
+ * silently is a walkthrough most of them will not follow at all.
+ */
+function VideoPlaceholder() {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-paper-200 bg-gradient-to-br from-brand-100/70 via-accent-50 to-paper-100 shadow-sm">
+      {/* aspect-video reserves the 16:9 box now, so the real player drops in
+          without the surrounding page shifting. */}
+      <div className="flex aspect-video flex-col items-center justify-center gap-3 p-6 text-center">
+        <span
+          aria-hidden
+          className="flex h-16 w-16 items-center justify-center rounded-full bg-paper/80 shadow-sm backdrop-blur-sm"
+        >
+          {/* A triangle, not an emoji — this is a control shape, and it should
+              render identically on every platform rather than as whatever play
+              glyph the OS font happens to supply. */}
+          <svg viewBox="0 0 24 24" className="ml-1 h-7 w-7 fill-brand-700" role="presentation">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        </span>
+        <p className="font-display text-base font-semibold text-ink-900">Product walkthrough</p>
+        <p className="max-w-sm text-sm text-ink-600">
+          A guided tour of the main features is being recorded. In the meantime you can create an
+          account and try them directly.
+        </p>
+        <span className="mt-1 rounded-full bg-paper/80 px-3 py-1 text-xs font-medium text-ink-500">
+          Video coming soon
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function Landing() {
   const salesThisMonth = useDemoFrame();
   const demo = demoAt(salesThisMonth);
@@ -224,6 +278,30 @@ export function Landing() {
                 </li>
               ))}
             </ol>
+          </div>
+        </section>
+
+        {/* ---------------- Demo video ---------------- */}
+        {/*
+          PLACEHOLDER — no video exists yet. See VideoPlaceholder below for how
+          to swap the real one in.
+
+          Placed after "How it works" and before the feature grid on purpose.
+          By this point a visitor knows what the product claims to do and is
+          deciding whether to believe it; a walkthrough is the cheapest way to
+          settle that, and it stops the feature list from being the first place
+          they have to take anything on trust.
+        */}
+        <section className="mx-auto max-w-6xl px-4 py-12 lg:px-6 lg:py-16">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="font-display text-2xl font-bold text-ink-900">See it in action</h2>
+            <p className="mx-auto mt-2 max-w-xl text-ink-600">
+              A short walkthrough: recording a day's sales, scanning a receipt, and reading what the
+              dashboard tells you at the end of the week.
+            </p>
+          </div>
+          <div className="mx-auto mt-8 max-w-3xl">
+            <VideoPlaceholder />
           </div>
         </section>
 
