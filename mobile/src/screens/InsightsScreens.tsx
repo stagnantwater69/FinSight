@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from "react
 import { useFocusEffect } from "@react-navigation/native";
 import { Alert as AlertBanner, Card, EmptyState, ErrorNote, Money, Screen, T } from "../components/ui";
 import { RecoveryMeter } from "../components/RecoveryMeter";
-import { CategoryChange, CoverageColumns, SpendTrend } from "../components/charts";
+import { CategoryChange, CategoryComparison, CoverageColumns, SpendTrend } from "../components/charts";
 import { AskFinSight, AskFinSightButton } from "../components/AskFinSight";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
@@ -122,6 +122,20 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
               <SpendTrend
                 data={data.dailyTotals ?? []}
                 subtitle={`${data.periodStart.slice(5, 10)} to ${data.periodEnd.slice(5, 10)}`}
+              />
+            </Card>
+
+            <Card>
+              <CategoryComparison
+                data={data.categoryTrends.map((t) => ({
+                  categoryName: t.categoryName,
+                  current: t.current,
+                  previous: t.previous,
+                  percentChange: t.percentChange,
+                }))}
+                subtitle={`${data.previousPeriodStart.slice(5, 10)}–${data.previousPeriodEnd.slice(5, 10)} vs ${data.periodStart.slice(5, 10)}–${data.periodEnd.slice(5, 10)}`}
+                previousLabel="Last period"
+                currentLabel="This period"
               />
             </Card>
 

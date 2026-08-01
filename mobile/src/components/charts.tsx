@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { View } from "react-native";
-import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
-import { T } from "./ui";
+import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
+import { Money, T } from "./ui";
 import { formatMoney } from "../lib/money";
 import { brand, categorical, ink, paper, radius, space, status, statusText } from "../theme/tokens";
 
@@ -428,5 +428,224 @@ export function SeriesDot({ index }: { index: number }) {
         backgroundColor: categorical[index % categorical.length],
       }}
     />
+  );
+}
+
+// ============================================================
+// Composition as a share of the whole — a donut
+// ============================================================
+// A donut answers a different question from the ranked bars above: not "which
+// is biggest" but "how much of everything is this one". Both are on the
+// dashboard because owners ask both.
+//
+// Capped at the top six with the remainder folded into a neutral "Other",
+// which is the rule the categorical palette requires — a seventh slice is
+// never a generated hue. Web caps at the same six with the same grey.
+
+const DONUT_TOP_N = 6;
+/** The remainder slice. Deliberately outside the categorical ramp. */
+const OTHER_COLOR = "#8b9a9e";
+
+export function DonutChart({
+  data,
+  title = "Share of spending",
+  subtitle,
+}: {
+  data: { categoryName: string; total: number }[];
+  title?: string;
+  subtitle?: string;
+}) {
+  const sorted = [...data].filter((d) => d.total > 0).sort((a, b) => b.total - a.total);
+
+  if (sorted.length === 0) {
+    return (
+      <ChartFrame title={title}>
+        <T variant="caption">Record an expense and its share of the total shows here.</T>
+      </ChartFrame>
+    );
+  }
+
+  const head = sorted.slice(0, DONUT_TOP_N);
+  const tail = sorted.slice(DONUT_TOP_N);
+  const slices = [
+    ...head.map((d, i) => ({ name: d.categoryName, total: d.total, color: categorical[i] })),
+    ...(tail.length > 0
+      ? [{ name: `Other (${tail.length})`, total: tail.reduce((s, d) => s + d.total, 0), color: OTHER_COLOR }]
+      : []),
+  ];
+
+  const total = slices.reduce((s, d) => s + d.total, 0);
+  const SIZE = 168;
+  const RADIUS = 62;
+  const STROKE = 22;
+  const circumference = 2 * Math.PI * RADIUS;
+  const centre = SIZE / 2;
+  /* The 2px surface gap that keeps touching segments countable. */
+  const GAP = 2;
+
+  let offset = 0;
+
+  return (
+    <ChartFrame title={title} subtitle={subtitle}>
+      <View
+        style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}
+        accessibilityLabel={`Share of spending. ${slices
+          .map((s) => `${s.name}, ${((s.total / total) * 100).toFixed(0)} percent`)
+          .join(". ")}`}
+      >
+        <View style={{ width: SIZE, height: SIZE }}>
+          <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+            {slices.map((slice) => {
+              const length = (slice.total / total) * circumference;
+              const dash = Math.max(length - GAP, 0.5);
+              const circle = (
+                <Circle
+                  key={slice.name}
+                  cx={centre}
+                  cy={centre}
+                  r={RADIUS}
+                  stroke={slice.color}
+                  strokeWidth={STROKE}
+                  fill="none"
+                  strokeDasharray={`${dash} ${circumference - dash}`}
+                  strokeDashoffset={-offset}
+                  // Start at 12 o'clock rather than 3, which is where people
+                  // expect a share to begin.
+                  transform={`rotate(-90 ${centre} ${centre})`}
+                />
+              );
+              offset += length;
+              return circle;
+            })}
+          </Svg>
+          {/* The hole is not decoration — it carries the total. */}
+          <View style={{ position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" }}>
+            <T variant="caption">Total</T>
+            <Money value={total} size={15} weight="semibold" />
+          </View>
+        </View>
+
+        {/* A legend is mandatory for more than one series. */}
+        <View style={{ flex: 1, gap: 6 }}>
+          {slices.map((slice) => (
+            <View key={slice.name} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: slice.color }} />
+              <T style={{ flex: 1, fontSize: 12, color: ink[700] }} numberOfLines={1}>
+                {slice.name}
+              </T>
+              <T variant="caption" style={{ color: ink[600] }}>
+                {((slice.total / total) * 100).toFixed(0)}%
+              </T>
+            </View>
+          ))}
+        </View>
+      </View>
+    </ChartFrame>
+  );
+}
+
+// ============================================================
+// This period against the last — paired bars
+// ============================================================
+// Two bars per category on ONE scale. Never two axes: the whole point is that
+// the lengths are comparable, and a second scale would make them lie.
+
+export function CategoryComparison({
+  data,
+  title = "This period vs last",
+  subtitle,
+  previousLabel = "Last period",
+  currentLabel = "This period",
+}: {
+  data: { categoryName: string; current: number; previous: number; percentChange: number | null }[];
+  title?: string;
+  subtitle?: string;
+  previousLabel?: string;
+  currentLabel?: string;
+}) {
+  const rows = data.filter((r) => r.current > 0 || r.previous > 0).slice(0, 6);
+
+  if (rows.length === 0) {
+    return (
+      <ChartFrame title={title}>
+        <T variant="caption">Once there are two periods to compare, this fills in.</T>
+      </ChartFrame>
+    );
+  }
+
+  const max = Math.max(...rows.flatMap((r) => [r.current, r.previous]), 1);
+
+  return (
+    <ChartFrame title={title} subtitle={subtitle}>
+      {/* Two series, so a legend is present rather than optional. */}
+      <View style={{ flexDirection: "row", gap: space.md, marginBottom: space.md }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: ink[300] }} />
+          <T variant="caption">{previousLabel}</T>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: brand[600] }} />
+          <T variant="caption">{currentLabel}</T>
+        </View>
+      </View>
+
+      <View
+        accessibilityLabel={rows
+          .map(
+            (r) =>
+              `${r.categoryName}: ${formatMoney(r.previous)} then ${formatMoney(r.current)}`,
+          )
+          .join(". ")}
+      >
+        {rows.map((row, i) => (
+          <View key={row.categoryName} style={{ marginBottom: i === rows.length - 1 ? 0 : space.md }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm }}>
+              <T style={{ fontSize: 13, color: ink[800], flex: 1 }} numberOfLines={1}>
+                {row.categoryName}
+              </T>
+              {row.percentChange !== null ? (
+                <T
+                  style={{
+                    fontSize: 12,
+                    color:
+                      Math.abs(row.percentChange) < 0.5
+                        ? ink[500]
+                        : row.percentChange > 0
+                          ? statusText.serious
+                          : statusText.good,
+                  }}
+                >
+                  {Math.abs(row.percentChange) < 0.5
+                    ? "no change"
+                    : `${row.percentChange > 0 ? "↑" : "↓"} ${Math.abs(row.percentChange).toFixed(0)}%`}
+                </T>
+              ) : (
+                <T variant="caption">new</T>
+              )}
+            </View>
+
+            {/* Previous sits above current, both from the same left baseline. */}
+            <View style={{ marginTop: 4, gap: 3 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                <Svg width="100%" height={7} viewBox="0 0 100 7" preserveAspectRatio="none" style={{ flex: 1 }}>
+                  <Path d={barPath(0, 0, Math.max((row.previous / max) * 100, 0.5), 7, 3.5, true)} fill={ink[300]} />
+                </Svg>
+                <T variant="caption" style={{ width: 74, textAlign: "right" }}>
+                  {formatMoney(row.previous)}
+                </T>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                <Svg width="100%" height={7} viewBox="0 0 100 7" preserveAspectRatio="none" style={{ flex: 1 }}>
+                  <Path d={barPath(0, 0, Math.max((row.current / max) * 100, 0.5), 7, 3.5, true)} fill={brand[600]} />
+                </Svg>
+                <T style={{ width: 74, textAlign: "right", fontSize: 12, color: ink[800] }}>
+                  {formatMoney(row.current)}
+                </T>
+              </View>
+            </View>
+          </View>
+        ))}
+      </View>
+    </ChartFrame>
   );
 }

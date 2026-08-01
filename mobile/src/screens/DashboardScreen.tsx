@@ -1,9 +1,12 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Alert, Button, Card, EmptyState, ErrorNote, Screen, ScreenHeader, SetupProgress, StatTile, T } from "../components/ui";
 import { RecoveryMeter } from "../components/RecoveryMeter";
-import { CategoryBreakdown } from "../components/charts";
+import { CategoryBreakdown, DonutChart } from "../components/charts";
+import { AtAGlance } from "../components/AtAGlance";
+import { SkeletonDashboard } from "../components/Skeleton";
+import * as haptics from "../lib/haptics";
 import { AskFinSight, AskFinSightButton } from "../components/AskFinSight";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
@@ -87,7 +90,10 @@ export function DashboardScreen({ navigation }: any) {
               {PERIODS.map((p) => (
                 <Pressable
                   key={p.days}
-                  onPress={() => setPeriodDays(p.days)}
+                  onPress={() => {
+                    haptics.tapped();
+                    setPeriodDays(p.days);
+                  }}
                   accessibilityRole="button"
                   accessibilityState={{ selected: periodDays === p.days }}
                   style={{
@@ -119,10 +125,9 @@ export function DashboardScreen({ navigation }: any) {
         {error ? <ErrorNote>{error}</ErrorNote> : null}
 
         {loading || !summary ? (
-          <View style={{ paddingVertical: space.xxl * 2, alignItems: "center" }}>
-            <ActivityIndicator color={brand[600]} />
-            <T variant="caption" style={{ marginTop: space.sm }}>Loading your dashboard…</T>
-          </View>
+          // Shaped like the dashboard rather than a centred spinner, so the
+          // layout does not jump when the figures land.
+          <SkeletonDashboard />
         ) : (
           <>
             {/*
@@ -131,6 +136,8 @@ export function DashboardScreen({ navigation }: any) {
               check most), expenses/sales sit in the weak middle, and Recovery
               target closes the screen because it is the actionable "so what".
             */}
+            <AtAGlance summary={summary} onAsk={() => setAskOpen(true)} />
+
             <StatTile label="Available business funds" value={summary.overview.availableFunds} emphasis />
             <View style={{ flexDirection: "row", gap: space.md }}>
               <StatTile
@@ -159,9 +166,16 @@ export function DashboardScreen({ navigation }: any) {
             </Pressable>
 
             <Card>
+              <DonutChart
+                data={summary.expenseCategoryBreakdown}
+                subtitle={`Last ${summary.periodDays} day${summary.periodDays === 1 ? "" : "s"}`}
+              />
+            </Card>
+
+            <Card>
               <CategoryBreakdown
                 data={summary.expenseCategoryBreakdown}
-                subtitle={`Last ${summary.periodDays} day${summary.periodDays === 1 ? "" : "s"}, largest first`}
+                subtitle="Largest first"
               />
             </Card>
 

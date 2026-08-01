@@ -23,6 +23,8 @@ import {
 } from "../lib/receiptConfirm";
 import { rowsToApplySuggestionTo, suggestedNewCategory } from "../lib/categorySuggestion";
 import { useDebounced } from "../lib/useDebounced";
+import { SkeletonList } from "../components/Skeleton";
+import * as haptics from "../lib/haptics";
 import { RecordOriginPanel, type RecordOrigin } from "../components/RecordOrigin";
 import {
   buildExpenseUpdatePayload,
@@ -211,7 +213,10 @@ export function RecordsScreen({ navigation }: any) {
             {(["all", "expense", "sales"] as const).map((t) => (
               <Pressable
                 key={t}
-                onPress={() => setType(t)}
+                onPress={() => {
+                  haptics.tapped();
+                  setType(t);
+                }}
                 accessibilityRole="button"
                 accessibilityState={{ selected: type === t }}
                 style={{
@@ -295,7 +300,7 @@ export function RecordsScreen({ navigation }: any) {
         {error ? <ErrorNote>{error}</ErrorNote> : null}
 
         {loading ? (
-          <ActivityIndicator color={brand[600]} style={{ marginTop: space.xxl }} />
+          <SkeletonList />
         ) : records.length === 0 ? (
           <EmptyState
             title={keyword ? "No records match that search" : "You haven't added any records yet"}
@@ -524,6 +529,7 @@ export function AddExpenseScreen({ navigation }: any) {
         vendor: vendor.trim() || undefined,
         amount: value,
       });
+      haptics.succeeded();
       navigation.goBack();
     } catch (err) {
       setError(errorMessage(err));
@@ -765,7 +771,12 @@ export function ScanReceiptScreen({ navigation, route }: any) {
       );
       setPlan(null);
       setGapCategoryId(null);
+      // A vision-assisted read is a guess, not a reading — it deserves a
+      // different signal from a clean scan, so the owner is primed to check
+      // it before they even look down.
+      result.visionAssisted ? haptics.warned() : haptics.succeeded();
     } catch (err) {
+      haptics.failed();
       setError(errorMessage(err));
     } finally {
       setBusy(false);
@@ -778,6 +789,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
       setError("FinSight needs camera access to photograph a receipt. You can enable it in Settings.");
       return;
     }
+    haptics.committed();
     const res = await ImagePicker.launchCameraAsync({ quality: 0.7, mediaTypes: ["images"] });
     if (!res.canceled && res.assets[0]) await upload(res.assets[0]);
   }
@@ -858,6 +870,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
         : buildReceiptConfirmPayload({ date, description, vendor, amount: value, categoryId: categoryId! });
 
       await api.post(`/records/receipts/${scan!.id}/confirm`, payload);
+      haptics.succeeded();
       navigation.goBack();
     } catch (err) {
       setError(errorMessage(err));
@@ -1535,6 +1548,7 @@ export function EditRecordScreen({ route, navigation }: any) {
         // that distinction is tested rather than remembered.
         isExpense ? buildExpenseUpdatePayload(input) : buildSalesUpdatePayload(input),
       );
+      haptics.succeeded();
       navigation.goBack();
     } catch (err) {
       setError(errorMessage(err));
@@ -1565,6 +1579,7 @@ export function EditRecordScreen({ route, navigation }: any) {
             setError(null);
             try {
               await api.delete(recordUpdatePath(record.type, record.id));
+              haptics.committed();
               navigation.goBack();
             } catch (err) {
               setError(errorMessage(err));
