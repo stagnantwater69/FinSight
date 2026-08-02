@@ -210,6 +210,11 @@ export function SpendingImpactScreen({ navigation }: any) {
   const [data, setData] = useState<SpendingImpact | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [askOpen, setAskOpen] = useState(false);
+  // This input is drawn by hand rather than through `Field` — it shares a row
+  // with the Check button, which `Field`'s own label-above-input layout cannot
+  // express. It gets `Field`'s focus border anyway so the app has one focus
+  // treatment, not two.
+  const [amountFocused, setAmountFocused] = useState(false);
 
   async function run() {
     const value = Number(amount);
@@ -255,14 +260,18 @@ export function SpendingImpactScreen({ navigation }: any) {
               value={amount}
               onChangeText={setAmount}
               onSubmitEditing={run}
+              onFocus={() => setAmountFocused(true)}
+              onBlur={() => setAmountFocused(false)}
               keyboardType="decimal-pad"
               placeholder="e.g. 11000"
               placeholderTextColor={ink[400]}
               style={{
                 flex: 1,
                 minHeight: TAP,
+                // Width held at 1 on both states so the row does not reflow
+                // and shove the Check button sideways when focus lands.
                 borderWidth: 1,
-                borderColor: ink[200],
+                borderColor: amountFocused ? brand[600] : ink[200],
                 borderRadius: radius.md,
                 paddingHorizontal: space.md,
                 fontSize: 15,

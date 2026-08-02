@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { forwardRef, useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
 import { Button, Card, ErrorNote, Screen, T } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
@@ -10,29 +10,55 @@ import { brand, ink, paper, radius, space, TAP } from "../theme/tokens";
  * the field grows when a user scales their system font up.
  */
 
-export function Field({
-  label,
-  value,
-  onChangeText,
-  ...rest
-}: {
+type FieldProps = {
   label: string;
   value: string;
   onChangeText: (v: string) => void;
-} & React.ComponentProps<typeof TextInput>) {
+} & React.ComponentProps<typeof TextInput>;
+
+/**
+ * The shared text field. It is a forwardRef so a form can hand the keyboard on
+ * from one field to the next — `onSubmitEditing` needs a ref to call `focus()`
+ * on, and a plain function component swallows `ref` silently.
+ *
+ * `onFocus`/`onBlur` are pulled out of `rest` deliberately. `{...rest}` is
+ * spread last so that callers can override anything, which means a caller's
+ * own `onFocus` would otherwise replace the one that drives the focus border
+ * rather than run alongside it. Pulling them out lets both run.
+ *
+ * Note `style` is still overridable by a caller and would replace the input's
+ * styling wholesale, focus border included. No caller passes one today; if one
+ * ever needs to, compose it as an array here rather than at the call site.
+ */
+export const Field = forwardRef<TextInput, FieldProps>(function Field(
+  { label, value, onChangeText, onFocus, onBlur, ...rest },
+  ref,
+) {
+  const [focused, setFocused] = useState(false);
   return (
     <View style={{ marginBottom: space.md }}>
       <T variant="label" style={{ marginBottom: 4, color: ink[700] }}>
         {label}
       </T>
       <TextInput
+        ref={ref}
         value={value}
         onChangeText={onChangeText}
         placeholderTextColor={ink[400]}
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          onBlur?.(e);
+        }}
         style={{
           minHeight: TAP,
+          // Width stays at 1 either way: a thicker focus border would reflow
+          // every field below it each time focus moves. Colour alone carries it.
           borderWidth: 1,
-          borderColor: ink[200],
+          borderColor: focused ? brand[600] : ink[200],
           borderRadius: radius.md,
           paddingHorizontal: space.md,
           paddingVertical: space.sm,
@@ -44,7 +70,7 @@ export function Field({
       />
     </View>
   );
-}
+});
 
 function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
@@ -79,6 +105,7 @@ export function LoginScreen({ navigation }: any) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
 
   async function submit() {
     setError(null);
@@ -94,6 +121,13 @@ export function LoginScreen({ navigation }: any) {
 
   return (
     <AuthShell title="Log in" subtitle="Welcome back.">
+      {/*
+        The return key walks the form: "next" until the last field, then "done",
+        which runs the same submit the button does. `submitBehavior="submit"`
+        keeps the keyboard up between fields so it does not flicker closed and
+        open again on every hop — it replaces `blurOnSubmit`, which React Native
+        0.86 marks deprecated in favour of it.
+      */}
       <Field
         label="Email"
         value={email}
@@ -101,8 +135,24 @@ export function LoginScreen({ navigation }: any) {
         autoCapitalize="none"
         keyboardType="email-address"
         autoComplete="email"
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => passwordRef.current?.focus()}
       />
-      <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" />
+      <Field
+        ref={passwordRef}
+        label="Password"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+        autoComplete="password"
+        returnKeyType="done"
+        // Mirrors the button's own `loading` guard: a second submit while the
+        // first is still in flight would fire two login requests.
+        onSubmitEditing={() => {
+          if (!busy) submit();
+        }}
+      />
       {error ? <ErrorNote>{error}</ErrorNote> : null}
       <Button title="Log in" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
       <Button
@@ -122,6 +172,9 @@ export function RegisterScreen({ navigation }: any) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const lastNameRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
 
   async function submit() {
     setError(null);
@@ -142,21 +195,54 @@ export function RegisterScreen({ navigation }: any) {
 
   return (
     <AuthShell title="Create your account" subtitle="Start tracking your business in a few minutes.">
-      <Field label="First name" value={form.firstName} onChangeText={set("firstName")} />
-      <Field label="Last name" value={form.lastName} onChangeText={set("lastName")} />
       <Field
+        label="First name"
+        value={form.firstName}
+        onChangeText={set("firstName")}
+        autoComplete="given-name"
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => lastNameRef.current?.focus()}
+      />
+      <Field
+        ref={lastNameRef}
+        label="Last name"
+        value={form.lastName}
+        onChangeText={set("lastName")}
+        autoComplete="family-name"
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => emailRef.current?.focus()}
+      />
+      <Field
+        ref={emailRef}
         label="Email"
         value={form.email}
         onChangeText={set("email")}
         autoCapitalize="none"
         keyboardType="email-address"
+        autoComplete="email"
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => passwordRef.current?.focus()}
       />
+      {/*
+        "new-password" rather than Login's "password": it tells the password
+        manager to offer a generated one instead of autofilling an existing
+        one, which is the difference between signing up and signing in.
+      */}
       <Field
+        ref={passwordRef}
         label="Password"
         value={form.password}
         onChangeText={set("password")}
         secureTextEntry
         placeholder="At least 8 characters"
+        autoComplete="new-password"
+        returnKeyType="done"
+        onSubmitEditing={() => {
+          if (!busy) submit();
+        }}
       />
       {error ? <ErrorNote>{error}</ErrorNote> : null}
       <Button title="Create account" variant="primary" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
@@ -200,6 +286,11 @@ export function RecoverPasswordScreen({ navigation }: any) {
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
+            autoComplete="email"
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              if (!busy) submit();
+            }}
           />
           {error ? <ErrorNote>{error}</ErrorNote> : null}
           <Button title="Send reset link" onPress={submit} loading={busy} style={{ marginTop: space.sm }} />

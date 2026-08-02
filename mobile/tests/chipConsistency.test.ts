@@ -24,12 +24,19 @@ import { describe, expect, it } from "vitest";
 const ROOT = join(__dirname, "..");
 
 /**
- * The pill's signature: a fully-rounded shape carrying the brand fill. Kept
- * as two separate markers rather than one regex because they are written on
- * different lines and in either order.
+ * The pill's signature: a fully-rounded shape whose BACKGROUND carries the
+ * brand colour. Kept as two markers because they are written on different
+ * lines and in either order.
+ *
+ * The background is what makes this specific. Plenty of things are pill-shaped
+ * and mention brand[600] without being chips — the Ask FinSight composer is a
+ * rounded input whose border turns brand on focus. An earlier version of this
+ * check looked for the colour anywhere in the block and flagged that input,
+ * which is how a guard starts costing more than it catches. A chip is filled;
+ * an input is outlined.
  */
 const CHIP_RADIUS = "radius.full";
-const CHIP_FILL = "brand[600]";
+const CHIP_FILL = /backgroundColor:[^,]*brand\[600\]/;
 
 /**
  * Files allowed to pair those two markers.
@@ -80,7 +87,7 @@ describe("chip consistency", () => {
     for (const { name, src } of sourceFiles()) {
       if (ALLOWED.has(name)) continue;
       for (const block of inlineStyleBlocks(src)) {
-        if (block.includes(CHIP_RADIUS) && block.includes(CHIP_FILL)) {
+        if (block.includes(CHIP_RADIUS) && CHIP_FILL.test(block)) {
           offenders.push(name);
           break;
         }

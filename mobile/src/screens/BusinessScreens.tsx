@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { Alert as RNAlert, Pressable, ScrollView, View } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import { Alert as RNAlert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Button, Card, EmptyState, ErrorNote, Money, Screen, T } from "../components/ui";
 import { Field } from "./AuthScreens";
@@ -197,6 +197,13 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
   // the form — so it is held apart from the fields Save writes.
   const [logoUrl, setLogoUrl] = useState<string | null>(existing?.logoUrl ?? null);
   const set = (k: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
+  // One ref per field the return key hands off TO — the first field is never a
+  // destination, so it needs none.
+  const typeRef = useRef<TextInput>(null);
+  const fundsRef = useRef<TextInput>(null);
+  const monthlyRef = useRef<TextInput>(null);
+  const operatingDaysRef = useRef<TextInput>(null);
+  const thresholdRef = useRef<TextInput>(null);
 
   async function submit() {
     const payload = {
@@ -229,66 +236,122 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
-        <Card>
-          <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>
-            {existing ? "Edit business" : "Add a business"}
-          </T>
-          {/*
-            Only on an existing business: the upload endpoint is scoped to a
-            profile id, which does not exist until the business is created.
-            Offering it on the create form would be a control that cannot work
-            yet.
-          */}
-          {existing ? (
-            <PhotoUpload
-              url={logoUrl}
-              endpoint={`/business-profiles/${existing.id}/logo`}
-              label="Business logo"
-              shape="square"
-              onUploaded={(updated) => setLogoUrl((updated as BusinessProfile).logoUrl)}
+      {/*
+        Six chained fields on one screen: without this, the return key can hand
+        focus to a field the keyboard is already covering, which is worse than
+        no chaining. `padding` is iOS-only — Android resizes the window itself
+        via windowSoftInputMode, and adding padding on top of that double-counts
+        the keyboard.
+      */}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
+          <Card>
+            <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>
+              {existing ? "Edit business" : "Add a business"}
+            </T>
+            {/*
+              Only on an existing business: the upload endpoint is scoped to a
+              profile id, which does not exist until the business is created.
+              Offering it on the create form would be a control that cannot work
+              yet.
+            */}
+            {existing ? (
+              <PhotoUpload
+                url={logoUrl}
+                endpoint={`/business-profiles/${existing.id}/logo`}
+                label="Business logo"
+                shape="square"
+                onUploaded={(updated) => setLogoUrl((updated as BusinessProfile).logoUrl)}
+              />
+            ) : null}
+            {/*
+              The return key walks the six fields in order and submits from the
+              last, the same chain the auth forms use. The four numeric fields
+              below are wired identically, but a phone keypad has no return key
+              on iOS — there the chain simply ends at the last text keyboard and
+              the owner taps the next field. Android's number pads do carry one.
+            */}
+            <Field
+              label="Business name"
+              value={form.name}
+              onChangeText={set("name")}
+              placeholder="e.g. Aling Nena's Store"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => typeRef.current?.focus()}
             />
-          ) : null}
-          <Field label="Business name" value={form.name} onChangeText={set("name")} placeholder="e.g. Aling Nena's Store" />
-          <Field label="Type" value={form.type} onChangeText={set("type")} />
-          <Field
-            label="Available business funds (PHP)"
-            value={form.availableFunds}
-            onChangeText={set("availableFunds")}
-            keyboardType="decimal-pad"
-          />
-          <T variant="caption" style={{ marginTop: -space.sm, marginBottom: space.md }}>
-            The money you have on hand for the business right now.
-          </T>
-          <Field
-            label="Expected monthly expenses (PHP)"
-            value={form.expectedMonthlyExpenses}
-            onChangeText={set("expectedMonthlyExpenses")}
-            keyboardType="decimal-pad"
-          />
-          <T variant="caption" style={{ marginTop: -space.sm, marginBottom: space.md }}>
-            Roughly what a normal month costs you. This drives your daily sales target.
-          </T>
-          <Field label="Operating days per month" value={form.operatingDays} onChangeText={set("operatingDays")} keyboardType="number-pad" />
-          <Field
-            label="Large-expense threshold (%)"
-            value={form.largeExpenseThresholdPercent}
-            onChangeText={set("largeExpenseThresholdPercent")}
-            keyboardType="decimal-pad"
-          />
-          {/*
-            Stated as a share of expected monthly expenses because that is
-            literally the comparison the server makes — largeExpenseThresholdFor
-            multiplies the two. "Bigger than usual" would be a different rule
-            that nothing in the code implements.
-          */}
-          <T variant="caption" style={{ marginTop: -space.sm, marginBottom: space.md }}>
-            An expense at or above this share of your expected monthly expenses gets flagged for review.
-          </T>
-          {error ? <ErrorNote>{error}</ErrorNote> : null}
-          <Button title={existing ? "Save changes" : "Create business"} variant="primary" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
-        </Card>
-      </ScrollView>
+            <Field
+              ref={typeRef}
+              label="Type"
+              value={form.type}
+              onChangeText={set("type")}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => fundsRef.current?.focus()}
+            />
+            <Field
+              ref={fundsRef}
+              label="Available business funds (PHP)"
+              value={form.availableFunds}
+              onChangeText={set("availableFunds")}
+              keyboardType="decimal-pad"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => monthlyRef.current?.focus()}
+            />
+            <T variant="caption" style={{ marginTop: -space.sm, marginBottom: space.md }}>
+              The money you have on hand for the business right now.
+            </T>
+            <Field
+              ref={monthlyRef}
+              label="Expected monthly expenses (PHP)"
+              value={form.expectedMonthlyExpenses}
+              onChangeText={set("expectedMonthlyExpenses")}
+              keyboardType="decimal-pad"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => operatingDaysRef.current?.focus()}
+            />
+            <T variant="caption" style={{ marginTop: -space.sm, marginBottom: space.md }}>
+              Roughly what a normal month costs you. This drives your daily sales target.
+            </T>
+            <Field
+              ref={operatingDaysRef}
+              label="Operating days per month"
+              value={form.operatingDays}
+              onChangeText={set("operatingDays")}
+              keyboardType="number-pad"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => thresholdRef.current?.focus()}
+            />
+            <Field
+              ref={thresholdRef}
+              label="Large-expense threshold (%)"
+              value={form.largeExpenseThresholdPercent}
+              onChangeText={set("largeExpenseThresholdPercent")}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              // Mirrors the button's own `loading` guard: a second submit while
+              // the first is in flight would create two businesses.
+              onSubmitEditing={() => {
+                if (!busy) submit();
+              }}
+            />
+            {/*
+              Stated as a share of expected monthly expenses because that is
+              literally the comparison the server makes — largeExpenseThresholdFor
+              multiplies the two. "Bigger than usual" would be a different rule
+              that nothing in the code implements.
+            */}
+            <T variant="caption" style={{ marginTop: -space.sm, marginBottom: space.md }}>
+              An expense at or above this share of your expected monthly expenses gets flagged for review.
+            </T>
+            {error ? <ErrorNote>{error}</ErrorNote> : null}
+            <Button title={existing ? "Save changes" : "Create business"} variant="primary" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
+          </Card>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
@@ -306,6 +369,16 @@ export function ProfileScreen() {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /*
+   * Two separate chains, because this screen holds two independent forms with
+   * two submit handlers. The profile card's last field must NOT hand focus to
+   * the security card — jumping from a phone number into "Current password"
+   * would suggest the two are saved together, and they are not.
+   */
+  const lastNameRef = useRef<TextInput>(null);
+  const phoneRef = useRef<TextInput>(null);
+  const nextPwRef = useRef<TextInput>(null);
+  const confirmPwRef = useRef<TextInput>(null);
 
   if (!profile) return null;
 
@@ -345,46 +418,116 @@ export function ProfileScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2, gap: space.lg }}>
-        <Card>
-          <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>My profile</T>
-          {/*
-            The upload endpoint existed long before mobile had any way to
-            reach it, so a phone could display a photo set on the web app but
-            never set one — the wrong way round, since the phone is where the
-            camera and the photo library are.
-          */}
-          <PhotoUpload
-            url={profile.avatarUrl}
-            endpoint="/auth/me/avatar"
-            label="Profile photo"
-            onUploaded={(updated) => setProfileFromServer(updated as Profile)}
-          />
-          <Field label="First name" value={form.firstName} onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))} />
-          <Field label="Last name" value={form.lastName} onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))} />
-          <Field label="Phone number" value={form.phoneNumber} onChangeText={(v) => setForm((f) => ({ ...f, phoneNumber: v }))} keyboardType="phone-pad" />
-          <View style={{ marginBottom: space.md }}>
-            <T variant="label" style={{ marginBottom: 4 }}>Email</T>
-            <T style={{ fontSize: 14, color: ink[500] }}>{profile.email}</T>
-          </View>
-          {msg ? <T style={{ color: brand[700], fontSize: 14, marginBottom: space.sm }}>{msg}</T> : null}
-          <Button title="Save changes" variant="primary" onPress={saveProfile} loading={busy} />
-        </Card>
+      {/*
+        Both cards on this screen are forms, so the keyboard is avoided for
+        the whole scroll view rather than per card. `padding` is iOS-only;
+        Android already resizes the window for the keyboard on its own.
+      */}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2, gap: space.lg }}>
+          <Card>
+            <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>My profile</T>
+            {/*
+              The upload endpoint existed long before mobile had any way to
+              reach it, so a phone could display a photo set on the web app but
+              never set one — the wrong way round, since the phone is where the
+              camera and the photo library are.
+            */}
+            <PhotoUpload
+              url={profile.avatarUrl}
+              endpoint="/auth/me/avatar"
+              label="Profile photo"
+              onUploaded={(updated) => setProfileFromServer(updated as Profile)}
+            />
+            <Field
+              label="First name"
+              value={form.firstName}
+              onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
+              autoComplete="given-name"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => lastNameRef.current?.focus()}
+            />
+            <Field
+              ref={lastNameRef}
+              label="Last name"
+              value={form.lastName}
+              onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
+              autoComplete="family-name"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => phoneRef.current?.focus()}
+            />
+            {/*
+              The chain ends here rather than continuing into the security card
+              below. A phone pad also has no return key on iOS, so this one is
+              reached by tap there and the button is the only way out.
+            */}
+            <Field
+              ref={phoneRef}
+              label="Phone number"
+              value={form.phoneNumber}
+              onChangeText={(v) => setForm((f) => ({ ...f, phoneNumber: v }))}
+              keyboardType="phone-pad"
+              autoComplete="tel"
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                if (!busy) saveProfile();
+              }}
+            />
+            <View style={{ marginBottom: space.md }}>
+              <T variant="label" style={{ marginBottom: 4 }}>Email</T>
+              <T style={{ fontSize: 14, color: ink[500] }}>{profile.email}</T>
+            </View>
+            {msg ? <T style={{ color: brand[700], fontSize: 14, marginBottom: space.sm }}>{msg}</T> : null}
+            <Button title="Save changes" variant="primary" onPress={saveProfile} loading={busy} />
+          </Card>
 
-        <Card>
-          <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Security</T>
-          <T variant="caption" style={{ marginBottom: space.md }}>
-            Changing your password signs you out on every device, including this one.
-          </T>
-          <Field label="Current password" value={pw.current} onChangeText={(v) => setPw((p) => ({ ...p, current: v }))} secureTextEntry />
-          <Field label="New password" value={pw.next} onChangeText={(v) => setPw((p) => ({ ...p, next: v }))} secureTextEntry />
-          <Field label="Confirm new password" value={pw.confirm} onChangeText={(v) => setPw((p) => ({ ...p, confirm: v }))} secureTextEntry />
-          {error ? <ErrorNote>{error}</ErrorNote> : null}
-          <Button title="Change password" onPress={submitPassword} loading={busy} style={{ marginTop: space.sm }} />
-        </Card>
+          <Card>
+            <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Security</T>
+            <T variant="caption" style={{ marginBottom: space.md }}>
+              Changing your password signs you out on every device, including this one.
+            </T>
+            <Field
+              label="Current password"
+              value={pw.current}
+              onChangeText={(v) => setPw((p) => ({ ...p, current: v }))}
+              secureTextEntry
+              autoComplete="password"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => nextPwRef.current?.focus()}
+            />
+            <Field
+              ref={nextPwRef}
+              label="New password"
+              value={pw.next}
+              onChangeText={(v) => setPw((p) => ({ ...p, next: v }))}
+              secureTextEntry
+              autoComplete="new-password"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => confirmPwRef.current?.focus()}
+            />
+            <Field
+              ref={confirmPwRef}
+              label="Confirm new password"
+              value={pw.confirm}
+              onChangeText={(v) => setPw((p) => ({ ...p, confirm: v }))}
+              secureTextEntry
+              autoComplete="new-password"
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                if (!busy) submitPassword();
+              }}
+            />
+            {error ? <ErrorNote>{error}</ErrorNote> : null}
+            <Button title="Change password" onPress={submitPassword} loading={busy} style={{ marginTop: space.sm }} />
+          </Card>
 
-        <Button title="Log out" variant="danger" onPress={logout} />
-      </ScrollView>
+          <Button title="Log out" variant="danger" onPress={logout} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

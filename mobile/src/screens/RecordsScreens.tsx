@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert as RNAlert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -205,6 +207,13 @@ export function RecordsScreen({ navigation }: any) {
    * there is one place a confirmation can appear and one rule for how long.
    */
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * The search box is a raw TextInput rather than a `Field` — it has no label
+   * and sits inside a card with the type switcher — so it does not inherit
+   * `Field`'s focus border and has to carry its own. Same rule as `Field`:
+   * colour changes, width does not, so the card below it never shifts.
+   */
+  const [keywordFocused, setKeywordFocused] = useState(false);
 
   // Typing "groceries" used to fire nine requests, each racing the last.
   const searchTerm = useDebounced(keyword);
@@ -375,10 +384,16 @@ export function RecordsScreen({ navigation }: any) {
             onChangeText={setKeyword}
             placeholder="Search descriptions…"
             placeholderTextColor={ink[400]}
+            // The list filters as you type, so there is nothing for the return
+            // key to submit — "search" just closes the keyboard over the
+            // results the box has already produced.
+            returnKeyType="search"
+            onFocus={() => setKeywordFocused(true)}
+            onBlur={() => setKeywordFocused(false)}
             style={{
               minHeight: TAP,
               borderWidth: 1,
-              borderColor: ink[200],
+              borderColor: keywordFocused ? brand[600] : ink[200],
               borderRadius: radius.md,
               paddingHorizontal: space.md,
               fontSize: 15,
@@ -633,6 +648,9 @@ function CategoryPicker({
 }) {
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Raw TextInput, so the focus border `Field` gives every other input is
+   *  wired here by hand rather than inherited. */
+  const [nameFocused, setNameFocused] = useState(false);
 
   async function create() {
     if (!newName.trim()) return;
@@ -672,11 +690,23 @@ function CategoryPicker({
           onChangeText={setNewName}
           placeholder="New category name"
           placeholderTextColor={ink[400]}
+          // Deliberately NOT part of the surrounding form's next-field chain.
+          // This box belongs to a side errand — naming a category — and its
+          // return key does what the "Add" button beside it does. Handing the
+          // keyboard on to Description instead would abandon a half-typed
+          // category name. The guard mirrors the button's own
+          // `loading` / `disabled` so return cannot post a second time.
+          returnKeyType="done"
+          onSubmitEditing={() => {
+            if (!busy && newName.trim()) create();
+          }}
+          onFocus={() => setNameFocused(true)}
+          onBlur={() => setNameFocused(false)}
           style={{
             flex: 1,
             minHeight: TAP,
             borderWidth: 1,
-            borderColor: ink[200],
+            borderColor: nameFocused ? brand[600] : ink[200],
             borderRadius: radius.md,
             paddingHorizontal: space.md,
             fontSize: 15,
@@ -700,6 +730,13 @@ export function AddExpenseScreen({ navigation }: any) {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /*
+   * The category picker and the date field are pressables, not text inputs —
+   * they cannot carry a return key at all. So the keyboard chain starts at the
+   * first field that actually has one and runs to the end of the form.
+   */
+  const vendorRef = useRef<TextInput>(null);
+  const amountRef = useRef<TextInput>(null);
 
   if (!selected) return null;
 
@@ -732,24 +769,71 @@ export function AddExpenseScreen({ navigation }: any) {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
-        <Card>
-          <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>Add expense</T>
-          <CategoryPicker
-            categories={categories}
-            value={categoryId}
-            onChange={setCategoryId}
-            onCreated={refreshCategories}
-            businessProfileId={selected.id}
-          />
-          <DateField label="Date" value={date} onChange={setDate} />
-          <Field label="Description" value={description} onChangeText={setDescription} placeholder="e.g. Rice sacks" />
-          <Field label="Vendor (optional)" value={vendor} onChangeText={setVendor} />
-          <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
-          {error ? <ErrorNote>{error}</ErrorNote> : null}
-          <Button title="Save expense" variant="primary" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
-        </Card>
-      </ScrollView>
+      {/*
+        Amount is the last field on the card and the keyboard is tall, so
+        without this it opens straight over the field being typed into. Same
+        shell AuthShell uses: `padding` on iOS, nothing on Android, where the
+        system already resizes the window.
+      */}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
+          <Card>
+            <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>Add expense</T>
+            <CategoryPicker
+              categories={categories}
+              value={categoryId}
+              onChange={setCategoryId}
+              onCreated={refreshCategories}
+              businessProfileId={selected.id}
+            />
+            <DateField label="Date" value={date} onChange={setDate} />
+            {/*
+              `submitBehavior="submit"` keeps the keyboard up between fields so
+              it does not flicker shut and open on every hop. It is the
+              replacement for the prop React Native 0.86 deprecated; see the
+              same note on the login form in AuthScreens.
+            */}
+            <Field
+              label="Description"
+              value={description}
+              onChangeText={setDescription}
+              placeholder="e.g. Rice sacks"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => vendorRef.current?.focus()}
+            />
+            <Field
+              ref={vendorRef}
+              label="Vendor (optional)"
+              value={vendor}
+              onChangeText={setVendor}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => amountRef.current?.focus()}
+            />
+            {/*
+              A decimal keypad has no return key on iOS, so this hand-off only
+              fires on Android. Wired anyway: it costs nothing where it does
+              not apply, and the Save button is the reliable path on both.
+            */}
+            <Field
+              ref={amountRef}
+              label="Amount (PHP)"
+              value={amount}
+              onChangeText={setAmount}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              // Mirrors the button's own `loading` guard, so a return key
+              // pressed twice cannot post the expense twice.
+              onSubmitEditing={() => {
+                if (!busy) submit();
+              }}
+            />
+            {error ? <ErrorNote>{error}</ErrorNote> : null}
+            <Button title="Save expense" variant="primary" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
+          </Card>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
@@ -763,6 +847,8 @@ export function AddSalesScreen({ navigation }: any) {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The date field is a pressable, so the chain is Description → Amount.
+  const amountRef = useRef<TextInput>(null);
 
   if (!selected) return null;
 
@@ -790,19 +876,39 @@ export function AddSalesScreen({ navigation }: any) {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: space.lg }}>
-        <Card>
-          <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Add sales reference</T>
-          <T variant="caption" style={{ marginBottom: space.md }}>
-            A sales figure you record for monitoring — not a receipt for a customer.
-          </T>
-          <DateField label="Date" value={date} onChange={setDate} />
-          <Field label="Description" value={description} onChangeText={setDescription} />
-          <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
-          {error ? <ErrorNote>{error}</ErrorNote> : null}
-          <Button title="Save sales record" variant="primary" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
-        </Card>
-      </ScrollView>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: space.lg }}>
+          <Card>
+            <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Add sales reference</T>
+            <T variant="caption" style={{ marginBottom: space.md }}>
+              A sales figure you record for monitoring — not a receipt for a customer.
+            </T>
+            <DateField label="Date" value={date} onChange={setDate} />
+            <Field
+              label="Description"
+              value={description}
+              onChangeText={setDescription}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => amountRef.current?.focus()}
+            />
+            {/* Decimal keypad: the return key exists on Android only. */}
+            <Field
+              ref={amountRef}
+              label="Amount (PHP)"
+              value={amount}
+              onChangeText={setAmount}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                if (!busy) submit();
+              }}
+            />
+            {error ? <ErrorNote>{error}</ErrorNote> : null}
+            <Button title="Save sales record" variant="primary" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
+          </Card>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
@@ -913,6 +1019,21 @@ export function ScanReceiptScreen({ navigation, route }: any) {
   >([]);
   /** The extracted line currently being removed, so its row can show progress. */
   const [removingItemId, setRemovingItemId] = useState<number | null>(null);
+
+  /** The review form's chain: Description → Vendor → Amount. */
+  const vendorRef = useRef<TextInput>(null);
+  const amountRef = useRef<TextInput>(null);
+  /**
+   * The added-item rows chain within themselves — name hands off to the
+   * amount on the SAME row, never to the next row's.
+   *
+   * One ref per row, held in a map keyed by the row's own `key`, because the
+   * rows are produced by a `.map()`: a single shared ref would be overwritten
+   * by every row rendered after the first, and typing in row one would jump
+   * the cursor to the bottom of the receipt. The callback clears its entry on
+   * unmount so removing a row does not leave a dead node behind.
+   */
+  const addedAmountRefs = useRef<Record<string, TextInput | null>>({});
 
   /*
    * The Scan tab button navigates here with autoLaunch: true, and the whole
@@ -1185,451 +1306,501 @@ export function ScanReceiptScreen({ navigation, route }: any) {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
-        {!scan ? (
-          <Card>
-            <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Scan a receipt</T>
-            <T variant="caption" style={{ marginBottom: space.lg }}>
-              Take a photo and FinSight will read the date, store and amount. You check them before anything is saved.
-            </T>
-            {busy ? (
-              <View style={{ alignItems: "center", paddingVertical: space.xl }}>
-                <ActivityIndicator color={brand[600]} />
-                <T variant="caption" style={{ marginTop: space.sm }}>Reading the receipt…</T>
-              </View>
-            ) : (
-              <View style={{ gap: space.sm }}>
-                <Button title="Take a photo" variant="primary" onPress={takePhoto} />
-                <Button title="Choose from gallery" variant="secondary" onPress={pickPhoto} />
-              </View>
-            )}
-            {error ? <View style={{ marginTop: space.md }}><ErrorNote>{error}</ErrorNote></View> : null}
-          </Card>
-        ) : (
-          <Card>
-            <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Check the details</T>
-            {/*
-              A receipt whose TEXT could not be read at all is a different
-              claim from one that was read imperfectly, and it gets different
-              words. Normally the server reads characters and parses them by
-              rule; here it could not, so it asked a model what the photograph
-              appeared to show. That is interpretation, not reading, and the
-              owner is entitled to know which produced the numbers they are
-              about to accept — the same warning the web confirm screen shows.
-            */}
-            {/*
-              The photograph itself, before anything read from it. First
-              because it has the cheapest answer of any warning on this screen
-              and the camera is one tap away — on a phone, retaking is nearly
-              always faster than correcting.
-            */}
-            {scan.captureQuality?.tooBlurredToTrust ? (
-              <View style={{ marginBottom: space.md, marginTop: space.sm }}>
-                <Callout tone="warn">
-                  This photo came out blurry. FinSight read it anyway, but blurred print is where it makes
-                  the most mistakes — if you still have the receipt, taking another picture is usually
-                  quicker than correcting the figures below.
-                </Callout>
-              </View>
-            ) : null}
-
-            {scan.items?.some((i) => i.extractedByVision) ? (
-              <View style={{ marginBottom: space.md, marginTop: space.sm }}>
-                <Callout tone="warn">
-                  FinSight couldn't read this receipt's text. These values were interpreted from the photo
-                  by AI, so treat them as a first guess rather than something read off the paper — check
-                  every one, including the total, against the photo.
-                </Callout>
-              </View>
-            ) : scan.visionAssisted ? (
-              /*
-                The amounts here WERE read off the paper and they add up to the
-                printed total; only the wording beside them came from a model.
-                Showing the stronger warning would be false, and false in the
-                direction that teaches owners to skip warnings. Same three-way
-                split as the web confirm screen.
-              */
-              <View style={{ marginBottom: space.md, marginTop: space.sm }}>
-                <Callout tone="warn">
-                  Some item names were filled in by AI. The amounts were read from the receipt and match
-                  its total, but the printing was faint enough that FinSight wasn't sure of the wording —
-                  check the item names against the photo.
-                </Callout>
-              </View>
-            ) : (
-              <T variant="caption" style={{ marginBottom: space.md }}>
-                FinSight filled these in from the photo. Correct anything that's wrong — nothing is saved
-                until you confirm.
+      {/*
+        The longest form in the app: a review card, then a row per item, then
+        the reconciliation question. Typing into a field near the bottom used
+        to put it behind the keyboard with no way to scroll it back into view.
+        The ScrollView keeps its own contentContainerStyle and paddingBottom —
+        this only wraps it, so scrolling behaves exactly as before when no
+        keyboard is up.
+      */}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
+          {!scan ? (
+            <Card>
+              <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Scan a receipt</T>
+              <T variant="caption" style={{ marginBottom: space.lg }}>
+                Take a photo and FinSight will read the date, store and amount. You check them before anything is saved.
               </T>
-            )}
-            {!isItemised ? (
-              <CategoryPicker
-                categories={categories}
-                value={categoryId}
-                onChange={setCategoryId}
-                onCreated={refreshCategories}
-                businessProfileId={selected.id}
+              {busy ? (
+                <View style={{ alignItems: "center", paddingVertical: space.xl }}>
+                  <ActivityIndicator color={brand[600]} />
+                  <T variant="caption" style={{ marginTop: space.sm }}>Reading the receipt…</T>
+                </View>
+              ) : (
+                <View style={{ gap: space.sm }}>
+                  <Button title="Take a photo" variant="primary" onPress={takePhoto} />
+                  <Button title="Choose from gallery" variant="secondary" onPress={pickPhoto} />
+                </View>
+              )}
+              {error ? <View style={{ marginTop: space.md }}><ErrorNote>{error}</ErrorNote></View> : null}
+            </Card>
+          ) : (
+            <Card>
+              <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Check the details</T>
+              {/*
+                A receipt whose TEXT could not be read at all is a different
+                claim from one that was read imperfectly, and it gets different
+                words. Normally the server reads characters and parses them by
+                rule; here it could not, so it asked a model what the photograph
+                appeared to show. That is interpretation, not reading, and the
+                owner is entitled to know which produced the numbers they are
+                about to accept — the same warning the web confirm screen shows.
+              */}
+              {/*
+                The photograph itself, before anything read from it. First
+                because it has the cheapest answer of any warning on this screen
+                and the camera is one tap away — on a phone, retaking is nearly
+                always faster than correcting.
+              */}
+              {scan.captureQuality?.tooBlurredToTrust ? (
+                <View style={{ marginBottom: space.md, marginTop: space.sm }}>
+                  <Callout tone="warn">
+                    This photo came out blurry. FinSight read it anyway, but blurred print is where it makes
+                    the most mistakes — if you still have the receipt, taking another picture is usually
+                    quicker than correcting the figures below.
+                  </Callout>
+                </View>
+              ) : null}
+
+              {scan.items?.some((i) => i.extractedByVision) ? (
+                <View style={{ marginBottom: space.md, marginTop: space.sm }}>
+                  <Callout tone="warn">
+                    FinSight couldn't read this receipt's text. These values were interpreted from the photo
+                    by AI, so treat them as a first guess rather than something read off the paper — check
+                    every one, including the total, against the photo.
+                  </Callout>
+                </View>
+              ) : scan.visionAssisted ? (
+                /*
+                  The amounts here WERE read off the paper and they add up to the
+                  printed total; only the wording beside them came from a model.
+                  Showing the stronger warning would be false, and false in the
+                  direction that teaches owners to skip warnings. Same three-way
+                  split as the web confirm screen.
+                */
+                <View style={{ marginBottom: space.md, marginTop: space.sm }}>
+                  <Callout tone="warn">
+                    Some item names were filled in by AI. The amounts were read from the receipt and match
+                    its total, but the printing was faint enough that FinSight wasn't sure of the wording —
+                    check the item names against the photo.
+                  </Callout>
+                </View>
+              ) : (
+                <T variant="caption" style={{ marginBottom: space.md }}>
+                  FinSight filled these in from the photo. Correct anything that's wrong — nothing is saved
+                  until you confirm.
+                </T>
+              )}
+              {!isItemised ? (
+                <CategoryPicker
+                  categories={categories}
+                  value={categoryId}
+                  onChange={setCategoryId}
+                  onCreated={refreshCategories}
+                  businessProfileId={selected.id}
+                />
+              ) : null}
+              <DateField label="Date" value={date} onChange={setDate} />
+              <Field
+                label="Description"
+                value={description}
+                onChangeText={setDescription}
+                returnKeyType="next"
+                submitBehavior="submit"
+                onSubmitEditing={() => vendorRef.current?.focus()}
               />
-            ) : null}
-            <DateField label="Date" value={date} onChange={setDate} />
-            <Field label="Description" value={description} onChangeText={setDescription} />
-            <Field label="Vendor" value={vendor} onChangeText={setVendor} />
-            <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+              <Field
+                ref={vendorRef}
+                label="Vendor"
+                value={vendor}
+                onChangeText={setVendor}
+                returnKeyType="next"
+                submitBehavior="submit"
+                onSubmitEditing={() => amountRef.current?.focus()}
+              />
+              {/*
+                "done" closes the keyboard rather than confirming. Amount is the
+                last thing to TYPE but not the last thing to decide — an itemised
+                receipt still has a category per line and possibly a difference to
+                account for below. A return key that saved here would skip past
+                the review this screen exists for.
+              */}
+              <Field
+                ref={amountRef}
+                label="Amount (PHP)"
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+              />
 
-            {isItemised ? (
-              <View style={{ marginTop: space.sm }}>
-                <T variant="label" style={{ color: ink[700], marginBottom: 4 }}>
-                  Items on this receipt
-                </T>
-                <T variant="caption" style={{ marginBottom: space.sm }}>
-                  FinSight {items.some((i) => i.extractedByVision) ? "found" : "read"} {items.length} items.
-                  Put each one in a category — check them against the photo and change any that are wrong.
-                </T>
-
-                {items.map((item) => (
-                  <View
-                    key={item.id}
-                    style={{
-                      borderTopWidth: 1,
-                      borderTopColor: paper[100],
-                      paddingVertical: space.sm,
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm }}>
-                      <T style={{ flex: 1, fontSize: 14, color: ink[900] }} numberOfLines={2}>
-                        {item.name}
-                        {item.quantity != null ? (
-                          <T variant="caption"> × {item.quantity}</T>
-                        ) : null}
-                      </T>
-                      <Money value={item.amount} size={14} weight="semibold" />
-                      {/* Removing a line OCR should never have read. */}
-                      <Pressable
-                        onPress={() => removeScannedItem(item.id)}
-                        disabled={removingItemId === item.id}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove ${item.name} — this was not a purchase`}
-                        style={{
-                          minWidth: TAP - 12,
-                          minHeight: TAP - 12,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          opacity: removingItemId === item.id ? 0.4 : 1,
-                        }}
-                      >
-                        <T style={{ fontSize: 16, color: ink[400] }}>×</T>
-                      </Pressable>
-                    </View>
-
-                    {/*
-                      A line a model inferred from a photograph must not look
-                      like one read off text. Marked per row, because the row
-                      is where the owner actually decides.
-                    */}
-                    {item.extractedByVision ? (
-                      <T variant="caption" style={{ marginTop: 2, color: statusText.warning }}>
-                        ✦ AI read this from the photo
-                      </T>
-                    ) : null}
-
-                    {/*
-                      The server names the line it is least sure of when the
-                      items do not add up. Pointing at one row beats asking the
-                      owner to re-read all nine.
-                    */}
-                    {scan.suspectItemId === item.id ? (
-                      <T variant="caption" style={{ marginTop: 2, color: statusText.warning }}>
-                        ⚠ Check this one first — the items don't add up to the total
-                      </T>
-                    ) : typeof item.amountConfidence === "number" && item.amountConfidence < 75 ? (
-                      <T variant="caption" style={{ marginTop: 2 }}>
-                        FinSight was {item.amountConfidence}% sure of this amount
-                      </T>
-                    ) : null}
-
-                    <View style={{ marginTop: space.sm }}>
-                      <CategoryChips
-                        categories={categories}
-                        value={itemCategories[item.id] ?? null}
-                        // No haptic here: the chip fires its own, and firing a
-                        // second would buzz twice for one tap.
-                        onChange={(id) => setItemCategories((prev) => ({ ...prev, [item.id]: id }))}
-                        label={item.name}
-                      />
-                    </View>
-
-                    {/*
-                      A category FinSight thinks is missing.
-
-                      Phrased as an offer rather than an assignment, because
-                      nothing is created until the owner says so — inventing
-                      categories in someone's books is not FinSight's call.
-                    */}
-                    {suggestedNewCategoryFor(item) ? (
-                      <Pressable
-                        onPress={() => acceptSuggestedCategory(item.suggestedCategoryName!)}
-                        disabled={creatingCategoryFor !== null}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Create the category ${item.suggestedCategoryName} and file ${item.name} under it`}
-                        style={{ marginTop: space.sm, opacity: creatingCategoryFor !== null ? 0.5 : 1 }}
-                      >
-                        <T variant="caption" style={{ color: brand[700] }}>
-                          {creatingCategoryFor === item.suggestedCategoryName
-                            ? "Creating…"
-                            : `✦ Nothing fits this. Create "${item.suggestedCategoryName}"?`}
-                        </T>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ))}
-
-                {/*
-                  Lines the owner is adding because OCR missed them.
-
-                  Kept visually distinct from the extracted rows: the text
-                  above claims FinSight READ these items, and that claim must
-                  not quietly extend to a row a human typed. The same
-                  distinction is stored server-side (addedByOwner) so it
-                  survives onto the saved record.
-                */}
-                {addedItems.map((added, i) => (
-                  <View
-                    key={added.key}
-                    style={{
-                      borderTopWidth: 1,
-                      borderTopColor: paper[100],
-                      backgroundColor: paper[50],
-                      paddingVertical: space.sm,
-                      paddingHorizontal: space.sm,
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                      <T variant="caption">You're adding this line</T>
-                      <Pressable
-                        onPress={() => setAddedItems((prev) => prev.filter((x) => x.key !== added.key))}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove added item ${i + 1}`}
-                        style={{ minWidth: TAP - 12, minHeight: TAP - 16, alignItems: "flex-end" }}
-                      >
-                        <T style={{ fontSize: 16, color: ink[400] }}>×</T>
-                      </Pressable>
-                    </View>
-                    <Field
-                      label="Item name"
-                      value={added.name}
-                      onChangeText={(v: string) =>
-                        setAddedItems((prev) => prev.map((x) => (x.key === added.key ? { ...x, name: v } : x)))
-                      }
-                    />
-                    <Field
-                      label="Amount (PHP)"
-                      value={added.amount}
-                      keyboardType="decimal-pad"
-                      onChangeText={(v: string) =>
-                        setAddedItems((prev) => prev.map((x) => (x.key === added.key ? { ...x, amount: v } : x)))
-                      }
-                    />
-                    <CategoryChips
-                      categories={categories}
-                      value={added.categoryId}
-                      onChange={(id) =>
-                        setAddedItems((prev) =>
-                          prev.map((x) => (x.key === added.key ? { ...x, categoryId: id } : x)),
-                        )
-                      }
-                      label={added.name || `added item ${i + 1}`}
-                    />
-                  </View>
-                ))}
-
-                <Pressable
-                  onPress={() =>
-                    setAddedItems((prev) => [
-                      ...prev,
-                      { key: `added-${Date.now()}-${prev.length}`, name: "", amount: "", categoryId: null },
-                    ])
-                  }
-                  accessibilityRole="button"
-                  style={{ paddingVertical: space.sm }}
-                >
-                  <T variant="caption" style={{ color: brand[700] }}>
-                    + An item is missing — add it to the list
+              {isItemised ? (
+                <View style={{ marginTop: space.sm }}>
+                  <T variant="label" style={{ color: ink[700], marginBottom: 4 }}>
+                    Items on this receipt
                   </T>
-                </Pressable>
+                  <T variant="caption" style={{ marginBottom: space.sm }}>
+                    FinSight {items.some((i) => i.extractedByVision) ? "found" : "read"} {items.length} items.
+                    Put each one in a category — check them against the photo and change any that are wrong.
+                  </T>
 
-                {/* What actually gets saved — one record per category group. */}
-                <View
-                  style={{
-                    marginTop: space.md,
-                    padding: space.md,
-                    borderRadius: radius.md,
-                    backgroundColor: paper[100],
-                  }}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: space.sm,
-                      marginBottom: space.xs,
-                    }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <T variant="label" style={{ color: ink[700] }}>
-                        What gets saved
-                      </T>
-                      {scan.ocrConfidence != null ? (
-                        <T variant="caption">Reading confidence {scan.ocrConfidence}%</T>
+                  {items.map((item) => (
+                    <View
+                      key={item.id}
+                      style={{
+                        borderTopWidth: 1,
+                        borderTopColor: paper[100],
+                        paddingVertical: space.sm,
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm }}>
+                        <T style={{ flex: 1, fontSize: 14, color: ink[900] }} numberOfLines={2}>
+                          {item.name}
+                          {item.quantity != null ? (
+                            <T variant="caption"> × {item.quantity}</T>
+                          ) : null}
+                        </T>
+                        <Money value={item.amount} size={14} weight="semibold" />
+                        {/* Removing a line OCR should never have read. */}
+                        <Pressable
+                          onPress={() => removeScannedItem(item.id)}
+                          disabled={removingItemId === item.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${item.name} — this was not a purchase`}
+                          style={{
+                            minWidth: TAP - 12,
+                            minHeight: TAP - 12,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            opacity: removingItemId === item.id ? 0.4 : 1,
+                          }}
+                        >
+                          <T style={{ fontSize: 16, color: ink[400] }}>×</T>
+                        </Pressable>
+                      </View>
+
+                      {/*
+                        A line a model inferred from a photograph must not look
+                        like one read off text. Marked per row, because the row
+                        is where the owner actually decides.
+                      */}
+                      {item.extractedByVision ? (
+                        <T variant="caption" style={{ marginTop: 2, color: statusText.warning }}>
+                          ✦ AI read this from the photo
+                        </T>
+                      ) : null}
+
+                      {/*
+                        The server names the line it is least sure of when the
+                        items do not add up. Pointing at one row beats asking the
+                        owner to re-read all nine.
+                      */}
+                      {scan.suspectItemId === item.id ? (
+                        <T variant="caption" style={{ marginTop: 2, color: statusText.warning }}>
+                          ⚠ Check this one first — the items don't add up to the total
+                        </T>
+                      ) : typeof item.amountConfidence === "number" && item.amountConfidence < 75 ? (
+                        <T variant="caption" style={{ marginTop: 2 }}>
+                          FinSight was {item.amountConfidence}% sure of this amount
+                        </T>
+                      ) : null}
+
+                      <View style={{ marginTop: space.sm }}>
+                        <CategoryChips
+                          categories={categories}
+                          value={itemCategories[item.id] ?? null}
+                          // No haptic here: the chip fires its own, and firing a
+                          // second would buzz twice for one tap.
+                          onChange={(id) => setItemCategories((prev) => ({ ...prev, [item.id]: id }))}
+                          label={item.name}
+                        />
+                      </View>
+
+                      {/*
+                        A category FinSight thinks is missing.
+
+                        Phrased as an offer rather than an assignment, because
+                        nothing is created until the owner says so — inventing
+                        categories in someone's books is not FinSight's call.
+                      */}
+                      {suggestedNewCategoryFor(item) ? (
+                        <Pressable
+                          onPress={() => acceptSuggestedCategory(item.suggestedCategoryName!)}
+                          disabled={creatingCategoryFor !== null}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Create the category ${item.suggestedCategoryName} and file ${item.name} under it`}
+                          style={{ marginTop: space.sm, opacity: creatingCategoryFor !== null ? 0.5 : 1 }}
+                        >
+                          <T variant="caption" style={{ color: brand[700] }}>
+                            {creatingCategoryFor === item.suggestedCategoryName
+                              ? "Creating…"
+                              : `✦ Nothing fits this. Create "${item.suggestedCategoryName}"?`}
+                          </T>
+                        </Pressable>
                       ) : null}
                     </View>
-                    {/*
-                      Whether the receipt balances, stated as a badge rather
-                      than left for the owner to work out by comparing two
-                      numbers in different places. Colour is never the only
-                      signal — the badge carries a glyph and words.
-                    */}
+                  ))}
+
+                  {/*
+                    Lines the owner is adding because OCR missed them.
+
+                    Kept visually distinct from the extracted rows: the text
+                    above claims FinSight READ these items, and that claim must
+                    not quietly extend to a row a human typed. The same
+                    distinction is stored server-side (addedByOwner) so it
+                    survives onto the saved record.
+                  */}
+                  {addedItems.map((added, i) => (
+                    <View
+                      key={added.key}
+                      style={{
+                        borderTopWidth: 1,
+                        borderTopColor: paper[100],
+                        backgroundColor: paper[50],
+                        paddingVertical: space.sm,
+                        paddingHorizontal: space.sm,
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                        <T variant="caption">You're adding this line</T>
+                        <Pressable
+                          onPress={() => setAddedItems((prev) => prev.filter((x) => x.key !== added.key))}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove added item ${i + 1}`}
+                          style={{ minWidth: TAP - 12, minHeight: TAP - 16, alignItems: "flex-end" }}
+                        >
+                          <T style={{ fontSize: 16, color: ink[400] }}>×</T>
+                        </Pressable>
+                      </View>
+                      <Field
+                        label="Item name"
+                        value={added.name}
+                        onChangeText={(v: string) =>
+                          setAddedItems((prev) => prev.map((x) => (x.key === added.key ? { ...x, name: v } : x)))
+                        }
+                        returnKeyType="next"
+                        submitBehavior="submit"
+                        onSubmitEditing={() => addedAmountRefs.current[added.key]?.focus()}
+                      />
+                      <Field
+                        ref={(el) => {
+                          if (el) addedAmountRefs.current[added.key] = el;
+                          else delete addedAmountRefs.current[added.key];
+                        }}
+                        label="Amount (PHP)"
+                        value={added.amount}
+                        keyboardType="decimal-pad"
+                        // The row ends at its category chips, which are pressables
+                        // and cannot be focused from a keyboard — so this closes
+                        // the keyboard and leaves the chips visible underneath.
+                        returnKeyType="done"
+                        onChangeText={(v: string) =>
+                          setAddedItems((prev) => prev.map((x) => (x.key === added.key ? { ...x, amount: v } : x)))
+                        }
+                      />
+                      <CategoryChips
+                        categories={categories}
+                        value={added.categoryId}
+                        onChange={(id) =>
+                          setAddedItems((prev) =>
+                            prev.map((x) => (x.key === added.key ? { ...x, categoryId: id } : x)),
+                          )
+                        }
+                        label={added.name || `added item ${i + 1}`}
+                      />
+                    </View>
+                  ))}
+
+                  <Pressable
+                    onPress={() =>
+                      setAddedItems((prev) => [
+                        ...prev,
+                        { key: `added-${Date.now()}-${prev.length}`, name: "", amount: "", categoryId: null },
+                      ])
+                    }
+                    accessibilityRole="button"
+                    style={{ paddingVertical: space.sm }}
+                  >
+                    <T variant="caption" style={{ color: brand[700] }}>
+                      + An item is missing — add it to the list
+                    </T>
+                  </Pressable>
+
+                  {/* What actually gets saved — one record per category group. */}
+                  <View
+                    style={{
+                      marginTop: space.md,
+                      padding: space.md,
+                      borderRadius: radius.md,
+                      backgroundColor: paper[100],
+                    }}
+                  >
                     <View
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        gap: 4,
-                        paddingHorizontal: space.sm,
-                        paddingVertical: 3,
-                        borderRadius: radius.full,
-                        backgroundColor: gap === 0 ? "#eafaf1" : "#fffbeb",
+                        justifyContent: "space-between",
+                        gap: space.sm,
+                        marginBottom: space.xs,
                       }}
                     >
-                      <T
+                      <View style={{ flex: 1 }}>
+                        <T variant="label" style={{ color: ink[700] }}>
+                          What gets saved
+                        </T>
+                        {scan.ocrConfidence != null ? (
+                          <T variant="caption">Reading confidence {scan.ocrConfidence}%</T>
+                        ) : null}
+                      </View>
+                      {/*
+                        Whether the receipt balances, stated as a badge rather
+                        than left for the owner to work out by comparing two
+                        numbers in different places. Colour is never the only
+                        signal — the badge carries a glyph and words.
+                      */}
+                      <View
                         style={{
-                          fontSize: 11,
-                          color: gap === 0 ? statusText.good : statusText.warning,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                          paddingHorizontal: space.sm,
+                          paddingVertical: 3,
+                          borderRadius: radius.full,
+                          backgroundColor: gap === 0 ? "#eafaf1" : "#fffbeb",
                         }}
                       >
-                        {gap === 0
-                          ? "✓ Balances"
-                          : `⚠ ${gap > 0 ? "Short" : "Over"} PHP ${(Math.abs(gap) / 100).toFixed(2)}`}
-                      </T>
+                        <T
+                          style={{
+                            fontSize: 11,
+                            color: gap === 0 ? statusText.good : statusText.warning,
+                          }}
+                        >
+                          {gap === 0
+                            ? "✓ Balances"
+                            : `⚠ ${gap > 0 ? "Short" : "Over"} PHP ${(Math.abs(gap) / 100).toFixed(2)}`}
+                        </T>
+                      </View>
                     </View>
-                  </View>
-                  {itemGroups.map(([catId, g]) => (
-                    <View
-                      key={String(catId)}
-                      style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm, marginTop: 2 }}
+                    {itemGroups.map(([catId, g]) => (
+                      <View
+                        key={String(catId)}
+                        style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm, marginTop: 2 }}
+                      >
+                        <T style={{ flex: 1, fontSize: 13, color: catId == null ? statusText.warning : ink[700] }}>
+                          {catId == null
+                            ? "Not categorised yet"
+                            : (categories.find((c) => c.id === catId)?.name ?? "Category")}
+                          <T variant="caption"> ({g.count} item{g.count === 1 ? "" : "s"})</T>
+                        </T>
+                        <Money value={g.total} size={13} />
+                      </View>
+                    ))}
+                    <T
+                      variant="caption"
+                      style={{ marginTop: space.sm, color: everyItemHasCategory && planResolved ? statusText.good : statusText.warning }}
                     >
-                      <T style={{ flex: 1, fontSize: 13, color: catId == null ? statusText.warning : ink[700] }}>
-                        {catId == null
-                          ? "Not categorised yet"
-                          : (categories.find((c) => c.id === catId)?.name ?? "Category")}
-                        <T variant="caption"> ({g.count} item{g.count === 1 ? "" : "s"})</T>
+                      {!everyItemHasCategory
+                        ? "⚠ Every item needs a category before this can be saved."
+                        : gap === 0
+                          ? `✓ ${itemGroups.length} record${itemGroups.length === 1 ? "" : "s"} will be saved, adding up to the receipt total.`
+                          : plan === "shrink"
+                            ? `✓ The receipt will be saved as PHP ${itemsTotal.toFixed(2)} — the items' own total.`
+                            : planResolved
+                              ? "✓ Ready to save."
+                              : gap > 0
+                                ? `⚠ The items come to PHP ${itemsTotal.toFixed(2)}, which is PHP ${(gap / 100).toFixed(2)} less than the total above.`
+                                : `⚠ The items come to PHP ${itemsTotal.toFixed(2)}, which is PHP ${(-gap / 100).toFixed(2)} more than the total above.`}
+                    </T>
+                  </View>
+
+                  {/*
+                    Accounting for the difference.
+
+                    A gap is normal rather than a mistake: a VAT-exclusive
+                    register adds tax on top of the printed lines, a discount
+                    takes money off, and OCR sometimes just misses a line. So the
+                    screen asks what the difference IS instead of blocking until
+                    the arithmetic works — which, on a VAT-exclusive receipt, it
+                    never would. The total never changes on its own; only the
+                    last option touches it, and only to figures read off the
+                    receipt.
+                  */}
+                  {everyItemHasCategory && gap !== 0 ? (
+                    <View style={{ marginTop: space.md }}>
+                      <T variant="label" style={{ color: ink[700], marginBottom: 4 }}>
+                        {gap > 0
+                          ? `What is the missing PHP ${(gap / 100).toFixed(2)}?`
+                          : `What is the extra PHP ${(-gap / 100).toFixed(2)}?`}
                       </T>
-                      <Money value={g.total} size={13} />
-                    </View>
-                  ))}
-                  <T
-                    variant="caption"
-                    style={{ marginTop: space.sm, color: everyItemHasCategory && planResolved ? statusText.good : statusText.warning }}
-                  >
-                    {!everyItemHasCategory
-                      ? "⚠ Every item needs a category before this can be saved."
-                      : gap === 0
-                        ? `✓ ${itemGroups.length} record${itemGroups.length === 1 ? "" : "s"} will be saved, adding up to the receipt total.`
-                        : plan === "shrink"
-                          ? `✓ The receipt will be saved as PHP ${itemsTotal.toFixed(2)} — the items' own total.`
-                          : planResolved
-                            ? "✓ Ready to save."
-                            : gap > 0
-                              ? `⚠ The items come to PHP ${itemsTotal.toFixed(2)}, which is PHP ${(gap / 100).toFixed(2)} less than the total above.`
-                              : `⚠ The items come to PHP ${itemsTotal.toFixed(2)}, which is PHP ${(-gap / 100).toFixed(2)} more than the total above.`}
-                  </T>
-                </View>
+                      <T variant="caption" style={{ marginBottom: space.sm }}>
+                        {gap > 0
+                          ? "Receipts often add tax or a service charge on top of the item prices, and sometimes a line just doesn't scan."
+                          : "A discount or a voided line usually explains this."}
+                      </T>
 
-                {/*
-                  Accounting for the difference.
-
-                  A gap is normal rather than a mistake: a VAT-exclusive
-                  register adds tax on top of the printed lines, a discount
-                  takes money off, and OCR sometimes just misses a line. So the
-                  screen asks what the difference IS instead of blocking until
-                  the arithmetic works — which, on a VAT-exclusive receipt, it
-                  never would. The total never changes on its own; only the
-                  last option touches it, and only to figures read off the
-                  receipt.
-                */}
-                {everyItemHasCategory && gap !== 0 ? (
-                  <View style={{ marginTop: space.md }}>
-                    <T variant="label" style={{ color: ink[700], marginBottom: 4 }}>
-                      {gap > 0
-                        ? `What is the missing PHP ${(gap / 100).toFixed(2)}?`
-                        : `What is the extra PHP ${(-gap / 100).toFixed(2)}?`}
-                    </T>
-                    <T variant="caption" style={{ marginBottom: space.sm }}>
-                      {gap > 0
-                        ? "Receipts often add tax or a service charge on top of the item prices, and sometimes a line just doesn't scan."
-                        : "A discount or a voided line usually explains this."}
-                    </T>
-
-                    <GapOption
-                      selected={plan === "proportional"}
-                      onPress={() => {
-                        haptics.tapped();
-                        setPlan("proportional");
-                      }}
-                      title={gap > 0 ? "Tax or a service charge" : "A discount on the whole receipt"}
-                      detail="Split across the categories above, in proportion to what each came to. Keeps every category's spending accurate."
-                    />
-                    {canFileGapOnItsOwn ? (
                       <GapOption
-                        selected={plan === "category"}
+                        selected={plan === "proportional"}
                         onPress={() => {
                           haptics.tapped();
-                          setPlan("category");
+                          setPlan("proportional");
                         }}
-                        title="A separate charge to track on its own"
-                        detail="Saved as its own expense record under one category."
-                      >
-                        {plan === "category" ? (
-                          <View style={{ marginTop: space.sm }}>
-                            <CategoryChips
-                              categories={categories}
-                              value={gapCategoryId}
-                              onChange={setGapCategoryId}
-                              label="the remaining amount"
-                            />
-                          </View>
-                        ) : null}
-                      </GapOption>
-                    ) : null}
-                    <GapOption
-                      selected={plan === "shrink"}
-                      onPress={() => {
-                        haptics.tapped();
-                        setPlan("shrink");
-                      }}
-                      title="FinSight misread the receipt total"
-                      detail={`Save PHP ${itemsTotal.toFixed(2)} — the items' own total — instead of the amount above.`}
-                    />
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
+                        title={gap > 0 ? "Tax or a service charge" : "A discount on the whole receipt"}
+                        detail="Split across the categories above, in proportion to what each came to. Keeps every category's spending accurate."
+                      />
+                      {canFileGapOnItsOwn ? (
+                        <GapOption
+                          selected={plan === "category"}
+                          onPress={() => {
+                            haptics.tapped();
+                            setPlan("category");
+                          }}
+                          title="A separate charge to track on its own"
+                          detail="Saved as its own expense record under one category."
+                        >
+                          {plan === "category" ? (
+                            <View style={{ marginTop: space.sm }}>
+                              <CategoryChips
+                                categories={categories}
+                                value={gapCategoryId}
+                                onChange={setGapCategoryId}
+                                label="the remaining amount"
+                              />
+                            </View>
+                          ) : null}
+                        </GapOption>
+                      ) : null}
+                      <GapOption
+                        selected={plan === "shrink"}
+                        onPress={() => {
+                          haptics.tapped();
+                          setPlan("shrink");
+                        }}
+                        title="FinSight misread the receipt total"
+                        detail={`Save PHP ${itemsTotal.toFixed(2)} — the items' own total — instead of the amount above.`}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
-            {error ? <ErrorNote>{error}</ErrorNote> : null}
-            <Button
-              title={
-                isItemised && itemGroups.length > 1
-                  ? `Save ${itemGroups.length} expenses`
-                  : "Save this expense"
-              }
-              variant="primary"
-              onPress={confirm}
-              loading={busy}
-              style={{ marginTop: space.md }}
-            />
-            <Button title="Retake photo" variant="ghost" onPress={() => setScan(null)} />
-          </Card>
-        )}
-      </ScrollView>
+              {error ? <ErrorNote>{error}</ErrorNote> : null}
+              <Button
+                title={
+                  isItemised && itemGroups.length > 1
+                    ? `Save ${itemGroups.length} expenses`
+                    : "Save this expense"
+                }
+                variant="primary"
+                onPress={confirm}
+                loading={busy}
+                style={{ marginTop: space.md }}
+              />
+              <Button title="Retake photo" variant="ghost" onPress={() => setScan(null)} />
+            </Card>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
@@ -1799,6 +1970,17 @@ export function EditRecordScreen({ route, navigation }: any) {
   const [amount, setAmount] = useState(String(record.amount));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /*
+   * Vendor only exists on an expense — a sales record has no such field
+   * server-side, so it is not rendered at all. The chain therefore has to be
+   * decided at hand-off time rather than written down once: on an expense
+   * Description goes to Vendor, on a sales record it goes straight to Amount.
+   * A chain hard-wired to `vendorRef` would simply dead-end on half the
+   * records this screen opens, with the return key doing nothing.
+   */
+  const vendorRef = useRef<TextInput>(null);
+  const amountRef = useRef<TextInput>(null);
+  const afterDescription = () => (isExpense ? vendorRef : amountRef).current?.focus();
 
   /**
    * Where this record came from.
@@ -1898,55 +2080,85 @@ export function EditRecordScreen({ route, navigation }: any) {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
-        <Card>
-          <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>
-            {isExpense ? "Edit expense" : "Edit sales"}
-          </T>
-          <T variant="caption" style={{ marginBottom: space.md }}>
-            {RECORD_SOURCE_LABELS[record.source as RecordSource] ?? record.source} ·{" "}
-            {record.date.slice(0, 10)}
-          </T>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
+          <Card>
+            <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>
+              {isExpense ? "Edit expense" : "Edit sales"}
+            </T>
+            <T variant="caption" style={{ marginBottom: space.md }}>
+              {RECORD_SOURCE_LABELS[record.source as RecordSource] ?? record.source} ·{" "}
+              {record.date.slice(0, 10)}
+            </T>
 
-          {badges(record)}
+            {badges(record)}
 
-          {/*
-            The evidence behind this record — the lines read off the receipt,
-            or the file it was imported from. Fetched rather than passed in
-            route params, because the list endpoint does not carry it.
-          */}
-          {origin ? (
-            <View style={{ marginTop: space.md }}>
-              <RecordOriginPanel origin={origin} recordAmount={record.amount} />
-            </View>
-          ) : loadingOrigin ? (
-            <View style={{ marginTop: space.md }}>
-              <T variant="caption">Loading where this came from…</T>
-            </View>
-          ) : null}
-
-          <View style={{ marginTop: space.md }}>
-            {isExpense ? (
-              <CategoryPicker
-                categories={categories}
-                value={categoryId}
-                onChange={setCategoryId}
-                onCreated={refreshCategories}
-                businessProfileId={selected.id}
-              />
+            {/*
+              The evidence behind this record — the lines read off the receipt,
+              or the file it was imported from. Fetched rather than passed in
+              route params, because the list endpoint does not carry it.
+            */}
+            {origin ? (
+              <View style={{ marginTop: space.md }}>
+                <RecordOriginPanel origin={origin} recordAmount={record.amount} />
+              </View>
+            ) : loadingOrigin ? (
+              <View style={{ marginTop: space.md }}>
+                <T variant="caption">Loading where this came from…</T>
+              </View>
             ) : null}
-            <DateField label="Date" value={date} onChange={setDate} />
-            <Field label="Description" value={description} onChangeText={setDescription} />
-            {isExpense ? <Field label="Vendor" value={vendor} onChangeText={setVendor} /> : null}
-            <Field label="Amount (PHP)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
-          </View>
 
-          {error ? <ErrorNote>{error}</ErrorNote> : null}
+            <View style={{ marginTop: space.md }}>
+              {isExpense ? (
+                <CategoryPicker
+                  categories={categories}
+                  value={categoryId}
+                  onChange={setCategoryId}
+                  onCreated={refreshCategories}
+                  businessProfileId={selected.id}
+                />
+              ) : null}
+              <DateField label="Date" value={date} onChange={setDate} />
+              <Field
+                label="Description"
+                value={description}
+                onChangeText={setDescription}
+                returnKeyType="next"
+                submitBehavior="submit"
+                onSubmitEditing={afterDescription}
+              />
+              {isExpense ? (
+                <Field
+                  ref={vendorRef}
+                  label="Vendor"
+                  value={vendor}
+                  onChangeText={setVendor}
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => amountRef.current?.focus()}
+                />
+              ) : null}
+              {/* Decimal keypad: the return key exists on Android only. */}
+              <Field
+                ref={amountRef}
+                label="Amount (PHP)"
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  if (!busy) save();
+                }}
+              />
+            </View>
 
-          <Button title="Save changes" variant="primary" onPress={save} loading={busy} style={{ marginTop: space.md }} />
-          <Button title="Delete record" variant="ghost" onPress={confirmDelete} />
-        </Card>
-      </ScrollView>
+            {error ? <ErrorNote>{error}</ErrorNote> : null}
+
+            <Button title="Save changes" variant="primary" onPress={save} loading={busy} style={{ marginTop: space.md }} />
+            <Button title="Delete record" variant="ghost" onPress={confirmDelete} />
+          </Card>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

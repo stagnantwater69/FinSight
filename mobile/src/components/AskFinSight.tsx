@@ -158,6 +158,7 @@ export function AskFinSight({
   const dragHandlers = pan.panHandlers;
   const [messages, setMessages] = useState<AIInteraction[]>([]);
   const [input, setInput] = useState("");
+  const [inputFocused, setInputFocused] = useState(false);
   const [sending, setSending] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -352,11 +353,22 @@ export function AskFinSight({
               placeholderTextColor={ink[400]}
               maxLength={500}
               onSubmitEditing={() => send(input)}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
+              /*
+                Same focus border as every other input in the app. The argument
+                for leaving it off — one input, keyboard already up, nothing to
+                disambiguate — is true here, but it is just as true of the
+                single-field password reset screen, which has the border. An
+                input that behaves differently for reasons the owner cannot see
+                is the kind of small exception that makes an app feel assembled
+                rather than designed.
+              */
               style={{
                 flex: 1,
                 minHeight: TAP,
                 borderWidth: 1,
-                borderColor: ink[200],
+                borderColor: inputFocused ? brand[600] : ink[200],
                 borderRadius: radius.full,
                 paddingHorizontal: space.md,
                 fontSize: 15,
