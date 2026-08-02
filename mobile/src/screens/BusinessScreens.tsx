@@ -1,8 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Alert as RNAlert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { Button, Card, EmptyState, ErrorNote, Money, Screen, T } from "../components/ui";
-import { Field } from "./AuthScreens";
+import { Button, Card, EmptyState, ErrorNote, Field, Money, Screen, T } from "../components/ui";
 import { PhotoUpload } from "../components/PhotoUpload";
 import { useAuth } from "../context/AuthContext";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";

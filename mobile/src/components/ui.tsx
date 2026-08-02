@@ -1,9 +1,10 @@
-import { ReactNode } from "react";
+import { forwardRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   TextProps,
   TextStyle,
   View,
@@ -152,6 +153,72 @@ export function Button({
     </Pressable>
   );
 }
+
+// ---------------------------------------------------------------- Form
+
+type FieldProps = {
+  label: string;
+  value: string;
+  onChangeText: (v: string) => void;
+} & React.ComponentProps<typeof TextInput>;
+
+/**
+ * A labelled text input — the field every form in the app is built from.
+ *
+ * It is a forwardRef so a form can hand the keyboard on from one field to the
+ * next: `onSubmitEditing` needs a ref to call `focus()` on, and a plain
+ * function component swallows `ref` silently.
+ *
+ * `onFocus`/`onBlur` are pulled out of `rest` deliberately. `{...rest}` is
+ * spread last so callers can override anything, which means a caller's own
+ * `onFocus` would otherwise replace the one driving the focus border rather
+ * than run alongside it. Pulling them out lets both run.
+ *
+ * Note `style` is still overridable and would replace the input's styling
+ * wholesale, focus border included. No caller passes one today; if one ever
+ * needs to, compose it as an array here rather than at the call site.
+ */
+export const Field = forwardRef<TextInput, FieldProps>(function Field(
+  { label, value, onChangeText, onFocus, onBlur, ...rest },
+  ref,
+) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={{ marginBottom: space.md }}>
+      <T variant="label" style={{ marginBottom: 4, color: ink[700] }}>
+        {label}
+      </T>
+      <TextInput
+        ref={ref}
+        value={value}
+        onChangeText={onChangeText}
+        placeholderTextColor={ink[400]}
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          onBlur?.(e);
+        }}
+        style={{
+          minHeight: TAP,
+          // Width stays at 1 either way: a thicker focus border would reflow
+          // every field below it each time focus moves. Colour alone carries it.
+          borderWidth: 1,
+          borderColor: focused ? brand[600] : ink[200],
+          borderRadius: radius.md,
+          paddingHorizontal: space.md,
+          paddingVertical: space.sm,
+          fontSize: 15,
+          color: ink[900],
+          backgroundColor: paper.DEFAULT,
+        }}
+        {...rest}
+      />
+    </View>
+  );
+});
 
 // ---------------------------------------------------------------- Selection
 

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
 import { useAuth } from "./AuthContext";
 import type { BusinessProfile, BusinessProfileInput, ExpenseCategory } from "../lib/types";
 
@@ -15,6 +15,15 @@ interface Value {
   selected: BusinessProfile | null;
   categories: ExpenseCategory[];
   loading: boolean;
+  /**
+   * Why the list is empty, when it is empty because the request failed rather
+   * than because the owner has no businesses.
+   *
+   * Those two states used to be indistinguishable: a failed fetch left
+   * `profiles` at [] and the Dashboard told an owner with three businesses to
+   * "set up a business first", which invites them to create a fourth.
+   */
+  error: string | null;
   selectProfile: (id: number) => void;
   refresh: () => Promise<void>;
   refreshCategories: () => Promise<void>;
@@ -33,6 +42,7 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   /**
    * `pending` is a /business-profiles request the auth bootstrap already put
@@ -49,6 +59,13 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
       const data = await (pending ?? api.get<BusinessProfile[]>("/business-profiles"));
       setProfiles(data);
       setSelectedId((current) => (current && data.some((p) => p.id === current) ? current : data[0]?.id ?? null));
+      setError(null);
+    } catch (err) {
+      // Recorded for the screens AND rethrown: `archiveProfile` and
+      // `restoreProfile` await `refresh()` and surface their own failure, so
+      // swallowing here would leave them reporting success on a failed reload.
+      setError(errorMessage(err));
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -63,10 +80,14 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
       setProfiles([]);
       setSelectedId(null);
       setCategories([]);
+      setError(null);
       setLoading(false);
       return;
     }
-    load(takeBootstrapProfiles());
+    // The reason is already in `error` by the time this settles; the catch is
+    // here so a failed load is a message on screen rather than an unhandled
+    // rejection in the console.
+    load(takeBootstrapProfiles()).catch(() => undefined);
   }, [user?.id, load, takeBootstrapProfiles]);
 
   const refreshCategories = useCallback(async () => {
@@ -78,7 +99,10 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
   }, [selectedId]);
 
   useEffect(() => {
-    refreshCategories();
+    // Categories failing is not worth blocking the screen over — the pickers
+    // come up empty and the owner can still read their figures — but it must
+    // not surface as an unhandled rejection either.
+    refreshCategories().catch(() => undefined);
   }, [refreshCategories]);
 
   const selected = profiles.find((p) => p.id === selectedId) ?? null;
@@ -90,6 +114,7 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
         selected,
         categories,
         loading,
+        error,
         selectProfile: setSelectedId,
         refresh,
         refreshCategories,

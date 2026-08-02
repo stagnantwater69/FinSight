@@ -13,8 +13,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { Alert as AlertBanner, AlertBadge, Button, Callout, Card, EmptyState, ErrorNote, Money, Screen, ScreenHeader, SegmentedControl, SelectChip, T } from "../components/ui";
-import { Field } from "./AuthScreens";
+import { Alert as AlertBanner, AlertBadge, Button, Callout, Card, EmptyState, ErrorNote, Field, Money, Screen, ScreenHeader, SegmentedControl, SelectChip, T } from "../components/ui";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
 import {

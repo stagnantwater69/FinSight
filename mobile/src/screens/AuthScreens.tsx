@@ -1,76 +1,14 @@
-import { forwardRef, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
-import { Button, Card, ErrorNote, Screen, T } from "../components/ui";
+import { Button, Card, ErrorNote, Field, Screen, T } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
-import { brand, ink, paper, radius, space, TAP } from "../theme/tokens";
+import { brand, ink, radius, space, TAP } from "../theme/tokens";
 
 /**
  * Auth screens. Every input uses `minHeight: TAP` rather than a fixed height so
  * the field grows when a user scales their system font up.
  */
-
-type FieldProps = {
-  label: string;
-  value: string;
-  onChangeText: (v: string) => void;
-} & React.ComponentProps<typeof TextInput>;
-
-/**
- * The shared text field. It is a forwardRef so a form can hand the keyboard on
- * from one field to the next — `onSubmitEditing` needs a ref to call `focus()`
- * on, and a plain function component swallows `ref` silently.
- *
- * `onFocus`/`onBlur` are pulled out of `rest` deliberately. `{...rest}` is
- * spread last so that callers can override anything, which means a caller's
- * own `onFocus` would otherwise replace the one that drives the focus border
- * rather than run alongside it. Pulling them out lets both run.
- *
- * Note `style` is still overridable by a caller and would replace the input's
- * styling wholesale, focus border included. No caller passes one today; if one
- * ever needs to, compose it as an array here rather than at the call site.
- */
-export const Field = forwardRef<TextInput, FieldProps>(function Field(
-  { label, value, onChangeText, onFocus, onBlur, ...rest },
-  ref,
-) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <View style={{ marginBottom: space.md }}>
-      <T variant="label" style={{ marginBottom: 4, color: ink[700] }}>
-        {label}
-      </T>
-      <TextInput
-        ref={ref}
-        value={value}
-        onChangeText={onChangeText}
-        placeholderTextColor={ink[400]}
-        onFocus={(e) => {
-          setFocused(true);
-          onFocus?.(e);
-        }}
-        onBlur={(e) => {
-          setFocused(false);
-          onBlur?.(e);
-        }}
-        style={{
-          minHeight: TAP,
-          // Width stays at 1 either way: a thicker focus border would reflow
-          // every field below it each time focus moves. Colour alone carries it.
-          borderWidth: 1,
-          borderColor: focused ? brand[600] : ink[200],
-          borderRadius: radius.md,
-          paddingHorizontal: space.md,
-          paddingVertical: space.sm,
-          fontSize: 15,
-          color: ink[900],
-          backgroundColor: paper.DEFAULT,
-        }}
-        {...rest}
-      />
-    </View>
-  );
-});
 
 function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (

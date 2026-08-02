@@ -20,7 +20,7 @@ const PERIODS = [
 ];
 
 export function DashboardScreen({ navigation }: any) {
-  const { selected, categories } = useBusinessProfiles();
+  const { selected, categories, error: profilesError, refresh: refreshProfiles } = useBusinessProfiles();
   const [periodDays, setPeriodDays] = useState(30);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,10 +60,29 @@ export function DashboardScreen({ navigation }: any) {
     return (
       <Screen>
         <View style={{ padding: space.lg }}>
-          <EmptyState
-            title="Set up a business first"
-            body="FinSight needs a business profile before it can show you anything."
-          />
+          {/*
+            An empty list means one of two very different things, and saying
+            the wrong one is costly: telling an owner who already has
+            businesses to "set up a business first" reads as though their data
+            is gone, and invites them to create a duplicate. So a failed load
+            says so, and offers to try again.
+          */}
+          {profilesError ? (
+            <>
+              <ErrorNote>{profilesError}</ErrorNote>
+              <Button
+                title="Try again"
+                variant="secondary"
+                onPress={() => refreshProfiles().catch(() => undefined)}
+                style={{ marginTop: space.md }}
+              />
+            </>
+          ) : (
+            <EmptyState
+              title="Set up a business first"
+              body="FinSight needs a business profile before it can show you anything."
+            />
+          )}
         </View>
       </Screen>
     );
