@@ -134,6 +134,14 @@ export function DashboardScreen({ navigation }: any) {
                 sublabel={`Last ${summary.periodDays} day${summary.periodDays === 1 ? "" : "s"}`}
               />
             </View>
+            {/*
+              "Sales reference" reads like an invoice number until someone says
+              otherwise. Same clarification the Add sales screen carries, so the
+              term means one thing wherever it appears.
+            */}
+            <T variant="caption">
+              Sales reference is a sale you recorded for your own tracking, not a receipt given to a customer.
+            </T>
 
             <Pressable onPress={() => navigation.navigate("Records", { screen: "FlaggedRecords" })}>
               <Card>

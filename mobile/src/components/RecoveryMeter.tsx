@@ -33,6 +33,16 @@ export function RecoveryMeter({ data }: { data: RecoveryTargets }) {
 
   return (
     <View>
+      {/*
+        "Recovery target" is FinSight's own name for the figure, and existing
+        owners know it — so it stays, with one line saying what it means. It
+        lives here rather than on each caller so the Dashboard card and the
+        Recovery Target screen cannot end up explaining it differently.
+      */}
+      <T variant="caption" style={{ marginBottom: space.md }}>
+        Your recovery target is what you still need to earn this month to cover your expected expenses.
+      </T>
+
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.sm }}>
         <View
           style={{
@@ -75,6 +85,14 @@ export function RecoveryMeter({ data }: { data: RecoveryTargets }) {
       <T variant="caption" style={{ marginTop: 6 }}>
         <Money value={data.remainingTarget} size={12} weight="regular" color={ink[500]} /> still needed across about{" "}
         {data.remainingOperatingDays} remaining operating day{data.remainingOperatingDays === 1 ? "" : "s"}.
+      </T>
+      {/*
+        The distinction owners miss: the divisor is operating days, not
+        calendar days, so the adjusted figure is higher than dividing by the
+        days left on a wall calendar would suggest.
+      */}
+      <T variant="caption" style={{ marginTop: 4 }}>
+        The adjusted daily target spreads that across the days you are open, not every day left on the calendar.
       </T>
 
       <View style={{ marginTop: space.lg, borderTopWidth: 1, borderTopColor: paper[200], paddingTop: space.md }}>

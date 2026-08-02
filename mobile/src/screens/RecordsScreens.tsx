@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert as RNAlert,
@@ -23,6 +23,7 @@ import {
 } from "../lib/receiptConfirm";
 import { rowsToApplySuggestionTo, suggestedNewCategory } from "../lib/categorySuggestion";
 import { useDebounced } from "../lib/useDebounced";
+import { setFlash, takeFlash } from "../lib/flash";
 import { SkeletonList } from "../components/Skeleton";
 import { DateField, DateRangeChips } from "../components/DateField";
 import { Swipeable } from "react-native-gesture-handler";
@@ -197,6 +198,13 @@ export function RecordsScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The "that worked" line. Two sources feed it: an action completed here
+   * (resolving a flag), and an action completed on a screen that then went
+   * back to this one (see lib/flash). Both end up in the same Callout, so
+   * there is one place a confirmation can appear and one rule for how long.
+   */
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Typing "groceries" used to fire nine requests, each racing the last.
   const searchTerm = useDebounced(keyword);
@@ -245,6 +253,26 @@ export function RecordsScreen({ navigation }: any) {
   }
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Collected on focus rather than from a route param because the screens that
+  // leave one all return here via goBack(), which carries nothing. Dropping the
+  // notice on blur means a confirmation never outlives the visit it belongs to.
+  useFocusEffect(
+    useCallback(() => {
+      const handed = takeFlash();
+      if (handed) setNotice(handed);
+      return () => setNotice(null);
+    }, []),
+  );
+
+  // The timer hangs off the notice itself, so it is cancelled by the same
+  // clearing that blur and unmount already do — it cannot fire into a screen
+  // that has gone away.
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   /**
    * Deleting from a swipe still asks first.
@@ -298,6 +326,9 @@ export function RecordsScreen({ navigation }: any) {
         reviewStatus: "Reviewed",
       });
       haptics.succeeded();
+      // This one stays on the list, so it needs no hand-off — the same Callout,
+      // set directly.
+      setNotice("Marked reviewed and not a duplicate.");
     } catch (err) {
       setRecords(previous);
       setError(errorMessage(err));
@@ -324,6 +355,12 @@ export function RecordsScreen({ navigation }: any) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={brand[600]} />}
       >
         <ScreenHeader eyebrow="Your money" title="Records" subtitle="Everything you've recorded" />
+
+        {notice ? (
+          <View style={{ marginBottom: space.md }}>
+            <Callout tone="info">{notice}</Callout>
+          </View>
+        ) : null}
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md }}>
           <Button title="+ Expense" onPress={() => navigation.navigate("AddExpense")} />
@@ -682,6 +719,9 @@ export function AddExpenseScreen({ navigation }: any) {
         amount: value,
       });
       haptics.succeeded();
+      // The haptic is silent for anyone who has haptics off; the flash is what
+      // the owner actually sees once the list comes back.
+      setFlash("Expense saved.");
       navigation.goBack();
     } catch (err) {
       setError(errorMessage(err));
@@ -738,6 +778,8 @@ export function AddSalesScreen({ navigation }: any) {
         description: description.trim(),
         amount: value,
       });
+      haptics.succeeded();
+      setFlash("Sales record saved.");
       navigation.goBack();
     } catch (err) {
       setError(errorMessage(err));
@@ -1036,6 +1078,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
 
       await api.post(`/records/receipts/${scan!.id}/confirm`, payload);
       haptics.succeeded();
+      setFlash("Receipt saved to your records.");
       navigation.goBack();
     } catch (err) {
       setError(errorMessage(err));
@@ -1810,6 +1853,7 @@ export function EditRecordScreen({ route, navigation }: any) {
         isExpense ? buildExpenseUpdatePayload(input) : buildSalesUpdatePayload(input),
       );
       haptics.succeeded();
+      setFlash("Record updated.");
       navigation.goBack();
     } catch (err) {
       setError(errorMessage(err));

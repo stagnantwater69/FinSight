@@ -276,6 +276,15 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
             onChangeText={set("largeExpenseThresholdPercent")}
             keyboardType="decimal-pad"
           />
+          {/*
+            Stated as a share of expected monthly expenses because that is
+            literally the comparison the server makes — largeExpenseThresholdFor
+            multiplies the two. "Bigger than usual" would be a different rule
+            that nothing in the code implements.
+          */}
+          <T variant="caption" style={{ marginTop: -space.sm, marginBottom: space.md }}>
+            An expense at or above this share of your expected monthly expenses gets flagged for review.
+          </T>
           {error ? <ErrorNote>{error}</ErrorNote> : null}
           <Button title={existing ? "Save changes" : "Create business"} variant="primary" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
         </Card>
