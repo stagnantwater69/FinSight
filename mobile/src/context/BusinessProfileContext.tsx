@@ -28,22 +28,35 @@ interface Value {
 const Ctx = createContext<Value | undefined>(undefined);
 
 export function BusinessProfileProvider({ children }: { children: ReactNode }) {
-  const { profile: user } = useAuth();
+  const { profile: user, takeBootstrapProfiles } = useAuth();
   const [profiles, setProfiles] = useState<BusinessProfile[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(async () => {
+  /**
+   * `pending` is a /business-profiles request the auth bootstrap already put
+   * on the wire — see `takeBootstrapProfiles` in AuthContext. Adopting it
+   * rather than issuing a second one is the entire saving: on a cold start
+   * this list is fetched next to /auth/me instead of after it.
+   *
+   * A failing `pending` rejects out of here exactly as a fresh `api.get`
+   * would, so the failure path is unchanged either way.
+   */
+  const load = useCallback(async (pending?: Promise<BusinessProfile[]> | null) => {
     setLoading(true);
     try {
-      const data = await api.get<BusinessProfile[]>("/business-profiles");
+      const data = await (pending ?? api.get<BusinessProfile[]>("/business-profiles"));
       setProfiles(data);
       setSelectedId((current) => (current && data.some((p) => p.id === current) ? current : data[0]?.id ?? null));
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // The public refresh always goes to the network — a caller asking to
+  // refresh wants current data, never a promise made at startup.
+  const refresh = useCallback(() => load(), [load]);
 
   useEffect(() => {
     if (!user) {
@@ -53,8 +66,8 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    refresh();
-  }, [user?.id, refresh]);
+    load(takeBootstrapProfiles());
+  }, [user?.id, load, takeBootstrapProfiles]);
 
   const refreshCategories = useCallback(async () => {
     if (!selectedId) {

@@ -8,6 +8,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as Font from "expo-font";
+import * as SplashScreen from "expo-splash-screen";
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
 import { IBMPlexSans_600SemiBold, IBMPlexSans_700Bold } from "@expo-google-fonts/ibm-plex-sans";
 import {
@@ -42,6 +43,21 @@ import {
   ProfileScreen,
 } from "./src/screens/BusinessScreens";
 import { brand, font, ink, paper } from "./src/theme/tokens";
+
+/*
+ * Hold the native splash until the app actually has something to show.
+ *
+ * The splash was configured in app.config.ts but never held: it hid itself the
+ * moment the JS bundle loaded, and the owner then watched a bare spinner while
+ * the fonts loaded and a second one while the session was restored. Holding it
+ * to the end of both makes the cold start read as splash → app.
+ *
+ * Called in global scope and not awaited, per the module's own guidance — from
+ * inside a component or an effect this can run after the splash is already
+ * gone. Its rejection is swallowed because a splash that will not stay up is
+ * a cosmetic problem, not a reason to fail to start.
+ */
+SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -271,12 +287,26 @@ function AuthStack() {
   );
 }
 
-function Root() {
+function Root({ fontsReady }: { fontsReady: boolean }) {
   const { profile, loading } = useAuth();
 
   // Restoring the session from the device keystore is async, so the app waits
-  // here rather than flashing Login at an already-signed-in user.
-  if (loading) {
+  // here rather than flashing Login at an already-signed-in user. Fonts are
+  // waited on in the same place because the two finish independently and
+  // there is nothing worth showing until both have.
+  const ready = fontsReady && !loading;
+
+  useEffect(() => {
+    // Uncovering the app is the last thing that happens, after the tree that
+    // replaces the splash has been committed. hideAsync's rejection is
+    // ignored for the same reason preventAutoHideAsync's is.
+    if (ready) SplashScreen.hideAsync().catch(() => undefined);
+  }, [ready]);
+
+  if (!ready) {
+    // Normally invisible — the native splash is still up. This is what the
+    // owner sees if the splash could not be held, so it stays a real view
+    // rather than null.
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: paper[50] }}>
         <ActivityIndicator color={brand[600]} />
@@ -294,7 +324,7 @@ function Root() {
 }
 
 export default function App() {
-  const [ready, setReady] = useState(false);
+  const [fontsReady, setFontsReady] = useState(false);
 
   useEffect(() => {
     Font.loadAsync({
@@ -310,17 +340,18 @@ export default function App() {
       // A font failure must not block the app — React Native falls back to the
       // system face, which looks worse but is entirely usable.
       .catch(() => undefined)
-      .finally(() => setReady(true));
+      .finally(() => setFontsReady(true));
   }, []);
 
-  if (!ready) {
-    return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: paper[50] }}>
-        <ActivityIndicator color={brand[600]} />
-      </View>
-    );
-  }
-
+  /*
+   * The providers mount immediately, before the fonts are in.
+   *
+   * This used to return early while loading fonts, which meant AuthProvider
+   * did not exist yet and the session was not read from the keystore until
+   * the eighth typeface had landed — two waits, one after the other, for two
+   * jobs that have nothing to do with each other. Root holds the screen back
+   * until both are done, so nothing renders early; they just now overlap.
+   */
   return (
     // GestureHandlerRootView must be the OUTERMOST view, above the navigation
     // container. Swipeable record rows do nothing at all on Android without
@@ -330,7 +361,7 @@ export default function App() {
       <SafeAreaProvider>
         <NavigationContainer theme={navTheme}>
           <AuthProvider>
-            <Root />
+            <Root fontsReady={fontsReady} />
           </AuthProvider>
         </NavigationContainer>
         <StatusBar style="dark" />

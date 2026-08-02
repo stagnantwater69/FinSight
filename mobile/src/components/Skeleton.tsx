@@ -1,6 +1,12 @@
 import { useEffect, useRef } from "react";
 import { Animated, View, ViewStyle } from "react-native";
+import { useReducedMotion } from "../lib/useReducedMotion";
 import { paper, radius, space } from "../theme/tokens";
+
+/** The two ends of the pulse, and the point it rests at when it must not pulse. */
+const DIM = 0.3;
+const BRIGHT = 0.7;
+const RESTING = 0.5;
 
 export function SkeletonBox({
   width,
@@ -13,18 +19,36 @@ export function SkeletonBox({
   borderRadius?: number;
   style?: ViewStyle;
 }) {
-  const opacity = useRef(new Animated.Value(0.3)).current;
+  const opacity = useRef(new Animated.Value(DIM)).current;
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
+    /*
+     * Reduced motion: hold still at the midpoint of the pulse.
+     *
+     * This is the app's most persistent animation — it runs for as long as
+     * anything is loading, and a dashboard shows twelve of these boxes at
+     * once, all breathing together. Sitting at RESTING keeps the box reading
+     * as a placeholder rather than as real content, which is the whole job of
+     * the pulse; only the movement goes.
+     */
+    if (reduceMotion) {
+      opacity.setValue(RESTING);
+      return;
+    }
+
+    // The setting can be turned off again mid-session, so start from the
+    // bottom of the pulse rather than from wherever it was parked.
+    opacity.setValue(DIM);
     const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, {
-          toValue: 0.7,
+          toValue: BRIGHT,
           duration: 750,
           useNativeDriver: true,
         }),
         Animated.timing(opacity, {
-          toValue: 0.3,
+          toValue: DIM,
           duration: 750,
           useNativeDriver: true,
         }),
@@ -32,7 +56,7 @@ export function SkeletonBox({
     );
     animation.start();
     return () => animation.stop();
-  }, [opacity]);
+  }, [opacity, reduceMotion]);
 
   return (
     <Animated.View

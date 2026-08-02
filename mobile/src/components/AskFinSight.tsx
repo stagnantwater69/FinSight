@@ -27,6 +27,7 @@ const SHEET_HEIGHT = Math.round(Dimensions.get("window").height * 0.88);
 import { Button, ErrorNote, T } from "./ui";
 import { api, errorMessage } from "../lib/api";
 import * as haptics from "../lib/haptics";
+import { useReducedMotion } from "../lib/useReducedMotion";
 import { brand, font, ink, paper, radius, space, TAP } from "../theme/tokens";
 import type { AIInteraction, AskResponse, InteractionModule } from "../lib/types";
 
@@ -98,17 +99,52 @@ export function AskFinSight({
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
 
+  /*
+   * Reduced motion, read through a ref rather than used directly.
+   *
+   * WHY THE REF: the PanResponder below is built once inside a useRef and
+   * keeps the handlers it was given for the life of the sheet. Anything those
+   * handlers close over is frozen at first render — and the first render is
+   * always before the asynchronous reduce-motion read comes back, so reading
+   * the state value there would pin the drag path to "motion is fine" forever.
+   * Keeping `animateTo` free of the state value also keeps its identity
+   * stable, which is what lets the pan responder hold onto it safely.
+   */
+  const reduceMotion = useReducedMotion();
+  const reduceMotionRef = useRef(reduceMotion);
+  reduceMotionRef.current = reduceMotion;
+
   const animateTo = useCallback(
     (to: "open" | "closed", onDone?: () => void) => {
+      const settled = to === "open" ? 0 : SHEET_HEIGHT;
+      const dimmed = to === "open" ? 0.45 : 0;
+
+      /*
+       * Reduced motion: go straight to the end state.
+       *
+       * `onDone` is not decoration — on the closing path it IS `onClose`, the
+       * only thing that flips `visible` to false and takes the sheet down.
+       * Skipping the animation without calling it would leave a sheet that
+       * cannot be dismissed by the close button, the backdrop, or a drag. So
+       * the callback fires here exactly as the completion handler fires below,
+       * and only the travel between the two states is dropped.
+       */
+      if (reduceMotionRef.current) {
+        translateY.setValue(settled);
+        backdrop.setValue(dimmed);
+        onDone?.();
+        return;
+      }
+
       Animated.parallel([
         Animated.timing(translateY, {
-          toValue: to === "open" ? 0 : SHEET_HEIGHT,
+          toValue: settled,
           duration: to === "open" ? 260 : 200,
           easing: to === "open" ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(backdrop, {
-          toValue: to === "open" ? 0.45 : 0,
+          toValue: dimmed,
           duration: to === "open" ? 260 : 200,
           useNativeDriver: true,
         }),
@@ -119,7 +155,11 @@ export function AskFinSight({
     [translateY, backdrop],
   );
 
-  /** Slides out first, THEN unmounts — closing instantly would look like a crash. */
+  /**
+   * Slides out first, THEN unmounts — closing instantly would look like a
+   * crash. Under reduced motion it goes straight down, which is the trade the
+   * owner asked for; `animateTo` still calls back either way.
+   */
   const close = useCallback(() => {
     animateTo("closed", onClose);
   }, [animateTo, onClose]);
@@ -149,6 +189,11 @@ export function AskFinSight({
         const flung = g.vy > 0.8;
         if (g.dy > SHEET_HEIGHT / 3 || flung) {
           animateTo("closed", onClose);
+        } else if (reduceMotionRef.current) {
+          // Snap back with no bounce. The drag itself still tracked the
+          // finger — that is direct manipulation, not animation — so all that
+          // is removed here is the spring overshoot on release.
+          translateY.setValue(0);
         } else {
           Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
         }
