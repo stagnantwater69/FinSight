@@ -70,8 +70,14 @@ export function BusinessProfilesScreen({ navigation }: any) {
       ) : (
         <Card>
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: space.md }}>
-            <T variant="heading">Archived businesses</T>
-            <Pressable onPress={() => setArchived(null)} hitSlop={10} style={{ minHeight: TAP - 12, justifyContent: "center" }}>
+            <T variant="heading" accessibilityRole="header">Archived businesses</T>
+            <Pressable
+              onPress={() => setArchived(null)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Hide archived businesses"
+              style={{ minHeight: TAP - 12, justifyContent: "center" }}
+            >
               <T variant="caption">Hide</T>
             </Pressable>
           </View>

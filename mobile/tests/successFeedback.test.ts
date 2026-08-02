@@ -21,8 +21,15 @@ import { describe, expect, it } from "vitest";
 const ROOT = join(__dirname, "..");
 const SCREENS_DIR = join(ROOT, "src", "screens");
 
-/** Calls that write to the server. Reads never need a confirmation. */
-const WRITE = /await api\.(post|patch|put|upload|del)\b/;
+/**
+ * Calls that write to the server. Reads never need a confirmation.
+ *
+ * `delete` is spelled out. An earlier version abbreviated it to `del`, which
+ * a trailing \b then refused to match against `api.delete` — so every delete
+ * flow was invisible to this check, which is precisely the kind of hole that
+ * makes a guard worse than none.
+ */
+const WRITE = /await api\.(post|patch|put|upload|delete)\b/;
 
 /**
  * How far back from a goBack() to look for the write that caused it. Handlers

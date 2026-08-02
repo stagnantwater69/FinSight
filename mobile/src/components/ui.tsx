@@ -27,6 +27,15 @@ import * as haptics from "../lib/haptics";
 
 type Variant = "title" | "heading" | "body" | "label" | "caption";
 
+/*
+ * These are type styles, not semantics. `heading` says "display face at 15px";
+ * it does not say "this is a section header". Hanging
+ * accessibilityRole="header" off the variant would mean the next person who
+ * reaches for `heading` because of how it looks quietly changes where a screen
+ * reader is allowed to jump to. The components that are headings by
+ * construction — ScreenHeader, EmptyState, and charts' ChartFrame — declare the
+ * role themselves, where it describes the thing rather than its font.
+ */
 const TEXT_VARIANTS: Record<Variant, TextStyle> = {
   title: { fontFamily: font.displayBold, fontSize: 20, color: brand[900] },
   heading: { fontFamily: font.display, fontSize: 15, color: ink[700] },
@@ -390,7 +399,17 @@ export function EmptyState({
       <View style={styles.emptyIcon}>
         <Text style={{ fontSize: 20, color: brand[600] }}>{icon}</Text>
       </View>
-      <T variant="heading" style={{ marginTop: space.md, textAlign: "center", color: ink[900] }}>
+      {/*
+        A header even though nothing follows it. When a list comes back empty
+        this line is the only thing naming the region, so a reader moving by
+        heading still lands somewhere that says where they are rather than
+        skipping the screen entirely.
+      */}
+      <T
+        accessibilityRole="header"
+        variant="heading"
+        style={{ marginTop: space.md, textAlign: "center", color: ink[900] }}
+      >
         {title}
       </T>
       {body ? (
@@ -521,6 +540,13 @@ export function Screen({
  * margins, so no two had the same spacing above the first card. Sharing one
  * component is most of what makes a set of screens feel like one app rather
  * than several.
+ *
+ * The title carries the header role, which is what VoiceOver's rotor and
+ * TalkBack's heading gesture navigate by. Declaring it once here is the reason
+ * nearly every screen gets it without its author having to know about it — and
+ * only the title does, because the eyebrow and the subtitle describe the title
+ * rather than standing on their own, and a jump list is only useful while it
+ * stays short.
  */
 export function ScreenHeader({
   eyebrow,
@@ -541,7 +567,7 @@ export function ScreenHeader({
             {eyebrow}
           </T>
         ) : null}
-        <T variant="title" numberOfLines={2}>
+        <T accessibilityRole="header" variant="title" numberOfLines={2}>
           {title}
         </T>
         {subtitle ? (

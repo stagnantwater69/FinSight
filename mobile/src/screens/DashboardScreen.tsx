@@ -72,6 +72,22 @@ export function DashboardScreen({ navigation }: any) {
   const hasRecords =
     !!summary && (summary.overview.totalExpenses > 0 || summary.overview.totalSalesReference > 0);
 
+  /*
+   * The review card's sentence, written once.
+   *
+   * It is both the visible line and the card's spoken label, and the two must
+   * say the same thing — a label that has drifted from what is on screen is
+   * worse than no label at all, because only one of the two audiences can see
+   * the disagreement.
+   */
+  const reviewLine = !summary
+    ? ""
+    : summary.recordsNeedingReview === 0
+      ? "No records need review right now"
+      : `${summary.recordsNeedingReview} record${summary.recordsNeedingReview === 1 ? "" : "s"} need${
+          summary.recordsNeedingReview === 1 ? "s" : ""
+        } review`;
+
   return (
     <Screen>
       <ScrollView
@@ -143,15 +159,16 @@ export function DashboardScreen({ navigation }: any) {
               Sales reference is a sale you recorded for your own tracking, not a receipt given to a customer.
             </T>
 
-            <Pressable onPress={() => navigation.navigate("Records", { screen: "FlaggedRecords" })}>
+            <Pressable
+              onPress={() => navigation.navigate("Records", { screen: "FlaggedRecords" })}
+              accessibilityRole="button"
+              // Announced as a plain card until now, so there was nothing to
+              // say it could be tapped. The label carries the count and where
+              // the tap goes, instead of ending on an arrow glyph.
+              accessibilityLabel={`${reviewLine}. Review flagged records.`}
+            >
               <Card>
-                <T style={{ fontSize: 14 }}>
-                  {summary.recordsNeedingReview === 0
-                    ? "No records need review right now"
-                    : `${summary.recordsNeedingReview} record${summary.recordsNeedingReview === 1 ? "" : "s"} need${
-                        summary.recordsNeedingReview === 1 ? "s" : ""
-                      } review`}
-                </T>
+                <T style={{ fontSize: 14 }}>{reviewLine}</T>
                 <T style={{ color: brand[700], fontSize: 14, marginTop: 2 }}>Review flagged records →</T>
               </Card>
             </Pressable>
@@ -171,7 +188,7 @@ export function DashboardScreen({ navigation }: any) {
             </Card>
 
             <Card>
-              <T variant="heading" style={{ marginBottom: space.md }}>
+              <T variant="heading" accessibilityRole="header" style={{ marginBottom: space.md }}>
                 Alerts
               </T>
               {summary.alerts.length === 0 ? (
@@ -202,7 +219,7 @@ export function DashboardScreen({ navigation }: any) {
             {/* Recency slot. */}
             <Card>
               <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: space.md }}>
-                <T variant="heading">Recovery target</T>
+                <T variant="heading" accessibilityRole="header">Recovery target</T>
                 <T variant="caption">This month</T>
               </View>
               <RecoveryMeter data={summary.recoveryStatus} />

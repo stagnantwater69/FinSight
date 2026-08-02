@@ -24,6 +24,7 @@ import {
   type ReconciliationPlan,
 } from "../lib/receiptConfirm";
 import { rowsToApplySuggestionTo, suggestedNewCategory } from "../lib/categorySuggestion";
+import { formatMoney } from "../lib/money";
 import { useDebounced } from "../lib/useDebounced";
 import { setFlash, takeFlash } from "../lib/flash";
 import { SkeletonList } from "../components/Skeleton";
@@ -125,8 +126,43 @@ function RecordCard({
    * button that must then be tapped keeps the shortcut without the hazard —
    * and `onDelete` still asks for confirmation on top of that.
    */
+  /*
+   * What this card says when it is read rather than seen.
+   *
+   * Left to itself it is announced as its children fall out of the layout:
+   * description, then the date line with its middle dots, then the amount,
+   * then each badge with its glyph, then the source. Nothing is missing from
+   * that — it is just in layout order rather than reading order, and it
+   * speaks separators that only exist to hold a row together. So the same
+   * content is composed here in the order it matters: what the record is,
+   * what it cost, when and under what, then anything flagged on it, then
+   * where it came from. Same facts, no glyphs, figure second instead of third.
+   *
+   * This is the app's second composed label, after CategoryChips, and for the
+   * same reason: the useful spoken form is not the visible arrangement.
+   */
+  const spoken = [
+    r.description,
+    formatMoney(r.amount),
+    `${r.date.slice(0, 10)}, ${r.type === "expense" ? `expense, ${categoryName}` : "sales"}`,
+    r.duplicateStatus === "Flagged" ? "possible duplicate" : null,
+    r.reviewStatus === "Needs Review" ? "needs review" : null,
+    r.largeExpenseFlag ? "large expense" : null,
+    RECORD_SOURCE_LABELS[r.source as RecordSource] ?? r.source,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   const card = (
-    <Pressable onPress={onPress} disabled={!onPress}>
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      // A card with nothing wired to it is not a button, and saying it is
+      // would promise a tap that does nothing. Both props hang off the same
+      // condition as `disabled` so the three cannot disagree.
+      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={onPress ? spoken : undefined}
+    >
       <Card style={{ marginBottom: space.sm }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.md }}>
           <View style={{ flex: 1 }}>
@@ -1962,6 +1998,9 @@ export function EditRecordScreen({ route, navigation }: any) {
   const { selected, categories, refreshCategories } = useBusinessProfiles();
   const record: RecordItem = route.params.record;
   const isExpense = record.type === "expense";
+  // The same test the list applies before it offers the swipe, so a record
+  // that can be resolved by gesture can be resolved by tap and vice versa.
+  const needsResolving = record.reviewStatus === "Needs Review" || record.duplicateStatus === "Flagged";
 
   const [categoryId, setCategoryId] = useState<number | null>(record.categoryId ?? null);
   const [date, setDate] = useState(record.date.slice(0, 10));
@@ -2045,6 +2084,38 @@ export function EditRecordScreen({ route, navigation }: any) {
   }
 
   /**
+   * Clearing a flag without the swipe.
+   *
+   * On the list this is a left-swipe, which is a gesture some owners cannot
+   * make at all — with a screen reader driving the phone there is nothing to
+   * swipe. The review queue offers the same action, but only for the records
+   * `/records/flagged` hands back; this screen opens for every record, which
+   * makes it the one place the alternative works for all of them. The gesture
+   * stays exactly as it was: this is a second route to the action, not a
+   * replacement for the first.
+   */
+  async function resolve() {
+    setError(null);
+    setBusy(true);
+    try {
+      // The identical patch the swipe action and the review queue both send.
+      await api.patch(recordUpdatePath(record.type, record.id), {
+        duplicateStatus: "Not a Duplicate",
+        reviewStatus: "Reviewed",
+      });
+      haptics.succeeded();
+      // Word for word what the list says when the swipe does this, so the app
+      // does not describe one action two ways.
+      setFlash("Marked reviewed and not a duplicate.");
+      navigation.goBack();
+    } catch (err) {
+      setError(errorMessage(err));
+      // Only on failure: the success path has already left this screen.
+      setBusy(false);
+    }
+  }
+
+  /**
    * Deleting asks first, through the platform's own dialog.
    *
    * Web offers an undo toast instead; mobile has no toast system yet, so the
@@ -2067,6 +2138,10 @@ export function EditRecordScreen({ route, navigation }: any) {
             try {
               await api.delete(recordUpdatePath(record.type, record.id));
               haptics.committed();
+              // A deletion leaves the screen the same way a save does, and the
+              // record it removed is gone from the list behind it — so without
+              // a line here the only evidence is an absence.
+              setFlash("Record deleted.");
               navigation.goBack();
             } catch (err) {
               setError(errorMessage(err));
@@ -2155,6 +2230,14 @@ export function EditRecordScreen({ route, navigation }: any) {
             {error ? <ErrorNote>{error}</ErrorNote> : null}
 
             <Button title="Save changes" variant="primary" onPress={save} loading={busy} style={{ marginTop: space.md }} />
+            {/*
+              Offered only when there is something to clear — the badges above
+              are what it answers, and with none of them showing the button
+              would be a control for a state the record is not in.
+            */}
+            {needsResolving ? (
+              <Button title="Looks right — mark reviewed" variant="ghost" onPress={resolve} disabled={busy} />
+            ) : null}
             <Button title="Delete record" variant="ghost" onPress={confirmDelete} />
           </Card>
         </ScrollView>

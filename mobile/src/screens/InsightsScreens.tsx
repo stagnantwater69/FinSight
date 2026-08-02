@@ -137,7 +137,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
             </Card>
 
             <Card>
-              <T variant="heading" style={{ marginBottom: space.md }}>Category trends</T>
+              <T variant="heading" accessibilityRole="header" style={{ marginBottom: space.md }}>Category trends</T>
               {data.categoryTrends.length === 0 ? (
                 <T variant="caption">No expense records in this period yet.</T>
               ) : (
@@ -169,7 +169,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
             </Card>
 
             <Card>
-              <T variant="heading" style={{ marginBottom: space.md }}>Unusual expenses</T>
+              <T variant="heading" accessibilityRole="header" style={{ marginBottom: space.md }}>Unusual expenses</T>
               {data.unusualExpenses.length === 0 ? (
                 <T variant="caption">Nothing flagged as unusual right now.</T>
               ) : (
@@ -280,6 +280,11 @@ export function SpendingImpactScreen({ navigation }: any) {
             />
             <Pressable
               onPress={run}
+              accessibilityRole="button"
+              // "Check" alone says nothing about what is being checked once
+              // the amount field beside it is out of view, which is exactly
+              // the situation of anyone reading this one control at a time.
+              accessibilityLabel="Check this planned amount"
               style={{
                 minHeight: TAP,
                 paddingHorizontal: space.lg,
@@ -298,7 +303,7 @@ export function SpendingImpactScreen({ navigation }: any) {
         {data ? (
           <Card>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: space.md }}>
-              <T variant="heading">Estimated impact</T>
+              <T variant="heading" accessibilityRole="header">Estimated impact</T>
               <View style={{ backgroundColor: bandColor, borderRadius: radius.full, paddingHorizontal: space.md, paddingVertical: 3 }}>
                 <T style={{ color: "#fff", fontSize: 12 }}>{data.impactBand}</T>
               </View>
@@ -388,7 +393,7 @@ export function RecoveryTargetScreen({ navigation }: any) {
             </Card>
 
             <Card>
-              <T variant="heading" style={{ marginBottom: 4 }}>Remaining recovery target</T>
+              <T variant="heading" accessibilityRole="header" style={{ marginBottom: 4 }}>Remaining recovery target</T>
               <T variant="caption" style={{ marginBottom: space.md }}>
                 Recalculated across your remaining operating days. This is an estimate — your profile records how many
                 days a month you operate, not which days.
@@ -416,7 +421,7 @@ export function RecoveryTargetScreen({ navigation }: any) {
             </Card>
 
             <Card>
-              <T variant="heading" style={{ marginBottom: space.md }}>Day by day</T>
+              <T variant="heading" accessibilityRole="header" style={{ marginBottom: space.md }}>Day by day</T>
               {data.dailyCoverage.map((d) => {
                 const c =
                   d.status === "below" ? statusText.critical : d.status === "at" ? statusText.warning : statusText.good;

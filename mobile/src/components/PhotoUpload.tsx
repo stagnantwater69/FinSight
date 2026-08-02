@@ -81,17 +81,48 @@ export function PhotoUpload({
             overflow: "hidden",
           }}
         >
+          {/*
+            This box is the field's current value, so whatever is in it says
+            which field it belongs to. `label` is the caller's own word for
+            that — "Business logo" or "Profile photo" — and it is the only
+            thing that tells the two apart, since the component itself cannot
+            know which one it is rendering.
+          */}
           {busy ? (
             <ActivityIndicator color={brand[600]} />
           ) : url ? (
-            <Image source={{ uri: url }} style={{ width: size, height: size }} accessibilityIgnoresInvertColors />
+            <Image
+              source={{ uri: url }}
+              style={{ width: size, height: size }}
+              accessibilityRole="image"
+              accessibilityLabel={label}
+              accessibilityIgnoresInvertColors
+            />
           ) : (
-            <T variant="caption" style={{ color: ink[400] }}>None</T>
+            <T variant="caption" style={{ color: ink[400] }} accessibilityLabel={`${label}, none set`}>
+              None
+            </T>
           )}
         </View>
 
         <View style={{ flex: 1 }}>
-          <T variant="label" style={{ color: ink[700] }}>{label}</T>
+          {/*
+            Silent to a screen reader, and deliberately. The three things in
+            this row sit next to each other, and two of them already carry the
+            label: the image on the left announces it as the current value, the
+            button below announces it as "Change Business logo". Read out as
+            well, this line makes the same two words the third thing in a row a
+            reader hears, and it is the one of the three that adds nothing —
+            it exists so a sighted owner can see the field's name.
+          */}
+          <T
+            variant="label"
+            style={{ color: ink[700] }}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            {label}
+          </T>
           <Pressable
             onPress={pick}
             disabled={busy}

@@ -311,6 +311,11 @@ export function AskFinSight({
                           haptics.tapped();
                           setInput(s);
                         }}
+                        accessibilityRole="button"
+                        // Read out bare, a starter sounds like a question that
+                        // has already been asked. The label says what the tap
+                        // actually does — it fills the box, it does not send.
+                        accessibilityLabel={`Use this question: ${s}`}
                         style={{
                           minHeight: TAP,
                           justifyContent: "center",

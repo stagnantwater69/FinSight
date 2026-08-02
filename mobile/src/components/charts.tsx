@@ -40,10 +40,20 @@ function barPath(x: number, y: number, w: number, h: number, r = 4, horizontal =
   return `M${x},${y + h} V${y + radius} A${radius},${radius} 0 0 1 ${x + radius},${y} H${x + w - radius} A${radius},${radius} 0 0 1 ${x + w},${y + radius} V${y + h} Z`;
 }
 
+/*
+ * The shared shell every chart sits in: a title, an optional line of context,
+ * then the marks.
+ *
+ * The title is declared a header so a screen reader can jump from chart to
+ * chart. That matters more here than anywhere else in the app, because the
+ * body of each chart is a single element carrying every number in it as one
+ * long accessibilityLabel — without a header to jump to, reaching the next
+ * chart means listening to the whole of the previous one.
+ */
 function ChartFrame({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
     <View>
-      <T variant="heading" style={{ marginBottom: subtitle ? 2 : space.md }}>
+      <T accessibilityRole="header" variant="heading" style={{ marginBottom: subtitle ? 2 : space.md }}>
         {title}
       </T>
       {subtitle ? (
