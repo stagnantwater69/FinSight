@@ -198,20 +198,104 @@ export function deviationFraction(amount: number, stats: CategoryStats): number 
   return Math.abs(amount - stats.mean) / Math.abs(stats.mean);
 }
 
+// ============================================================
+// The second detector: interquartile range
+// ============================================================
+// Tukey's convention. A point more than 1.5 IQRs outside the quartiles is the
+// standard definition of an outlier and is what the 1.5 refers to; it is not a
+// tuned parameter and should not be treated as one.
+export const IQR_FENCE_MULTIPLIER = 1.5;
+
+export interface CategoryQuartiles {
+  q1: number;
+  q3: number;
+  iqr: number;
+}
+
+/**
+ * Linear interpolation between order statistics — the same convention numpy
+ * and R use by default, chosen so the numbers here can be checked against
+ * either without arguing about quartile definitions first.
+ */
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  if (sorted.length === 1) return sorted[0]!;
+  const index = p * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower]!;
+  return sorted[lower]! + (index - lower) * (sorted[upper]! - sorted[lower]!);
+}
+
+export function computeQuartiles(amounts: number[]): CategoryQuartiles {
+  const sorted = [...amounts].sort((a, b) => a - b);
+  const q1 = percentile(sorted, 0.25);
+  const q3 = percentile(sorted, 0.75);
+  return { q1, q3, iqr: q3 - q1 };
+}
+
+/** Whether the amount falls outside Tukey's fences for this category. */
+export function isOutsideIqrFence(amount: number, quartiles: CategoryQuartiles): boolean {
+  const margin = IQR_FENCE_MULTIPLIER * quartiles.iqr;
+  return amount < quartiles.q1 - margin || amount > quartiles.q3 + margin;
+}
+
 /**
  * Whether a record should be reported to the owner as unusual.
  *
- * Both halves must hold:
- *   - statistically unusual for this category (|z| beyond the threshold), and
- *   - materially different in peso terms (at least MIN_DEVIATION_FRACTION).
+ * Two independent statistical tests, then one practical gate:
  *
- * The z-score alone over-reports on tight clusters; the deviation floor alone
- * would fire on any category with naturally wide spread. Requiring both is what
- * makes a flag worth an owner's attention.
+ *   (z-score says unusual  OR  IQR says unusual)  AND  materially different
+ *
+ * WHY TWO TESTS RATHER THAN ONE. The z-score measures a record against a mean
+ * and standard deviation that the record itself helps define, which makes it
+ * blind in two situations that are ordinary in a small shop's books. Both were
+ * measured on the leave-one-out baselines this actually runs against:
+ *
+ *   - A CATEGORY WITH NO SPREAD. Rent paid at exactly the same amount every
+ *     month gives a baseline standard deviation of 0, so zScore divides by
+ *     zero and its guard returns 0. A month at ten times the usual rent scores
+ *     z = 0.00 and is invisible — not "borderline", structurally undetectable.
+ *     This is the case that most deserves an owner's attention and it was the
+ *     one case the old rule could never report.
+ *   - MASKING BY OTHER OUTLIERS. With three unusually large records out of
+ *     ten, each one inflates the standard deviation the others are measured
+ *     against: |z| falls to 1.76 and none are flagged.
+ *
+ * The IQR is built from quartiles, which barely move when a few extreme
+ * records are present, so it catches both. It flags every one of the cases
+ * above. That complementarity is the reason for having both rather than
+ * picking whichever looks better on average.
+ *
+ * WHY THE TESTS ARE OR-ED BUT THE FLOOR IS AND-ED. Each test is blind in a
+ * different place, so requiring both to agree would inherit both blind spots.
+ * The deviation floor is not a third opinion about whether something is
+ * unusual — it is the question "is this difference large enough for a shop
+ * owner to care", and that has to hold no matter which test fired. It is also
+ * what keeps the no-spread case honest: with an IQR of 0 every fence collapses
+ * onto the quartile, so without the floor a category of identical PHP 500
+ * records would report PHP 501 as unusual.
  */
-export function isUnusualExpense(amount: number, stats: CategoryStats): boolean {
-  return (
-    Math.abs(zScore(amount, stats)) > Z_SCORE_THRESHOLD &&
-    deviationFraction(amount, stats) >= MIN_DEVIATION_FRACTION
-  );
+export function isUnusualExpense(
+  amount: number,
+  stats: CategoryStats,
+  quartiles: CategoryQuartiles,
+): boolean {
+  const statisticallyUnusual =
+    Math.abs(zScore(amount, stats)) > Z_SCORE_THRESHOLD || isOutsideIqrFence(amount, quartiles);
+
+  return statisticallyUnusual && deviationFraction(amount, stats) >= MIN_DEVIATION_FRACTION;
+}
+
+/** Which test reported the record. Carried to the owner-facing output so a
+ *  flag can be explained rather than just asserted. */
+export function detectionMethod(
+  amount: number,
+  stats: CategoryStats,
+  quartiles: CategoryQuartiles,
+): "z-score" | "iqr" | "both" {
+  const byZ = Math.abs(zScore(amount, stats)) > Z_SCORE_THRESHOLD;
+  const byIqr = isOutsideIqrFence(amount, quartiles);
+  if (byZ && byIqr) return "both";
+  return byZ ? "z-score" : "iqr";
 }

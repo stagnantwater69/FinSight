@@ -3,6 +3,8 @@ import type { BusinessProfile } from "@prisma/client";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import {
   computeCategoryStats,
+  computeQuartiles,
+  detectionMethod,
   computeRecoveryTarget,
   dayStatus,
   impactBand,
@@ -180,6 +182,7 @@ export async function getExpenseBehavior(userId: number, businessProfileId: numb
     zScore: number;
     categoryMean: number;
     categoryStdDev: number;
+    detectedBy: "z-score" | "iqr" | "both";
   }[] = [];
   const insufficientHistoryCategories: { categoryId: number; categoryName: string; historyCount: number }[] = [];
 
@@ -199,12 +202,14 @@ export async function getExpenseBehavior(userId: number, businessProfileId: numb
 
       const baseline = records.filter((r) => r.id !== candidate.id).map((r) => r.amount);
       const stats = computeCategoryStats(baseline);
+      const quartiles = computeQuartiles(baseline);
       const z = zScore(candidate.amount, stats);
 
-      // Statistically unusual AND materially different in peso terms — see
-      // isUnusualExpense. The z-score alone over-reported trivial differences
-      // on tightly-clustered categories.
-      if (isUnusualExpense(candidate.amount, stats)) {
+      // Unusual by z-score OR by IQR, AND materially different in peso terms —
+      // see isUnusualExpense. The two statistical tests are blind in different
+      // places, and the peso floor is what stops either of them reporting a
+      // difference too small for an owner to care about.
+      if (isUnusualExpense(candidate.amount, stats, quartiles)) {
         unusualExpenses.push({
           id: candidate.id,
           description: currentRecord.description,
@@ -215,6 +220,9 @@ export async function getExpenseBehavior(userId: number, businessProfileId: numb
           zScore: z,
           categoryMean: stats.mean,
           categoryStdDev: stats.stdDev,
+          // Which test caught it. A flag an owner can be shown the reason for
+          // is worth more than one they have to take on trust.
+          detectedBy: detectionMethod(candidate.amount, stats, quartiles),
         });
       }
     }

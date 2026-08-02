@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   computeCategoryStats,
+  computeQuartiles,
   deviationFraction,
+  detectionMethod,
+  isOutsideIqrFence,
   isUnusualExpense,
   zScore,
   MIN_DEVIATION_FRACTION,
   MIN_HISTORY_FOR_DETECTION,
   Z_SCORE_THRESHOLD,
 } from "../../src/services/analysis.service";
+
+/** The full rule, against a baseline array — the shape every call site uses. */
+function reportsUnusual(candidate: number, baseline: number[]) {
+  return isUnusualExpense(candidate, computeCategoryStats(baseline), computeQuartiles(baseline));
+}
 
 // The planted-outlier fixture. These are the exact Inventory amounts used when
 // Expense Behaviour was built and verified by hand: four ordinary supplier
@@ -124,8 +132,7 @@ describe("planted-outlier detection (the Insights fixture)", () => {
   });
 
   it("is reported by the full detection rule, not just by z-score", () => {
-    const baseline = computeCategoryStats(ORDINARY_INVENTORY);
-    expect(isUnusualExpense(PLANTED_OUTLIER, baseline)).toBe(true);
+    expect(reportsUnusual(PLANTED_OUTLIER, ORDINARY_INVENTORY)).toBe(true);
   });
 });
 
@@ -134,7 +141,7 @@ function flaggedIndexes(amounts: number[]): number[] {
   const out: number[] = [];
   for (let i = 0; i < amounts.length; i++) {
     const baseline = amounts.filter((_, j) => j !== i);
-    if (isUnusualExpense(amounts[i]!, computeCategoryStats(baseline))) out.push(i);
+    if (reportsUnusual(amounts[i]!, baseline)) out.push(i);
   }
   return out;
 }
@@ -164,11 +171,11 @@ describe("false positives on tight clusters are suppressed", () => {
   const tight = [5000, 5100, 4900, 5050, 5200, 4950, 5150, 5000];
 
   it("does not flag the ~4% deviation that used to be reported", () => {
-    const stats = computeCategoryStats(tight.filter((_, i) => i !== tight.indexOf(5200)));
+    const baseline = tight.filter((_, i) => i !== tight.indexOf(5200));
     // Still statistically unusual by z-score alone...
-    expect(deviationFraction(5200, stats)).toBeLessThan(MIN_DEVIATION_FRACTION);
+    expect(deviationFraction(5200, computeCategoryStats(baseline))).toBeLessThan(MIN_DEVIATION_FRACTION);
     // ...but no longer reported, because the peso difference is trivial.
-    expect(isUnusualExpense(5200, stats)).toBe(false);
+    expect(reportsUnusual(5200, baseline)).toBe(false);
   });
 
   it("flags nothing in an ordinary tight category", () => {
@@ -190,21 +197,24 @@ describe("false positives on tight clusters are suppressed", () => {
     expect(countFlagged([1000, 3000, 5000, 7000, 9000, 2000, 4000, 8000])).toBe(0);
   });
 
-  it("requires BOTH halves of the test, not either one", () => {
+  it("needs a statistical test AND the peso floor, never either alone", () => {
     // Baseline excludes the candidate, matching leave-one-out scoring.
-    const stats = computeCategoryStats([5000, 5100, 4900, 5050, 4950, 5150, 5000]);
+    const tightBaseline = [5000, 5100, 4900, 5050, 4950, 5150, 5000];
 
-    // Big deviation but not statistically unusual is not enough on its own:
+    // Big deviation but neither test calls it unusual is not enough on its own:
     // a category with wide natural spread should tolerate a large value.
-    const wide = computeCategoryStats([1000, 9000, 2000, 8000, 3000, 7000, 5000]);
+    const wideBaseline = [1000, 9000, 2000, 8000, 3000, 7000, 5000];
+    const wide = computeCategoryStats(wideBaseline);
     expect(deviationFraction(9500, wide)).toBeGreaterThan(MIN_DEVIATION_FRACTION);
     expect(Math.abs(zScore(9500, wide))).toBeLessThan(Z_SCORE_THRESHOLD);
-    expect(isUnusualExpense(9500, wide)).toBe(false);
+    expect(isOutsideIqrFence(9500, computeQuartiles(wideBaseline))).toBe(false);
+    expect(reportsUnusual(9500, wideBaseline)).toBe(false);
 
     // Statistically unusual but a trivial peso difference is also not enough.
-    expect(Math.abs(zScore(5200, stats))).toBeGreaterThan(Z_SCORE_THRESHOLD);
-    expect(deviationFraction(5200, stats)).toBeLessThan(MIN_DEVIATION_FRACTION);
-    expect(isUnusualExpense(5200, stats)).toBe(false);
+    const tightStats = computeCategoryStats(tightBaseline);
+    expect(Math.abs(zScore(5200, tightStats))).toBeGreaterThan(Z_SCORE_THRESHOLD);
+    expect(deviationFraction(5200, tightStats)).toBeLessThan(MIN_DEVIATION_FRACTION);
+    expect(reportsUnusual(5200, tightBaseline)).toBe(false);
   });
 });
 
@@ -254,5 +264,92 @@ describe("outlier detection on other shapes", () => {
     const z = leaveOneOutZ(amounts, 4);
     expect(z).toBeLessThan(0);
     expect(Math.abs(z)).toBeGreaterThan(Z_SCORE_THRESHOLD);
+  });
+});
+
+// ============================================================
+// IQR — the second detector
+// ============================================================
+// Added because the z-score measures a record against a mean and standard
+// deviation the record itself helps define, which leaves it blind in two
+// situations that are ordinary in a small shop's books. Each case below was
+// measured against the leave-one-out baselines the real detector uses, and
+// each is a record the previous rule could not report at all.
+
+describe("computeQuartiles", () => {
+  it("interpolates between order statistics, matching numpy and R defaults", () => {
+    // Sorted: 1,2,3,4,5 — Q1 sits at index 1, Q3 at index 3.
+    expect(computeQuartiles([3, 1, 4, 5, 2])).toEqual({ q1: 2, q3: 4, iqr: 2 });
+  });
+
+  it("reports an IQR of 0 when every record is identical", () => {
+    expect(computeQuartiles([500, 500, 500, 500]).iqr).toBe(0);
+  });
+});
+
+describe("blind spots the z-score cannot cover", () => {
+  /**
+   * THE CASE THAT MATTERS MOST. Rent paid at exactly the same amount every
+   * month gives a baseline standard deviation of 0, so zScore divides by zero
+   * and its guard returns 0. A month at ten times the usual rent therefore
+   * scores z = 0.00 — not borderline, structurally undetectable. This is
+   * exactly the expense an owner would most want to hear about.
+   */
+  it("catches a spike in a category whose history has no spread at all", () => {
+    const baseline = [500, 500, 500, 500, 500, 500, 500];
+    const stats = computeCategoryStats(baseline);
+
+    expect(stats.stdDev).toBe(0);
+    expect(zScore(5000, stats)).toBe(0); // the z-score is blind here, by construction
+    expect(isOutsideIqrFence(5000, computeQuartiles(baseline))).toBe(true);
+    expect(reportsUnusual(5000, baseline)).toBe(true);
+    expect(detectionMethod(5000, stats, computeQuartiles(baseline))).toBe("iqr");
+  });
+
+  /**
+   * MASKING. Several unusually large records inflate the standard deviation
+   * each of them is measured against, so none of them stands out. Quartiles
+   * barely move when a few extremes are present, so the IQR still sees them.
+   */
+  it("catches outliers that mask each other from the z-score", () => {
+    const amounts = [500, 500, 500, 500, 500, 500, 500, 5000, 5000, 5000];
+    const baseline = amounts.filter((_, i) => i !== 7); // leave one 5000 out
+
+    expect(Math.abs(zScore(5000, computeCategoryStats(baseline)))).toBeLessThan(Z_SCORE_THRESHOLD);
+    expect(reportsUnusual(5000, baseline)).toBe(true);
+  });
+
+  /**
+   * The floor still applies to IQR findings. With an IQR of 0 every fence
+   * collapses onto the quartile, so without it a category of identical PHP 500
+   * records would report PHP 501 as unusual.
+   */
+  it("still suppresses a trivial peso difference against a no-spread baseline", () => {
+    const baseline = [500, 500, 500, 500, 500, 500, 500];
+    expect(isOutsideIqrFence(501, computeQuartiles(baseline))).toBe(true);
+    expect(reportsUnusual(501, baseline)).toBe(false);
+  });
+
+  /**
+   * The regression that matters: adding a second detector must not start
+   * reporting ordinary records. These are the same fixtures the false-positive
+   * suite above certifies as clean, re-checked here to pin down that IQR did
+   * not quietly widen them.
+   */
+  it("adds no flags to categories the previous rule reported as clean", () => {
+    expect(countFlagged([5000, 5100, 4900, 5050, 5200, 4950, 5150, 5000])).toBe(0);
+    expect(countFlagged([4700, 5100, 4900, 5300, 5200, 4800, 5150, 5000])).toBe(0);
+    expect(countFlagged([1000, 3000, 5000, 7000, 9000, 2000, 4000, 8000])).toBe(0);
+  });
+
+  it("names which test reported a record", () => {
+    // The planted 30,000 is extreme enough that both tests catch it.
+    expect(
+      detectionMethod(
+        PLANTED_OUTLIER,
+        computeCategoryStats(ORDINARY_INVENTORY),
+        computeQuartiles(ORDINARY_INVENTORY),
+      ),
+    ).toBe("both");
   });
 });
