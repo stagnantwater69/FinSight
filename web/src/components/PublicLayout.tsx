@@ -28,9 +28,62 @@ function Brand({ size = "md" }: { size?: "sm" | "md" }) {
 function ResourcesMenu() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { pathname } = useLocation();
 
   useEffect(() => setOpen(false), [pathname]);
+
+  function cancelScheduledClose() {
+    if (closeTimer.current !== undefined) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = undefined;
+    }
+  }
+
+  /**
+   * Opens immediately and cancels any close still pending from a moment ago.
+   *
+   * Used by BOTH hover and click, and click no longer toggles — it just
+   * guarantees open. Toggling used to fight the hover state: a touch tap
+   * synthesizes a mouseenter immediately followed by a click, so mouseenter
+   * opened it and the very next click toggled it straight back closed, all
+   * within one tap. Idempotent open fixes that for free, and a mouse user who
+   * is already hovering (so already open) gets no surprise close from
+   * clicking the button either.
+   */
+  function openNow() {
+    cancelScheduledClose();
+    setOpen(true);
+  }
+
+  /**
+   * Closes on a short delay rather than instantly.
+   *
+   * THE BUG THIS FIXES: moving the pointer from the button down into the
+   * panel used to cross empty space with nothing rendered in it — the panel
+   * was offset from the button by `mt-2` (8px), and that gap belonged to
+   * neither element. The browser's mouseleave firing is based on what is
+   * actually under the pointer, not on the wrapper's logical shape, so
+   * crossing that dead pixel strip fired mouseleave on the wrapper and
+   * unmounted the panel WHILE the cursor was still travelling toward a link —
+   * before the click could ever land. That is the exact bug reported: hover
+   * shows the menu, but trying to move down and select an item makes it
+   * disappear first.
+   *
+   * Removing the gap (see the padded spacer below) fixes the root cause. This
+   * delay is the second layer: real mouse movement is rarely instant even
+   * with no gap at all, and 150ms is comfortably past any real transit time
+   * while still reading as instant to a user moving the pointer away on
+   * purpose. onMouseEnter on the panel or the button cancels it before it
+   * fires.
+   */
+  function closeSoon() {
+    cancelScheduledClose();
+    closeTimer.current = setTimeout(() => setOpen(false), 150);
+  }
+
+  // Pending timer must not fire setState after this component is gone.
+  useEffect(() => cancelScheduledClose, []);
 
   useEffect(() => {
     if (!open) return;
@@ -50,29 +103,17 @@ function ResourcesMenu() {
 
   return (
     /*
-      Opens on hover AND on click, deliberately both.
-
-      Hover is what a pointer user expects here. Click has to keep working
-      anyway, because a touch screen has no hover: a tap fires a synthetic
-      mouseenter and then a click, so a hover-only menu opens and instantly
-      closes under a finger. Keeping both means one implementation serves
-      pointer, touch and keyboard rather than stranding phone users — which
-      matters more than usual for this product.
-
-      onFocus/onBlur via focus-within is not used because the panel needs to
-      survive the pointer travelling from the button down into it; the handlers
-      sit on the WRAPPER, which encloses both, so that gap is inside the
-      element being tracked.
+      Opens on hover AND on click, deliberately both — hover for a pointer
+      user, click so a keyboard user (Tab, then Enter) can reach it with no
+      hover available at all. onFocus/onBlur is not used instead of hover
+      because the panel needs to survive the pointer travelling from the
+      button down into it, and these handlers sit on the WRAPPER, which
+      encloses both, so that traversal is inside the element being tracked.
     */
-    <div
-      ref={ref}
-      className="relative"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
+    <div ref={ref} className="relative" onMouseEnter={openNow} onMouseLeave={closeSoon}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={openNow}
         aria-expanded={open}
         aria-haspopup="menu"
         className="tap flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-ink-600 hover:bg-paper-100 hover:text-ink-900 transition-colors"
@@ -81,20 +122,31 @@ function ResourcesMenu() {
         <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
       </button>
       {open ? (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-30 mt-2 w-48 overflow-hidden rounded-2xl border border-paper-200 bg-paper py-1.5 shadow-xl ring-1 ring-black/5"
-        >
-          {RESOURCES.map((r) => (
-            <Link
-              key={r.to}
-              to={r.to}
-              role="menuitem"
-              className="block px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-paper-100 hover:text-ink-900 transition-colors"
-            >
-              {r.label}
-            </Link>
-          ))}
+        /*
+          The GAP FIX: `pt-2` is the visual spacing that `mt-2` used to be,
+          moved from margin (outside this element's box, hoverable by nothing)
+          to padding (inside this element's box, hoverable as part of it). The
+          bordered, shadowed panel a visitor actually sees is the nested div
+          below — this outer one is invisible and exists only so the full
+          vertical span from the button to the panel is continuously part of
+          the wrapper's hover footprint, with no dead strip in between.
+        */
+        <div className="absolute right-0 top-full z-30 pt-2">
+          <div
+            role="menu"
+            className="w-48 overflow-hidden rounded-2xl border border-paper-200 bg-paper py-1.5 shadow-xl ring-1 ring-black/5"
+          >
+            {RESOURCES.map((r) => (
+              <Link
+                key={r.to}
+                to={r.to}
+                role="menuitem"
+                className="block px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-paper-100 hover:text-ink-900 transition-colors"
+              >
+                {r.label}
+              </Link>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
@@ -108,6 +160,29 @@ export function PublicLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [pathname]);
+
+  /**
+   * THE BUG: clicking "Home" while already on "/" did nothing.
+   *
+   * `<Link to="/">` is a no-op when the destination equals the current path —
+   * react-router sees nothing to navigate to, so it does not touch the URL,
+   * the scroll position, or anything else. That is invisible on most nav
+   * links, because you are usually clicking them FROM a different page. Home
+   * is the one link a visitor clicks while already there — typically after
+   * scrolling down via the Features link — expecting it to act like a
+   * "back to top", and Link has no such behaviour to fall back to.
+   *
+   * So Home gets its own handler: when already on "/", scroll to the top by
+   * hand and skip the no-op navigation. From anywhere else, do nothing extra
+   * and let Link navigate normally — that case already worked.
+   */
+  function handleHomeClick(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (pathname !== "/") return;
+    e.preventDefault();
+    setMobileMenuOpen(false);
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
+  }
 
   return (
     <div data-theme="classic" className="flex min-h-screen flex-col bg-paper-50 font-sans antialiased text-ink-900">
@@ -127,7 +202,9 @@ export function PublicLayout({ children }: { children: ReactNode }) {
       */}
       <header className="sticky top-0 z-50 border-b border-paper-200/80 bg-paper/95 transition md:bg-paper/85 md:backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5 lg:px-6">
-          <Link to="/" className="tap rounded-xl">
+          {/* Same fix as the Home link below — the logo is also a link to
+              "/" and had the identical no-op-while-already-home bug. */}
+          <Link to="/" onClick={handleHomeClick} className="tap rounded-xl">
             <Brand />
           </Link>
 
@@ -135,6 +212,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           <nav className="hidden items-center gap-1 md:flex">
             <Link
               to="/"
+              onClick={handleHomeClick}
               className="tap rounded-lg px-3.5 py-2 text-sm font-medium text-ink-600 hover:bg-paper-100 hover:text-ink-900 transition-colors"
             >
               Home
@@ -188,6 +266,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           <div className="border-b border-paper-200 bg-paper p-4 md:hidden space-y-2 shadow-lg">
             <Link
               to="/"
+              onClick={handleHomeClick}
               className="block rounded-xl px-4 py-2.5 text-sm font-semibold text-ink-700 hover:bg-paper-100"
             >
               Home
