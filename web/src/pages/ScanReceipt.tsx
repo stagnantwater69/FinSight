@@ -34,6 +34,12 @@ interface ScanResult {
    * a picture rather than of text, and the screen says so — see the callout.
    */
   visionAssisted?: boolean;
+  /**
+   * How readable the photograph itself was. Present only on the upload
+   * response — it answers "should you take another one?", which is only worth
+   * answering while the owner is still holding the receipt.
+   */
+  captureQuality?: { sharpness: number; brightness: number; tooBlurredToTrust: boolean } | null;
   /** How sure OCR was about this page, 0-100. Null when not measured. */
   ocrConfidence?: number | null;
   /** The line most likely misread, when the items don't add up. */
@@ -873,6 +879,25 @@ export function ScanReceipt() {
               that is interpretation, not reading, and the owner is entitled to
               know which one produced the numbers they are about to accept.
             */}
+            {/*
+              The photograph itself, before anything about what was read from
+              it. Placed first because it is the only warning with a cheaper
+              answer than checking every field: the owner is still holding the
+              receipt, and taking another picture costs seconds.
+
+              Sits alongside the reading warnings rather than replacing them —
+              a blurred photo and an AI-interpreted result are different
+              problems and can happen together.
+            */}
+            {scan.captureQuality?.tooBlurredToTrust ? (
+              <Callout tone="warn">
+                <b className="font-semibold">This photo came out blurry.</b> FinSight read it
+                anyway, but blurred print is where it makes the most mistakes. If you still have the
+                receipt, taking another picture is usually quicker than correcting the figures
+                below.
+              </Callout>
+            ) : null}
+
             {scan.items.some((i) => i.extractedByVision) ? (
               <Callout tone="warn">
                 <b className="font-semibold">FinSight couldn't read this receipt's text.</b> These

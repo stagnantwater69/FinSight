@@ -849,6 +849,13 @@ interface ReceiptScanResult {
    * reading of a picture, and the screen has to say so.
    */
   visionAssisted?: boolean;
+  /**
+   * How readable the photograph itself was. Only present on the upload
+   * response — it answers "should you take another one?", which is only worth
+   * asking while the owner still has the receipt in front of them. On a phone
+   * that is the whole point: the camera is right there.
+   */
+  captureQuality?: { sharpness: number; brightness: number; tooBlurredToTrust: boolean } | null;
   /** How sure OCR was about this page, 0-100. Null when not measured. */
   ocrConfidence?: number | null;
   /** The line most likely misread, when the items don't add up to the total. */
@@ -1213,6 +1220,22 @@ export function ScanReceiptScreen({ navigation, route }: any) {
               owner is entitled to know which produced the numbers they are
               about to accept — the same warning the web confirm screen shows.
             */}
+            {/*
+              The photograph itself, before anything read from it. First
+              because it has the cheapest answer of any warning on this screen
+              and the camera is one tap away — on a phone, retaking is nearly
+              always faster than correcting.
+            */}
+            {scan.captureQuality?.tooBlurredToTrust ? (
+              <View style={{ marginBottom: space.md, marginTop: space.sm }}>
+                <Callout tone="warn">
+                  This photo came out blurry. FinSight read it anyway, but blurred print is where it makes
+                  the most mistakes — if you still have the receipt, taking another picture is usually
+                  quicker than correcting the figures below.
+                </Callout>
+              </View>
+            ) : null}
+
             {scan.items?.some((i) => i.extractedByVision) ? (
               <View style={{ marginBottom: space.md, marginTop: space.sm }}>
                 <Callout tone="warn">

@@ -15,6 +15,7 @@ import {
   type ParsedReceiptFields,
 } from "./ocr.service";
 import { findKnownVendorInText, normaliseForMatch } from "../lib/historyMatching";
+import { assessImageQuality } from "../lib/imageQuality";
 import { categoriseReceiptItems, UNCATEGORISED } from "./ai.service";
 import { extractReceiptWithVision } from "./visionOcr.service";
 import { createExpenseRecord } from "./expenseRecord.service";
@@ -296,6 +297,7 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
 
   const rescued = await rescueWithVision(input, parsed, deterministicItems, ocr);
   const vendor = await snapVendorToHistory(input.businessProfileId, text, rescued.vendor);
+  const quality = await assessImageQuality(input.buffer);
 
   const scan = await prisma.receiptScan.create({
     data: {
@@ -324,7 +326,16 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
     rescued.itemsFromVision,
     rescued.itemsFromVision ? [] : rescued.items.map((i) => confidenceForValue(ocr.lines, i.amount.toFixed(2))),
   );
-  return toDTO(scan, items);
+  /*
+   * Capture quality rides on the upload response rather than being stored.
+   *
+   * It answers exactly one question — "is this photograph worth trusting, or
+   * should you take another?" — and it is only answerable while the owner is
+   * still holding the receipt. Thirty seconds later they have either confirmed
+   * the scan or retaken it, and the answer is worth nothing. Persisting it
+   * would mean a migration and a column for data with that lifespan.
+   */
+  return { ...toDTO(scan, items), captureQuality: quality };
 }
 
 /**
