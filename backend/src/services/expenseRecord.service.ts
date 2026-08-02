@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { ExpenseRecord, ExpenseRecordSource, ReceiptScanItem } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { ApiError } from "../middleware/error.middleware";
+import { cleanUpImportBatchIfOrphaned, cleanUpReceiptScanIfOrphaned } from "../lib/sourceCleanup";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { createNotification, NOTIFICATION_TYPES } from "./notification.service";
 import { signedReceiptImageUrl } from "./storage.service";
@@ -530,6 +531,18 @@ export async function deleteExpenseRecord(userId: number, id: number) {
     throw new ApiError(404, "Expense record not found");
   }
   await prisma.expenseRecord.delete({ where: { id } });
+
+  /*
+   * The uploaded file this record came from goes too, once this was the last
+   * record that came from it. Read the ids off `existing` BEFORE the delete —
+   * afterwards there is no row left to read them from.
+   *
+   * After the delete rather than in a transaction with it: these touch object
+   * storage, which cannot take part in a database transaction, and a storage
+   * failure must not roll back a deletion the owner asked for.
+   */
+  await cleanUpReceiptScanIfOrphaned(existing.receiptScanId);
+  await cleanUpImportBatchIfOrphaned(existing.importBatchId);
 }
 
 export async function searchExpenseRecords(userId: number, filters: SearchFilters) {

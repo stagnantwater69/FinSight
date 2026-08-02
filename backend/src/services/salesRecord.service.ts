@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { SalesReferenceRecord, SalesRecordSource } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { ApiError } from "../middleware/error.middleware";
+import { cleanUpImportBatchIfOrphaned } from "../lib/sourceCleanup";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { createNotification, NOTIFICATION_TYPES } from "./notification.service";
 import { duplicateKeyOf } from "./expenseRecord.service";
@@ -257,6 +258,9 @@ export async function deleteSalesRecord(userId: number, id: number) {
     throw new ApiError(404, "Sales reference record not found");
   }
   await prisma.salesReferenceRecord.delete({ where: { id } });
+
+  // A sales record only ever comes from a spreadsheet, never a receipt.
+  await cleanUpImportBatchIfOrphaned(existing.importBatchId);
 }
 
 export async function searchSalesRecords(userId: number, filters: SearchFilters) {

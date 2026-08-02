@@ -80,6 +80,38 @@ export async function signedReceiptImageUrl(path: string): Promise<string | null
   return data.signedUrl;
 }
 
+/**
+ * Removes a stored object, and never fails the caller if it cannot.
+ *
+ * Deletion is always the SECOND half of an operation whose first half has
+ * already succeeded — the database row is gone by the time this runs. If
+ * Storage is briefly unreachable, the right outcome is an orphaned file and a
+ * logged warning, not an error thrown at an owner whose record was in fact
+ * deleted exactly as they asked. An orphan can be swept later; a 500 on a
+ * successful delete cannot be taken back.
+ *
+ * Returns whether the object is gone, so a caller that wants to report or
+ * count failures can.
+ */
+async function removeObject(bucket: string, path: string): Promise<boolean> {
+  const { error } = await supabaseAdmin.storage.from(bucket).remove([path]);
+  if (error) {
+    console.error(`Could not delete "${path}" from ${bucket}: ${error.message}`);
+    return false;
+  }
+  return true;
+}
+
+/** Deletes a receipt image. Safe to call for a path that is already gone. */
+export async function deleteReceiptImage(path: string): Promise<boolean> {
+  return removeObject(env.SUPABASE_STORAGE_BUCKET, path);
+}
+
+/** Deletes an uploaded CSV. Safe to call for a path that is already gone. */
+export async function deleteCsvFile(path: string): Promise<boolean> {
+  return removeObject(CSV_IMPORT_BUCKET, path);
+}
+
 export async function uploadCsvFile(businessProfileId: number, buffer: Buffer, originalname: string) {
   const path = `${businessProfileId}/${randomUUID()}-${originalname}`;
   await uploadWithRetry(CSV_IMPORT_BUCKET, path, buffer, "text/csv");

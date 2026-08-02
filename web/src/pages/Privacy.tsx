@@ -58,10 +58,16 @@ export function Privacy() {
           <section>
             <h2 className="font-display text-lg font-bold text-ink-900">How long it is kept</h2>
             <p className="mt-2">
-              Records stay until you delete them. Be aware of a current limitation: deleting a record
-              removes it from your books, but the receipt image or spreadsheet it came from is not yet
-              removed from storage. Automatic cleanup of those files is not built yet, and we would
-              rather say so than imply a deletion that does not happen.
+              Records stay until you delete them. Deleting one also removes the receipt photograph or
+              spreadsheet it came from — once nothing else came from that same upload. A photographed
+              receipt split across several categories keeps its image until the last of those records
+              is gone, because until then the file is still the source of something you can see.
+            </p>
+            <p className="mt-2">
+              One gap remains, and we would rather name it than let you assume otherwise: a receipt
+              you photograph but never confirm is still stored. Nothing was saved to your books, so
+              there is no record to delete, and automatic clearing of those abandoned scans is not
+              built yet.
             </p>
           </section>
 
