@@ -47,25 +47,56 @@ const MONO_ADVANCE_EM = 0.6;
 const MAX_LABEL_PX = 18;
 const MIN_LABEL_PX = 10;
 
-/** The largest size at which the whole figure still fits inside the ring. */
-function fitLabelSize(label: string): number {
+/** The largest size at which the whole figure still fits inside the ring.
+ *  Exported for tests: it is pure geometry, and it is what broke visibly when
+ *  a five-figure total overflowed the ring. */
+export function fitLabelSize(label: string): number {
   const ideal = HOLE_WIDTH / (label.length * MONO_ADVANCE_EM);
   return Math.max(MIN_LABEL_PX, Math.min(MAX_LABEL_PX, Math.floor(ideal)));
 }
 
-export function DonutChart({ breakdown }: { breakdown: { categoryName: string; total: number }[] }) {
-  const palette = useCategoricalPalette();
+export interface DonutSlice {
+  name: string;
+  total: number;
+  color: string;
+}
+
+/**
+ * Turns a category breakdown into the wedges the chart draws.
+ *
+ * Exported so what an owner actually sees can be checked. Three rules matter
+ * and none of them are obvious from the drawing code:
+ *
+ *   - Largest first, so the eye lands on the category that dominates.
+ *   - Only the top TOP_N get their own wedge. Past about six slices a donut
+ *     stops being readable and becomes a fan of slivers, so the remainder is
+ *     folded into one "Other".
+ *   - Colours are assigned by RANK, from a fixed palette, never cycled — a
+ *     category keeps its colour as the period changes and the set shrinks.
+ *     "Other" is a neutral grey from outside the palette so it never reads as
+ *     just another category.
+ */
+export function toSlices(
+  breakdown: { categoryName: string; total: number }[],
+  palette: readonly string[],
+): DonutSlice[] {
   const sorted = [...breakdown].filter((b) => b.total > 0).sort((a, b) => b.total - a.total);
-  if (sorted.length === 0) return null;
+  if (sorted.length === 0) return [];
 
   const head = sorted.slice(0, TOP_N);
   const tail = sorted.slice(TOP_N);
-  const slices = [
-    ...head.map((b, i) => ({ name: b.categoryName, total: b.total, color: palette[i] })),
+  return [
+    ...head.map((b, i) => ({ name: b.categoryName, total: b.total, color: palette[i]! })),
     ...(tail.length
       ? [{ name: `Other (${tail.length})`, total: tail.reduce((s, b) => s + b.total, 0), color: OTHER_COLOR }]
       : []),
   ];
+}
+
+export function DonutChart({ breakdown }: { breakdown: { categoryName: string; total: number }[] }) {
+  const palette = useCategoricalPalette();
+  const slices = toSlices(breakdown, palette);
+  if (slices.length === 0) return null;
 
   const total = slices.reduce((s, d) => s + d.total, 0);
   const totalLabel = formatMoney(total);

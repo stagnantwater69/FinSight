@@ -13,6 +13,7 @@ import type { CategorySuggestion } from "../lib/types";
  * missing an item — there the items are the trustworthy figure.
  */
 import { buildReceiptConfirmPayload, type GapPlan } from "../lib/receiptConfirm";
+import { everyLineIsReady, groupByCategory, sumCentavos, toReviewLines } from "../lib/receiptReview";
 import { Callout, Card, PageHead, FormPage } from "../components/ui";
 import { Button } from "../components/Button";
 import { Field, FileInput, FormError, MoneyInput, TextInput } from "../components/Field";
@@ -605,46 +606,13 @@ export function ScanReceipt() {
    * enabled — works off this rather than off `items`, so an added line counts
    * the moment it is complete instead of only after saving.
    */
-  const reviewLines = [
-    ...items.map((item) => ({
-      key: `scanned-${item.id}`,
-      centavos: Math.round(item.amount * 100),
-      categoryId: itemCategories[item.id] ?? ("" as number | ""),
-    })),
-    ...addedItems
-      .filter((a) => a.amount !== "")
-      .map((a) => ({
-        key: a.key,
-        centavos: Math.round(Number(a.amount) * 100),
-        categoryId: a.categoryId,
-      })),
-  ];
-
-  const itemGroups = (() => {
-    const groups = new Map<number | "", { centavos: number; count: number }>();
-    for (const line of reviewLines) {
-      const group = groups.get(line.categoryId) ?? { centavos: 0, count: 0 };
-      group.centavos += line.centavos;
-      group.count += 1;
-      groups.set(line.categoryId, group);
-    }
-    return [...groups.entries()].map(([categoryId, g]) => ({
-      categoryId,
-      subtotal: g.centavos / 100,
-      count: g.count,
-    }));
-  })();
-
-  const itemsTotalCentavos = reviewLines.reduce((sum, l) => sum + l.centavos, 0);
-  const everyScannedItemHasCategory = items.every(
-    (i) => itemCategories[i.id] !== "" && itemCategories[i.id] !== undefined,
-  );
-  // An added line only counts once it is actually usable. A half-typed row
-  // must not silently drag the subtotal around or enable Confirm.
-  const everyAddedItemIsComplete = addedItems.every(
-    (a) => a.name.trim() !== "" && a.amount !== "" && Number(a.amount) > 0 && a.categoryId !== "",
-  );
-  const everyItemHasCategory = everyScannedItemHasCategory && everyAddedItemIsComplete;
+  // All of the review arithmetic lives in lib/receiptReview, where it can be
+  // tested on its own — it decides how this receipt's money is split across
+  // categories and whether Confirm is allowed.
+  const reviewLines = toReviewLines(items, itemCategories, addedItems);
+  const itemGroups = groupByCategory(reviewLines);
+  const itemsTotalCentavos = sumCentavos(reviewLines);
+  const everyItemHasCategory = everyLineIsReady(items, itemCategories, addedItems);
 
   const itemGapCentavos = totalCentavos - itemsTotalCentavos;
 
