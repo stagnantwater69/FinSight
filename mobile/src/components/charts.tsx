@@ -3,7 +3,7 @@ import { View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 import { Money, T } from "./ui";
 import { formatMoney } from "../lib/money";
-import { brand, categorical, ink, paper, radius, space, status, statusText } from "../theme/tokens";
+import { brand, categorical, ink, paper, space, status, statusText } from "../theme/tokens";
 
 /**
  * The chart kit.
@@ -378,56 +378,6 @@ export function CoverageColumns({
         </View>
       </View>
     </ChartFrame>
-  );
-}
-
-// ============================================================
-// A single headline figure
-// ============================================================
-// Sometimes the honest answer is not a chart. One number, given room.
-
-export function HeroFigure({
-  label,
-  value,
-  caption,
-  tone = "neutral",
-}: {
-  label: string;
-  value: number;
-  caption?: string;
-  tone?: "neutral" | "good" | "warning";
-}) {
-  const colour = tone === "good" ? statusText.good : tone === "warning" ? statusText.warning : brand[900];
-  return (
-    <View
-      style={{
-        padding: space.lg,
-        backgroundColor: paper.DEFAULT,
-        borderRadius: radius.lg,
-        borderWidth: 1,
-        borderColor: paper[200],
-      }}
-    >
-      <T variant="label">{label}</T>
-      <T style={{ fontSize: 30, lineHeight: 38, color: colour, fontFamily: "IBMPlexMono_600SemiBold" }}>
-        {formatMoney(value)}
-      </T>
-      {caption ? <T variant="caption">{caption}</T> : null}
-    </View>
-  );
-}
-
-/** A dot in a series colour, for legends and keys. */
-export function SeriesDot({ index }: { index: number }) {
-  return (
-    <View
-      style={{
-        width: 8,
-        height: 8,
-        borderRadius: 2,
-        backgroundColor: categorical[index % categorical.length],
-      }}
-    />
   );
 }
 

@@ -1,44 +1,36 @@
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { Alert as AlertBanner, Card, EmptyState, ErrorNote, Money, Screen, T } from "../components/ui";
+import { Alert as AlertBanner, Card, EmptyState, ErrorNote, Money, Screen, SegmentedControl, T } from "../components/ui";
 import { RecoveryMeter } from "../components/RecoveryMeter";
 import { CategoryChange, CategoryComparison, CoverageColumns, SpendTrend } from "../components/charts";
 import { AskFinSight, AskFinSightButton } from "../components/AskFinSight";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
-import { ACCENT, brand, ink, paper, radius, space, statusText, TAP } from "../theme/tokens";
+import { ACCENT, brand, ink, radius, space, statusText, TAP } from "../theme/tokens";
 import type { ExpenseBehavior, RecoveryInsight, SpendingImpact } from "../lib/types";
+
+/*
+ * The tab values are screen names. Selection here is derived from the route
+ * rather than from state, so the route↔value mapping stays at this call site
+ * and SegmentedControl remains a plain controlled component.
+ */
+const INSIGHT_TABS = [
+  { label: "Expenses", value: "ExpenseBehavior" },
+  { label: "Spending", value: "SpendingImpact" },
+  { label: "Recovery", value: "RecoveryTarget" },
+];
 
 /** Shared sub-navigation across the three insight screens. */
 function InsightTabs({ navigation, active }: { navigation: any; active: string }) {
-  const tabs = [
-    { key: "ExpenseBehavior", label: "Expenses" },
-    { key: "SpendingImpact", label: "Spending" },
-    { key: "RecoveryTarget", label: "Recovery" },
-  ];
   return (
-    <View style={{ flexDirection: "row", gap: space.sm, marginBottom: space.lg }}>
-      {tabs.map((t) => (
-        <Pressable
-          key={t.key}
-          onPress={() => navigation.navigate(t.key)}
-          accessibilityRole="button"
-          accessibilityState={{ selected: active === t.key }}
-          style={{
-            flex: 1,
-            minHeight: TAP - 6,
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: radius.md,
-            backgroundColor: active === t.key ? brand[600] : paper.DEFAULT,
-            borderWidth: 1,
-            borderColor: active === t.key ? brand[600] : brand[100],
-          }}
-        >
-          <T style={{ fontSize: 13, color: active === t.key ? "#fff" : ink[600] }}>{t.label}</T>
-        </Pressable>
-      ))}
+    <View style={{ marginBottom: space.lg }}>
+      <SegmentedControl
+        options={INSIGHT_TABS}
+        value={active}
+        onChange={(key) => navigation.navigate(key)}
+        accessibilityLabel="Insight sections"
+      />
     </View>
   );
 }
@@ -67,6 +59,11 @@ function useInsight<T>(path: string, query: Record<string, any>, deps: any[]) {
 
 // ---------------------------------------------------------------- Expense insight
 
+const PERIODS = [
+  { label: "This week", value: 7 },
+  { label: "This month", value: 30 },
+];
+
 export function ExpenseBehaviorScreen({ navigation }: any) {
   const { selected } = useBusinessProfiles();
   const [periodDays, setPeriodDays] = useState(30);
@@ -86,25 +83,12 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
         <InsightTabs navigation={navigation} active="ExpenseBehavior" />
 
         <View style={{ flexDirection: "row", gap: space.sm, marginBottom: space.lg, alignItems: "center" }}>
-          {[7, 30].map((d) => (
-            <Pressable
-              key={d}
-              onPress={() => setPeriodDays(d)}
-              style={{
-                minHeight: TAP - 8,
-                paddingHorizontal: space.md,
-                justifyContent: "center",
-                borderRadius: radius.sm,
-                backgroundColor: periodDays === d ? brand[600] : paper.DEFAULT,
-                borderWidth: 1,
-                borderColor: periodDays === d ? brand[600] : brand[100],
-              }}
-            >
-              <T style={{ fontSize: 13, color: periodDays === d ? "#fff" : ink[600] }}>
-                {d === 7 ? "This week" : "This month"}
-              </T>
-            </Pressable>
-          ))}
+          <SegmentedControl
+            options={PERIODS}
+            value={periodDays}
+            onChange={setPeriodDays}
+            accessibilityLabel="Period"
+          />
           <View style={{ flex: 1 }} />
           <AskFinSightButton onPress={() => setAskOpen(true)} />
         </View>

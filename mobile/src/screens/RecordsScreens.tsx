@@ -11,7 +11,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { Alert as AlertBanner, AlertBadge, Button, Callout, Card, EmptyState, ErrorNote, Money, Screen, ScreenHeader, T } from "../components/ui";
+import { Alert as AlertBanner, AlertBadge, Button, Callout, Card, EmptyState, ErrorNote, Money, Screen, ScreenHeader, SegmentedControl, SelectChip, T } from "../components/ui";
 import { Field } from "./AuthScreens";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
@@ -38,6 +38,20 @@ import { brand, ink, paper, radius, space, statusText, TAP } from "../theme/toke
 import { RECORD_SOURCE_LABELS, type ExpenseCategory, type RecordItem, type RecordSource } from "../lib/types";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * The record-type filter. Module scope so the array is not rebuilt on every
+ * keystroke in the search box above it.
+ *
+ * Labels are written out rather than capitalised from the values at render
+ * time: "all" reads better as "All" than as a transformed string, and the
+ * value is what the API expects, so the two are allowed to differ.
+ */
+const RECORD_TYPES = [
+  { label: "All", value: "all" },
+  { label: "Expense", value: "expense" },
+  { label: "Sales", value: "sales" },
+] as const;
 
 /** Status badges, shared by the list and the review queue. */
 function badges(r: RecordItem) {
@@ -161,36 +175,6 @@ function RecordCard({
     >
       {card}
     </Swipeable>
-  );
-}
-
-/** A filter value that can be turned on and off again. */
-function FilterChip({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      style={{
-        minHeight: TAP - 10,
-        justifyContent: "center",
-        paddingHorizontal: space.md,
-        borderRadius: radius.full,
-        borderWidth: 1,
-        borderColor: selected ? brand[600] : ink[200],
-        backgroundColor: selected ? brand[600] : paper.DEFAULT,
-      }}
-    >
-      <T style={{ fontSize: 12, color: selected ? "#fff" : ink[700] }}>{label}</T>
-    </Pressable>
   );
 }
 
@@ -364,27 +348,13 @@ export function RecordsScreen({ navigation }: any) {
               color: ink[900],
             }}
           />
-          <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.sm }}>
-            {(["all", "expense", "sales"] as const).map((t) => (
-              <Pressable
-                key={t}
-                onPress={() => {
-                  haptics.tapped();
-                  setType(t);
-                }}
-                accessibilityRole="button"
-                accessibilityState={{ selected: type === t }}
-                style={{
-                  minHeight: TAP - 8,
-                  paddingHorizontal: space.md,
-                  justifyContent: "center",
-                  borderRadius: radius.sm,
-                  backgroundColor: type === t ? brand[600] : paper[100],
-                }}
-              >
-                <T style={{ fontSize: 13, color: type === t ? "#fff" : ink[600], textTransform: "capitalize" }}>{t}</T>
-              </Pressable>
-            ))}
+          <View style={{ marginTop: space.sm }}>
+            <SegmentedControl
+              options={RECORD_TYPES}
+              value={type}
+              onChange={setType}
+              accessibilityLabel="Record type"
+            />
           </View>
 
           {/*
@@ -409,12 +379,19 @@ export function RecordsScreen({ navigation }: any) {
               <View>
                 <T variant="caption" style={{ marginBottom: 4 }}>Category</T>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
-                  <FilterChip label="Any" selected={categoryId === null} onPress={() => setCategoryId(null)} />
+                  {/*
+                    "Any" is a real chip in the row, not a special case: the
+                    cleared state is a value the owner can pick, so it looks
+                    and behaves like every other value here.
+                  */}
+                  <SelectChip label="Any" selected={categoryId === null} onPress={() => setCategoryId(null)} />
                   {categories.map((c) => (
-                    <FilterChip
+                    <SelectChip
                       key={c.id}
                       label={c.name}
                       selected={categoryId === c.id}
+                      // Tapping the chip that is already on turns it off again,
+                      // which is the same thing as choosing "Any".
                       onPress={() => setCategoryId(categoryId === c.id ? null : c.id)}
                     />
                   ))}
@@ -424,9 +401,9 @@ export function RecordsScreen({ navigation }: any) {
               <View>
                 <T variant="caption" style={{ marginBottom: 4 }}>How it was added</T>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
-                  <FilterChip label="Any" selected={source === null} onPress={() => setSource(null)} />
+                  <SelectChip label="Any" selected={source === null} onPress={() => setSource(null)} />
                   {(Object.keys(RECORD_SOURCE_LABELS) as RecordSource[]).map((s) => (
-                    <FilterChip
+                    <SelectChip
                       key={s}
                       label={RECORD_SOURCE_LABELS[s]}
                       selected={source === s}
@@ -548,24 +525,17 @@ function CategoryChips({
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
       {categories.map((c) => (
-        <Pressable
+        <SelectChip
           key={c.id}
+          label={c.name}
+          selected={value === c.id}
           onPress={() => onChange(c.id)}
-          accessibilityRole="button"
+          // The one composed label in the app, and the reason `label` is a
+          // prop at all: these rows repeat down an itemised receipt, so
+          // "Food" on its own tells a screen reader nothing about WHICH line
+          // it would file.
           accessibilityLabel={`${c.name}, category for ${label}`}
-          accessibilityState={{ selected: value === c.id }}
-          style={{
-            minHeight: TAP - 10,
-            justifyContent: "center",
-            paddingHorizontal: space.md,
-            borderRadius: radius.full,
-            borderWidth: 1,
-            borderColor: value === c.id ? brand[600] : ink[200],
-            backgroundColor: value === c.id ? brand[600] : paper.DEFAULT,
-          }}
-        >
-          <T style={{ fontSize: 12, color: value === c.id ? "#fff" : ink[700] }}>{c.name}</T>
-        </Pressable>
+        />
       ))}
     </View>
   );
@@ -649,23 +619,7 @@ function CategoryPicker({
       {categories.length > 0 ? (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.sm }}>
           {categories.map((c) => (
-            <Pressable
-              key={c.id}
-              onPress={() => onChange(c.id)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: value === c.id }}
-              style={{
-                minHeight: TAP - 8,
-                justifyContent: "center",
-                paddingHorizontal: space.md,
-                borderRadius: radius.full,
-                borderWidth: 1,
-                borderColor: value === c.id ? brand[600] : ink[200],
-                backgroundColor: value === c.id ? brand[600] : paper.DEFAULT,
-              }}
-            >
-              <T style={{ fontSize: 13, color: value === c.id ? "#fff" : ink[700] }}>{c.name}</T>
-            </Pressable>
+            <SelectChip key={c.id} label={c.name} selected={value === c.id} onPress={() => onChange(c.id)} />
           ))}
         </View>
       ) : (
@@ -1354,10 +1308,9 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                       <CategoryChips
                         categories={categories}
                         value={itemCategories[item.id] ?? null}
-                        onChange={(id) => {
-                          haptics.tapped();
-                          setItemCategories((prev) => ({ ...prev, [item.id]: id }));
-                        }}
+                        // No haptic here: the chip fires its own, and firing a
+                        // second would buzz twice for one tap.
+                        onChange={(id) => setItemCategories((prev) => ({ ...prev, [item.id]: id }))}
                         label={item.name}
                       />
                     </View>
@@ -1742,21 +1695,17 @@ export function ImportCsvScreen({ navigation }: any) {
                   <T variant="label" style={{ marginBottom: 4, textTransform: "capitalize" }}>{field}</T>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
                     {headers.map((h) => (
-                      <Pressable
+                      <SelectChip
                         key={h}
+                        label={h}
+                        selected={mapping[field] === h}
                         onPress={() => setMapping((m) => ({ ...m, [field]: h }))}
-                        style={{
-                          minHeight: TAP - 10,
-                          justifyContent: "center",
-                          paddingHorizontal: space.md,
-                          borderRadius: radius.full,
-                          borderWidth: 1,
-                          borderColor: mapping[field] === h ? brand[600] : ink[200],
-                          backgroundColor: mapping[field] === h ? brand[600] : paper.DEFAULT,
-                        }}
-                      >
-                        <T style={{ fontSize: 12, color: mapping[field] === h ? "#fff" : ink[700] }}>{h}</T>
-                      </Pressable>
+                        // Every column name appears once per field, so the
+                        // chip has to say which field it would fill —
+                        // otherwise four identical "Amount" chips read out
+                        // identically.
+                        accessibilityLabel={`${h}, for ${field}`}
+                      />
                     ))}
                   </View>
                 </View>

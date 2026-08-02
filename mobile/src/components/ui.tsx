@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ACCENT, brand, font, ink, paper, radius, space, statusText, TAP } from "../theme/tokens";
 import { formatMoney, type AlertKind } from "../lib/money";
+import * as haptics from "../lib/haptics";
 
 /**
  * Shared primitives, mirroring the web design system.
@@ -31,7 +32,7 @@ const TEXT_VARIANTS: Record<Variant, TextStyle> = {
   heading: { fontFamily: font.display, fontSize: 15, color: ink[700] },
   body: { fontFamily: font.sans, fontSize: 15, color: ink[700], lineHeight: 22 },
   label: { fontFamily: font.sansMedium, fontSize: 13, color: ink[500] },
-  caption: { fontFamily: font.sans, fontSize: 12, color: ink[400] },
+  caption: { fontFamily: font.sans, fontSize: 12, color: ink[500] },
 };
 
 export function T({
@@ -56,6 +57,8 @@ export function T({
  */
 export function Money({
   value,
+  // No screen passes these two yet. They are kept because they are the only
+  // route to formatMoney's decimal and bare forms, which money.test.ts covers.
   decimals = false,
   bare = false,
   size = 15,
@@ -141,6 +144,128 @@ export function Button({
   );
 }
 
+// ---------------------------------------------------------------- Selection
+
+/**
+ * One option out of a set the owner can pick from — a filter, a category, a
+ * CSV column.
+ *
+ * Five screens had each grown their own copy of this chip. They were already
+ * pixel-identical, so nothing here is a redesign; what differed was the parts
+ * you cannot see. Some declared `accessibilityState`, some declared nothing,
+ * and not one of them gave any feedback on touch. Those are exactly the
+ * details that get forgotten on the sixth copy, which is the argument for
+ * there being only one.
+ *
+ * Deliberately presentational. Toggle-to-clear, an "Any" option, single
+ * versus multi select — all of that stays at the call-site, because it
+ * genuinely differs per screen and a chip that owned it would need a flag for
+ * each variation.
+ */
+export function SelectChip({
+  label,
+  selected,
+  onPress,
+  accessibilityLabel,
+  disabled,
+  haptic = true,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  accessibilityLabel?: string;
+  disabled?: boolean;
+  haptic?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ selected, disabled: !!disabled }}
+      disabled={disabled}
+      onPress={() => {
+        // The chip fires its own selection haptic so no call-site has to
+        // remember to. `haptic={false}` exists for the caller that already
+        // fires one of its own and would otherwise buzz twice.
+        if (haptic) haptics.tapped();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        styles.chip,
+        {
+          borderColor: selected ? brand[600] : ink[200],
+          backgroundColor: selected ? brand[600] : paper.DEFAULT,
+          opacity: disabled ? 0.6 : pressed ? 0.85 : 1,
+        },
+      ]}
+    >
+      <T style={{ fontSize: 12, color: selected ? "#fff" : ink[700] }}>{label}</T>
+    </Pressable>
+  );
+}
+
+/**
+ * A short list of mutually exclusive options, all visible at once — a period
+ * switcher, a pair of tabs.
+ *
+ * The track behind the segments is the whole point of the form: it draws the
+ * group as ONE control with a marker moving between fixed slots, rather than
+ * as several separate things that happen to sit next to each other. That is
+ * also why the segments carry no borders of their own — the track already
+ * says where the control begins and ends, and a border on each segment would
+ * say it a second time.
+ *
+ * React Native has no dependable "tablist"/"tab" role, so every segment is a
+ * button carrying its own selected state. That is what VoiceOver and TalkBack
+ * actually read out in a way that means something.
+ *
+ * The generic is named `Value` rather than `T` on purpose: `T` is the text
+ * primitive above, and a type parameter of the same name would shadow it
+ * inside this function.
+ */
+export function SegmentedControl<Value extends string | number>({
+  options,
+  value,
+  onChange,
+  accessibilityLabel,
+}: {
+  // readonly so a call-site can declare its options `as const` and have the
+  // literal value types flow through to `onChange` — without that, `value`
+  // widens to string and stops matching the state setter it feeds.
+  options: readonly { label: string; value: Value }[];
+  value: Value;
+  onChange: (v: Value) => void;
+  accessibilityLabel?: string;
+}) {
+  return (
+    <View style={styles.segmentTrack} accessibilityLabel={accessibilityLabel}>
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <Pressable
+            key={String(option.value)}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            onPress={() => {
+              haptics.tapped();
+              onChange(option.value);
+            }}
+            style={({ pressed }) => [
+              styles.segment,
+              {
+                backgroundColor: selected ? brand[600] : "transparent",
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+          >
+            <T style={{ fontSize: 13, color: selected ? "#fff" : ink[600] }}>{option.label}</T>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------- Card
 
 export function Card({
@@ -208,13 +333,11 @@ export function Alert({
   label,
   children,
   meta,
-  action,
 }: {
   kind: AlertKind;
   label?: string;
   children: ReactNode;
   meta?: string;
-  action?: ReactNode;
 }) {
   const spec = ALERT_SPEC[kind];
   return (
@@ -232,7 +355,6 @@ export function Alert({
             <T style={{ fontSize: 14, marginTop: 2 }}>{children}</T>
             {meta ? <T variant="caption" style={{ marginTop: 2 }}>{meta}</T> : null}
           </View>
-          {action}
         </View>
       </View>
     </View>
@@ -249,100 +371,6 @@ export function AlertBadge({ kind, label }: { kind: AlertKind; label?: string })
     </View>
   );
 }
-
-// ---------------------------------------------------------------- Pill
-
-export function Pill({
-  tone = "neutral",
-  children,
-}: {
-  tone?: "ok" | "warn" | "danger" | "info" | "neutral";
-  children: ReactNode;
-}) {
-  const bg = {
-    ok: brand[50],
-    warn: "#fffbeb",
-    danger: "#fef2f2",
-    info: brand[50],
-    neutral: paper[100],
-  }[tone];
-  const fg = {
-    ok: brand[700],
-    warn: statusText.warning,
-    danger: statusText.critical,
-    info: brand[700],
-    neutral: ink[600],
-  }[tone];
-  const border = {
-    ok: brand[200],
-    warn: "#fde68a",
-    danger: "#fecaca",
-    info: brand[200],
-    neutral: ink[200],
-  }[tone];
-
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        backgroundColor: bg,
-        borderColor: border,
-        borderWidth: 1,
-        borderRadius: radius.full,
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        alignSelf: "flex-start",
-      }}
-    >
-      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: fg }} />
-      <T style={{ fontSize: 12, fontFamily: font.sansSemibold, color: fg }}>{children}</T>
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------- Executive Summary Card
-
-export function ExecutiveSummaryCard({
-  title = "This month at a glance",
-  subtitle = "Composed from your records — not AI-written",
-  children,
-  action,
-}: {
-  title?: string;
-  subtitle?: string;
-  children: ReactNode;
-  action?: ReactNode;
-}) {
-  return (
-    <View
-      style={{
-        backgroundColor: brand[900],
-        borderRadius: radius.lg,
-        padding: space.lg,
-        shadowColor: ink[900],
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 6,
-        elevation: 4,
-      }}
-    >
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: space.xs }}>
-        <T style={{ fontFamily: font.displayBold, fontSize: 16, color: "#ffffff" }}>{title}</T>
-        <View style={{ backgroundColor: brand[700], borderRadius: radius.full, paddingHorizontal: 8, paddingVertical: 2 }}>
-          <T style={{ fontSize: 11, fontFamily: font.sansMedium, color: brand[100] }}>✦ AI Digest</T>
-        </View>
-      </View>
-      <T style={{ fontSize: 12, color: brand[200], marginBottom: space.md }}>{subtitle}</T>
-      <View style={{ marginVertical: space.xs }}>
-        <T style={{ fontSize: 14, lineHeight: 22, color: paper[50] }}>{children}</T>
-      </View>
-      {action ? <View style={{ marginTop: space.md, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: brand[800] }}>{action}</View> : null}
-    </View>
-  );
-}
-
 
 // ---------------------------------------------------------------- Empty state
 
@@ -527,11 +555,6 @@ export function ScreenHeader({
   );
 }
 
-/** A hairline between rows inside a card. */
-export function Divider({ style }: { style?: ViewStyle }) {
-  return <View style={[{ height: 1, backgroundColor: paper[200] }, style]} />;
-}
-
 const styles = StyleSheet.create({
   button: {
     minHeight: TAP,
@@ -542,6 +565,28 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexDirection: "row",
     gap: space.sm,
+  },
+  chip: {
+    minHeight: TAP - 10,
+    paddingHorizontal: space.md,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentTrack: {
+    flexDirection: "row",
+    backgroundColor: paper[100],
+    borderRadius: radius.md,
+    padding: 3,
+  },
+  segment: {
+    flex: 1,
+    minHeight: TAP - 8,
+    paddingHorizontal: space.md,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
   },
   /*
    * A card is a sheet of paper, not a coloured box.

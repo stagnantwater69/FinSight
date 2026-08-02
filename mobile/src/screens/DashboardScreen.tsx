@@ -1,23 +1,22 @@
 import { useCallback, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { Alert, Button, Card, EmptyState, ErrorNote, Screen, ScreenHeader, SetupProgress, StatTile, T } from "../components/ui";
+import { Alert, Button, Card, EmptyState, ErrorNote, Screen, ScreenHeader, SegmentedControl, SetupProgress, StatTile, T } from "../components/ui";
 import { RecoveryMeter } from "../components/RecoveryMeter";
 import { CategoryBreakdown, DonutChart } from "../components/charts";
 import { AtAGlance } from "../components/AtAGlance";
 import { SkeletonDashboard } from "../components/Skeleton";
-import * as haptics from "../lib/haptics";
 import { AskFinSight, AskFinSightButton } from "../components/AskFinSight";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
 import { alertKindFromType } from "../lib/money";
-import { brand, ink, paper, radius, space, TAP } from "../theme/tokens";
+import { brand, space } from "../theme/tokens";
 import type { DashboardSummary } from "../lib/types";
 
 const PERIODS = [
-  { label: "Today", days: 1 },
-  { label: "Week", days: 7 },
-  { label: "Month", days: 30 },
+  { label: "Today", value: 1 },
+  { label: "Week", value: 7 },
+  { label: "Month", value: 30 },
 ];
 
 export function DashboardScreen({ navigation }: any) {
@@ -86,28 +85,12 @@ export function DashboardScreen({ navigation }: any) {
             subtitle={`Last ${periodDays} day${periodDays === 1 ? "" : "s"}`}
           />
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "center" }}>
-            <View style={{ flexDirection: "row", backgroundColor: paper[100], borderRadius: radius.md, padding: 3 }}>
-              {PERIODS.map((p) => (
-                <Pressable
-                  key={p.days}
-                  onPress={() => {
-                    haptics.tapped();
-                    setPeriodDays(p.days);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: periodDays === p.days }}
-                  style={{
-                    minHeight: TAP - 8,
-                    paddingHorizontal: space.md,
-                    justifyContent: "center",
-                    borderRadius: radius.sm,
-                    backgroundColor: periodDays === p.days ? brand[600] : "transparent",
-                  }}
-                >
-                  <T style={{ fontSize: 13, color: periodDays === p.days ? "#fff" : ink[600] }}>{p.label}</T>
-                </Pressable>
-              ))}
-            </View>
+            <SegmentedControl
+              options={PERIODS}
+              value={periodDays}
+              onChange={setPeriodDays}
+              accessibilityLabel="Period"
+            />
             <AskFinSightButton onPress={() => setAskOpen(true)} />
           </View>
         </View>

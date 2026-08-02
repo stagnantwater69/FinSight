@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
-import { T } from "./ui";
+import { SelectChip, T } from "./ui";
 import * as haptics from "../lib/haptics";
 import { brand, ink, paper, radius, space, TAP } from "../theme/tokens";
 
@@ -187,31 +187,17 @@ export function DateRangeChips({
 
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
-      {presets.map((p) => {
-        const active = activeLabel === p.label;
-        return (
-          <Pressable
-            key={p.label}
-            onPress={() => {
-              haptics.tapped();
-              onPick(iso(p.from), iso(p.to), p.label);
-            }}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            style={{
-              minHeight: TAP - 10,
-              justifyContent: "center",
-              paddingHorizontal: space.md,
-              borderRadius: radius.full,
-              borderWidth: 1,
-              borderColor: active ? brand[600] : ink[200],
-              backgroundColor: active ? brand[600] : paper.DEFAULT,
-            }}
-          >
-            <T style={{ fontSize: 12, color: active ? "#fff" : ink[700] }}>{p.label}</T>
-          </Pressable>
-        );
-      })}
+      {presets.map((p) => (
+        <SelectChip
+          key={p.label}
+          label={p.label}
+          // The active range is identified by its label, not by its dates: the
+          // presets are recomputed from today's date on every render, so two
+          // Date objects for "Last 7 days" are never the same instance.
+          selected={activeLabel === p.label}
+          onPress={() => onPick(iso(p.from), iso(p.to), p.label)}
+        />
+      ))}
     </View>
   );
 }

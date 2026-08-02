@@ -1,6 +1,6 @@
 import { View } from "react-native";
 import { Money, T } from "./ui";
-import { ACCENT, ink, radius, space, status, statusText } from "../theme/tokens";
+import { ACCENT, ink, paper, radius, space, status, statusText } from "../theme/tokens";
 import type { RecoveryTargets } from "../lib/types";
 
 /**
@@ -15,7 +15,7 @@ import type { RecoveryTargets } from "../lib/types";
  * Dashboard and the Recovery screen cannot drift apart, and neither can mobile
  * and web.
  */
-export function RecoveryMeter({ data, compact = false }: { data: RecoveryTargets; compact?: boolean }) {
+export function RecoveryMeter({ data }: { data: RecoveryTargets }) {
   const monthRatio = Math.min(data.monthCoveragePercent / 100, 1);
   const monthFill = data.onTrack ? status.good : status.critical;
   const monthInk = data.onTrack ? statusText.good : statusText.critical;
@@ -77,28 +77,26 @@ export function RecoveryMeter({ data, compact = false }: { data: RecoveryTargets
         {data.remainingOperatingDays} remaining operating day{data.remainingOperatingDays === 1 ? "" : "s"}.
       </T>
 
-      {!compact ? (
-        <View style={{ marginTop: space.lg, borderTopWidth: 1, borderTopColor: "#e8efed", paddingTop: space.md }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-            <T variant="caption">Today</T>
-            <T style={{ color: todayInk, fontSize: 12 }}>
-              {data.todaysStatus === "at" ? (
-                "Reached target"
-              ) : (
-                <>
-                  <Money value={Math.abs(data.todaysGap)} size={12} weight="regular" color={todayInk} />{" "}
-                  {data.todaysStatus} target
-                </>
-              )}
-            </T>
-          </View>
-          <Bar ratio={todayRatio} color={todayFill} height={8} label="Today's progress" />
-          <T variant="caption" style={{ marginTop: 6 }}>
-            <Money value={data.todaysSales} size={12} weight="regular" color={ink[500]} /> recorded of{" "}
-            <Money value={data.todaysTarget} size={12} weight="regular" color={ink[500]} /> needed today
+      <View style={{ marginTop: space.lg, borderTopWidth: 1, borderTopColor: paper[200], paddingTop: space.md }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+          <T variant="caption">Today</T>
+          <T style={{ color: todayInk, fontSize: 12 }}>
+            {data.todaysStatus === "at" ? (
+              "Reached target"
+            ) : (
+              <>
+                <Money value={Math.abs(data.todaysGap)} size={12} weight="regular" color={todayInk} />{" "}
+                {data.todaysStatus} target
+              </>
+            )}
           </T>
         </View>
-      ) : null}
+        <Bar ratio={todayRatio} color={todayFill} height={8} label="Today's progress" />
+        <T variant="caption" style={{ marginTop: 6 }}>
+          <Money value={data.todaysSales} size={12} weight="regular" color={ink[500]} /> recorded of{" "}
+          <Money value={data.todaysTarget} size={12} weight="regular" color={ink[500]} /> needed today
+        </T>
+      </View>
     </View>
   );
 }
