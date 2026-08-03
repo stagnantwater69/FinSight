@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
+import { useExpenseCategories } from "../context/ExpenseCategoryContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { Callout, Card, FormPage, PageHead } from "../components/ui";
@@ -96,6 +97,7 @@ function guessColumn(headers: string[], field: keyof typeof HEADER_SYNONYMS): st
 
 export function ImportCsv() {
   const { selected } = useBusinessProfiles();
+  const { categories } = useExpenseCategories();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -476,6 +478,42 @@ export function ImportCsv() {
   const brokenRows = mappingIsValid ? analysed.filter((r) => r.problem !== null) : [];
   const fixedCount = Object.keys(corrections).length;
 
+  /**
+   * Category names in the file that this business does not have yet.
+   *
+   * WHY THIS IS WORTH SAYING OUT LOUD: confirmImport CREATES every category
+   * name the file mentions that it cannot match (resolveCategories), silently.
+   * That is the right behaviour — an import must not fail because a category
+   * does not exist yet — but it means one typo becomes a permanent second
+   * category. A file reading "Inventroy" against a business that already has
+   * "Inventory" imports cleanly, and the owner finds the near-duplicate weeks
+   * later in a report that splits their stock spending across two lines.
+   *
+   * Matched case-insensitively because resolveCategories matches that way; a
+   * warning that flags "inventory" as new when the server will match it to
+   * "Inventory" would be a lie about what is going to happen.
+   *
+   * Computed from the rows on screen, not the whole file, which is why the
+   * callout says which rows it looked at whenever the preview is truncated —
+   * a category first appearing at row 300 of a 500-row file is not something
+   * this can see, and implying otherwise would be worse than saying nothing.
+   */
+  const newCategoryNames = (() => {
+    if (recordType !== "expense" || !categoryCol) return [];
+    const existing = new Set(categories.map((c) => c.name.trim().toLowerCase()));
+    const seen = new Map<string, string>();
+    for (const { values } of analysed) {
+      const raw = values.Category?.trim();
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      // Deduplicated on the same key resolveCategories uses, so a file
+      // spelling it "Inventory" and "inventory" reports one new category
+      // rather than two — which is also what the server will create.
+      if (!existing.has(key) && !seen.has(key)) seen.set(key, raw);
+    }
+    return [...seen.values()];
+  })();
+
   function correct(rowNumber: number, field: MappedField, value: string) {
     setCorrections((prev) => ({ ...prev, [rowNumber]: { ...prev[rowNumber], [field]: value } }));
   }
@@ -600,6 +638,33 @@ export function ImportCsv() {
           </table>
         </div>
 
+        {/*
+          What this import will ADD, not just what it will bring in.
+
+          Creating a category is a side effect the owner never asked for and
+          previously never saw — they asked to import expenses, and got new
+          entries in a list they curate elsewhere. Naming them here makes a
+          typo obvious while the mapping can still be changed, which is the
+          only moment it is cheap to fix.
+
+          An observation, never a blocker: a genuinely new category is the
+          normal case for a first import, and most of these will be correct.
+        */}
+        {newCategoryNames.length > 0 ? (
+          <Callout tone="info">
+            <b className="font-semibold">
+              This import will create {newCategoryNames.length} new categor
+              {newCategoryNames.length === 1 ? "y" : "ies"}:
+            </b>{" "}
+            {newCategoryNames.join(", ")}.{" "}
+            {preview.previewRows.length < preview.totalRows
+              ? `That is from the ${preview.previewRows.length} rows shown — later rows may add more. `
+              : ""}
+            If one of those is a misspelling of a category you already have, fix it in the
+            highlighted rows or change the Category column above, or you'll end up with two
+            categories for the same thing.
+          </Callout>
+        ) : null}
 
         {/*
           Rows that won't import, put in front of the owner while the import
