@@ -151,6 +151,8 @@ export type RecordOrigin =
       title: string;
       uploadDate: string;
       fileReference: string;
+      /** A short-lived signed download link. Null when it couldn't be minted. */
+      fileUrl: string | null;
       status: string;
       rowCount: number;
     };
@@ -158,6 +160,21 @@ export type RecordOrigin =
 /** A single record fetched on its own, which carries its provenance. */
 export interface RecordDetail extends RecordItem {
   origin: RecordOrigin | null;
+}
+
+/** A past CSV import, for the "which import" picker on the Records filters. */
+export interface ImportBatchSummary {
+  id: number;
+  title: string;
+  uploadDate: string;
+  status: string;
+}
+
+/** The shape GET /records/csv-imports/batches/:batchId/preview returns. */
+export interface CsvBatchPreview {
+  headers: string[];
+  previewRows: Record<string, string>[];
+  totalRows: number;
 }
 
 export interface ExpenseRecordInput {

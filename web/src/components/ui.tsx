@@ -314,6 +314,23 @@ export function FormPage({
   actions,
   /** Wider than the default, for forms with side-by-side field pairs. */
   wide = false,
+  /**
+   * Reference material to sit BESIDE the form rather than above it — a receipt
+   * photo, the rows of an imported CSV.
+   *
+   * WHY THIS EXISTS: the max-w above is a rule about FORMS, and a correct one —
+   * a text input 1700px wide is genuinely harder to use. But an origin panel is
+   * not an input, and squeezing it through the same constraint produced the
+   * worst of both: a 50-row table crammed into 576px, the form itself pushed
+   * two screens down below it, and the whole right half of a laptop display
+   * empty.
+   *
+   * Side by side is also the point rather than a space-filling exercise. The
+   * task is comparison — "does this amount match the file?" — and a source you
+   * have to scroll past to reach the field is a source you cannot compare
+   * against. The receipt confirm screen already works this way.
+   */
+  aside,
   children,
 }: {
   eyebrow?: string;
@@ -321,12 +338,33 @@ export function FormPage({
   subtitle?: ReactNode;
   actions?: ReactNode;
   wide?: boolean;
+  aside?: ReactNode;
   children: ReactNode;
 }) {
+  const card = <Card className={`${wide ? "max-w-3xl" : "max-w-xl"} p-6 sm:p-7`}>{children}</Card>;
+
   return (
     <div>
       <PageHead eyebrow={eyebrow} title={title} subtitle={subtitle} actions={actions} />
-      <Card className={`${wide ? "max-w-3xl" : "max-w-xl"} p-6 sm:p-7`}>{children}</Card>
+      {aside ? (
+        /*
+         * The form comes FIRST in the DOM, and stays first when this collapses
+         * to one column on a narrow screen — it is what the owner opened the
+         * page to do. Achieving the same visual order with CSS `order` instead
+         * would put the tab order out of step with what is on screen, which is
+         * exactly the kind of thing the keyboard-navigation pass fixed.
+         *
+         * `items-start` so the sticky panel has room to stick against; without
+         * it the grid stretches both columns to equal height and there is
+         * nothing to scroll past.
+         */
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,36rem)_minmax(0,1fr)] xl:items-start">
+          {card}
+          <div className="xl:sticky xl:top-6">{aside}</div>
+        </div>
+      ) : (
+        card
+      )}
     </div>
   );
 }

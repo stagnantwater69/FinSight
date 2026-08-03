@@ -75,13 +75,15 @@ export function EditExpense() {
     scannedItems !== null && amount !== "" && Math.round(Number(amount) * 100) !== Math.round(record.amount * 100);
 
   return (
-    <FormPage eyebrow="Records" title="Edit expense">
-      {record.origin ? (
-        <div className="mb-4">
+    <FormPage
+      eyebrow="Records"
+      title="Edit expense"
+      aside={
+        record.origin ? (
           <RecordOriginPanel origin={record.origin} recordAmount={record.amount} />
-        </div>
-      ) : null}
-
+        ) : undefined
+      }
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         <Field label="Category" htmlFor="category" required>
           <CategorySelect id="category" value={categoryId} onChange={setCategoryId} />
@@ -105,7 +107,7 @@ export function EditExpense() {
         </Field>
         {amountDrifted ? (
           <Callout tone="warn">
-            This no longer matches the receipt breakdown above, which comes to{" "}
+            This no longer matches the receipt breakdown, which comes to{" "}
             <Money value={record.amount} decimals />. Saving is fine — the breakdown will just no longer
             add up to the record.
           </Callout>
