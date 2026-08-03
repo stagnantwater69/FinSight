@@ -600,13 +600,6 @@ export function ImportCsv() {
           </table>
         </div>
 
-        <p className="text-xs text-ink-500">
-          Showing {preview.previewRows.length} of {preview.totalRows} row
-          {preview.totalRows === 1 ? "" : "s"}.{" "}
-          {brokenRows.length === 0
-            ? `All ${preview.totalRows} will be imported.`
-            : `${brokenRows.length} of them won't import as ${brokenRows.length === 1 ? "it is" : "they are"} — see below.`}
-        </p>
 
         {/*
           Rows that won't import, put in front of the owner while the import
@@ -687,24 +680,49 @@ export function ImportCsv() {
         ) : null}
 
         {confirmError ? <FormError>{confirmError}</FormError> : null}
-        <div className="flex flex-wrap gap-3">
-          {/*
-            The count promises what will actually land. Saying "Import 35 rows"
-            over a file where three of them are going to be skipped is a small
-            lie the owner only discovers on the results screen — and the
-            preview is capped, so it is only a reliable count when the whole
-            file is on screen.
-          */}
-          <Button type="submit" variant="primary" disabled={confirming || !mappingIsValid}>
-            {confirming
-              ? "Importing…"
-              : brokenRows.length > 0 && preview.previewRows.length === preview.totalRows
-                ? `Import ${preview.totalRows - brokenRows.length} of ${preview.totalRows} rows`
-                : `Import ${preview.totalRows} row${preview.totalRows === 1 ? "" : "s"}`}
-          </Button>
-          <Button type="button" variant="secondary" onClick={handleChooseDifferentFile}>
-            Choose a different file
-          </Button>
+
+        {/*
+          The action bar sticks to the bottom of the viewport rather than
+          sitting at the end of the page.
+
+          WHY: this screen is deliberately tall — a 70vh table, and under it one
+          editable card per row that won't import. Ending with the button meant
+          the owner scrolled the whole file AND every fix panel to reach
+          "Import", and then scrolled back down again after correcting a cell.
+          The primary action of a screen should not be the hardest thing on it
+          to reach.
+
+          It also keeps the row count permanently in view, which is the number
+          that tells the owner whether the mapping above is doing what they
+          think — that count used to scroll away with the table it described.
+        */}
+        <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center justify-between gap-3 border-t border-paper-200 bg-paper/95 px-1 py-3 backdrop-blur">
+          <div className="flex flex-wrap gap-3">
+            {/*
+              The count promises what will actually land. Saying "Import 35 rows"
+              over a file where three of them are going to be skipped is a small
+              lie the owner only discovers on the results screen — and the
+              preview is capped, so it is only a reliable count when the whole
+              file is on screen.
+            */}
+            <Button type="submit" variant="primary" disabled={confirming || !mappingIsValid}>
+              {confirming
+                ? "Importing…"
+                : brokenRows.length > 0 && preview.previewRows.length === preview.totalRows
+                  ? `Import ${preview.totalRows - brokenRows.length} of ${preview.totalRows} rows`
+                  : `Import ${preview.totalRows} row${preview.totalRows === 1 ? "" : "s"}`}
+            </Button>
+            <Button type="button" variant="secondary" onClick={handleChooseDifferentFile}>
+              Choose a different file
+            </Button>
+          </div>
+          <p className="text-xs text-ink-500">
+            Showing {preview.previewRows.length} of {preview.totalRows} row
+            {preview.totalRows === 1 ? "" : "s"}.{" "}
+            {brokenRows.length === 0
+              ? `All ${preview.totalRows} will be imported.`
+              : `${brokenRows.length} won't import as ${brokenRows.length === 1 ? "it is" : "they are"}.`}
+          </p>
         </div>
       </form>
     </div>
