@@ -16,7 +16,7 @@ import { buildReceiptConfirmPayload, type GapPlan } from "../lib/receiptConfirm"
 import { everyLineIsReady, groupByCategory, sumCentavos, toReviewLines } from "../lib/receiptReview";
 import { Callout, Card, PageHead, FormPage } from "../components/ui";
 import { Button } from "../components/Button";
-import { Field, FileInput, FormError, MoneyInput, TextInput } from "../components/Field";
+import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
 import { Money } from "../components/Money";
 import { SkeletonLine } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
@@ -52,6 +52,18 @@ interface ScanResult {
    * so it says what it noticed and leaves the decision with the owner.
    */
   looksLikeMultipleReceipts?: boolean;
+  /**
+   * Every page's own quality reading, in the order they were photographed.
+   * Present only on the upload response, for the same reason captureQuality
+   * is — it answers "should you retake one of these?", which stops mattering
+   * once the scan is confirmed or abandoned.
+   */
+  pageQualities?: ({ sharpness: number; brightness: number; tooBlurredToTrust: boolean } | null)[];
+  /**
+   * 1-indexed page numbers that read as the same page photographed twice.
+   * Empty on a single-page scan — there is nothing adjacent to compare.
+   */
+  duplicatePages?: number[];
 }
 
 interface ScannedItem {
@@ -232,6 +244,227 @@ function ScannedField({
   );
 }
 
+const ACCEPTED_TYPES = "image/jpeg,image/png,image/webp";
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+/** Matches the server's own MAX_PAGES (receiptScan.service.ts) — kept in the
+ * comment rather than imported, since the client has no access to backend
+ * source; the server is still the one place that actually enforces it. */
+const MAX_RECEIPT_FILES = 8;
+
+/**
+ * One picked photo, shown as a thumbnail with its own object URL.
+ *
+ * The URL is scoped to this component's lifetime rather than built once for
+ * the whole list — a file removed from the middle of the array would
+ * otherwise leave its revoke tied to a different file after React re-keys
+ * the list, which is exactly the kind of leak useEffect's cleanup exists to
+ * catch.
+ */
+function PickedFileThumb({
+  file,
+  index,
+  total,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+}: {
+  file: File;
+  index: number;
+  total: number;
+  onRemove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  return (
+    <li className="relative w-24 shrink-0">
+      <div className="aspect-[3/4] overflow-hidden rounded-lg border border-paper-200 bg-paper-100">
+        {url ? (
+          <img src={url} alt={`Page ${index + 1}`} className="h-full w-full object-cover" />
+        ) : null}
+      </div>
+      <span className="absolute left-1 top-1 rounded-full bg-paper/90 px-1.5 py-0.5 text-[10px] font-semibold text-ink-700">
+        {index + 1}
+      </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove page ${index + 1}`}
+        className="tap absolute right-1 top-1 flex h-6 w-6 min-h-0 min-w-0 items-center justify-center rounded-full bg-paper/90 text-xs font-bold text-ink-600 hover:bg-tint-danger hover:text-tone-danger"
+      >
+        ×
+      </button>
+      {/*
+        Reorder by button rather than drag-and-drop. Drag reordering on a
+        touch screen needs a library this app does not otherwise depend on,
+        and up/down buttons are fully keyboard- and screen-reader-operable
+        for free — a real constraint, not a corner cut silently.
+      */}
+      <div className="mt-1 flex justify-center gap-1">
+        <button
+          type="button"
+          onClick={onMoveUp}
+          disabled={index === 0}
+          aria-label={`Move page ${index + 1} earlier`}
+          className="tap-inline flex h-6 w-6 min-h-0 min-w-0 items-center justify-center rounded text-xs text-ink-500 hover:bg-paper-100 disabled:opacity-30"
+        >
+          ↑
+        </button>
+        <button
+          type="button"
+          onClick={onMoveDown}
+          disabled={index === total - 1}
+          aria-label={`Move page ${index + 1} later`}
+          className="tap-inline flex h-6 w-6 min-h-0 min-w-0 items-center justify-center rounded text-xs text-ink-500 hover:bg-paper-100 disabled:opacity-30"
+        >
+          ↓
+        </button>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Picks one or several receipt photos.
+ *
+ * A generalisation of Field.tsx's FileInput to more than one file, kept as
+ * its own component rather than added to that one: FileInput's contract
+ * (`file: File | null`) is depended on by ImportCsv's single-file picker too,
+ * and multi-select is a genuinely different shape, not an option on the same
+ * one.
+ *
+ * Selecting again REPLACES the set, matching the native `<input multiple>`
+ * behaviour a second file-dialog invocation already has — there is no
+ * incremental "add more" interaction beyond what the OS picker itself offers
+ * when the owner selects several files in one dialog.
+ */
+function MultiFileInput({
+  id,
+  files,
+  onChange,
+  hintText,
+}: {
+  id: string;
+  files: File[];
+  onChange: (files: File[]) => void;
+  hintText?: string;
+}) {
+  const [rejected, setRejected] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  function accepts(f: File): boolean {
+    return ACCEPTED_TYPES.split(",").includes(f.type.toLowerCase());
+  }
+
+  function take(list: FileList | File[] | null) {
+    setRejected(null);
+    if (!list || list.length === 0) return;
+    const incoming = Array.from(list);
+
+    if (incoming.length > MAX_RECEIPT_FILES) {
+      setRejected(`A receipt can have at most ${MAX_RECEIPT_FILES} photos — you picked ${incoming.length}.`);
+      return;
+    }
+    const badType = incoming.find((f) => !accepts(f));
+    if (badType) {
+      setRejected(`${badType.name} isn't a photo this accepts. Expected JPEG, PNG or WEBP.`);
+      return;
+    }
+    const tooBig = incoming.find((f) => f.size > MAX_FILE_BYTES);
+    if (tooBig) {
+      const limit = Math.round(MAX_FILE_BYTES / (1024 * 1024));
+      setRejected(`${tooBig.name} is over ${limit}MB — try a smaller photo.`);
+      return;
+    }
+    onChange(incoming);
+  }
+
+  function removeAt(index: number) {
+    onChange(files.filter((_, i) => i !== index));
+  }
+
+  function move(index: number, delta: number) {
+    const target = index + delta;
+    if (target < 0 || target >= files.length) return;
+    const next = [...files];
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved!);
+    onChange(next);
+  }
+
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          take(e.dataTransfer.files);
+        }}
+        className={`flex min-h-tap cursor-pointer flex-wrap items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-5 text-center text-sm transition-colors ${
+          dragging
+            ? "border-edge-brand bg-tint-brand text-tone-brand"
+            : "border-ink-200 bg-paper-100 text-ink-600 hover:border-edge-brand hover:bg-tint-brand"
+        }`}
+      >
+        <span aria-hidden className="text-base">
+          ⇪
+        </span>
+        <span className="font-medium">{files.length > 0 ? "Choose different photos" : "Choose photos"}</span>
+        <span className="text-ink-400">or drag them here</span>
+      </label>
+
+      <input
+        id={id}
+        type="file"
+        accept={ACCEPTED_TYPES}
+        multiple
+        className="sr-only"
+        onChange={(e) => take(e.target.files)}
+      />
+
+      {hintText ? <p className="mt-1.5 text-xs text-ink-500">{hintText}</p> : null}
+
+      {rejected ? (
+        <p role="alert" className="mt-2 flex items-start gap-1.5 text-xs text-tone-danger">
+          <span aria-hidden className="mt-px shrink-0">
+            ⚠
+          </span>
+          <span className="min-w-0">{rejected}</span>
+        </p>
+      ) : null}
+
+      {files.length > 0 ? (
+        <ul className="scroll-slim mt-3 flex gap-2 overflow-x-auto pb-1">
+          {files.map((f, i) => (
+            <PickedFileThumb
+              key={`${f.name}-${f.lastModified}-${i}`}
+              file={f}
+              index={i}
+              total={files.length}
+              onRemove={() => removeAt(i)}
+              onMoveUp={() => move(i, -1)}
+              onMoveDown={() => move(i, 1)}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function ScanReceipt() {
   const { selected } = useBusinessProfiles();
   const { categories, refresh: refreshCategories, createCategory } = useExpenseCategories();
@@ -242,6 +475,35 @@ export function ScanReceipt() {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanResult | null>(null);
+
+  /**
+   * Photos picked at the file-choosing stage, before scanning starts.
+   *
+   * Separate from `file` above, which is the photo of whichever receipt is
+   * CURRENTLY being scanned or reviewed. `pickedFiles` is spent the moment
+   * scanning starts — into the pages of one upload, or into the queue below —
+   * and is never touched again until the owner returns to pick more.
+   */
+  const [pickedFiles, setPickedFiles] = useState<File[]>([]);
+  /**
+   * How to treat more than one picked photo. Meaningless with one photo.
+   *
+   * Defaults to "separate" deliberately: a mis-click here still produces N
+   * correctable records, whereas defaulting to "one" and being wrong would
+   * silently merge unrelated receipts into a single one. Wrong-but-visible
+   * beats wrong-but-hidden in bookkeeping.
+   */
+  const [combineChoice, setCombineChoice] = useState<"separate" | "one">("separate");
+  /**
+   * Photos still waiting to be scanned as their OWN receipt, when the owner
+   * chose "separate receipts" for more than one photo. `handleConfirm` pops
+   * the next one off this list instead of returning to an empty picker, so a
+   * batch of receipts is reviewed one after another without extra clicks.
+   */
+  const [fileQueue, setFileQueue] = useState<File[]>([]);
+  /** 1-based "which receipt is this" for a queued batch; 0 outside one. */
+  const [queuePosition, setQueuePosition] = useState(0);
+  const [queueTotal, setQueueTotal] = useState(0);
 
   const [date, setDate] = useState("");
   const [description, setDescription] = useState("");
@@ -326,14 +588,25 @@ export function ScanReceipt() {
 
   if (!selected) return null;
 
-  async function handleScan(e: FormEvent) {
-    e.preventDefault();
-    if (!file) return;
+  /**
+   * Sends one or more photos to the server as a SINGLE scan and populates the
+   * review screen from the answer. A single photo is simply a one-element
+   * page list — there is no separate code path for the common case.
+   *
+   * `representativeFile` drives the preview and the zoom dialog: page 1 for a
+   * multi-page receipt, the only file otherwise. Showing every page here is
+   * Phase 4 work (docs/multi-page-receipts-plan.md) — for now the photo the
+   * owner sees during review is always the receipt's first.
+   */
+  async function scanFiles(filesToSend: File[], representativeFile: File) {
+    setFile(representativeFile);
     setScanning(true);
     setScanError(null);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      // "files" — plural — even for one photo: the server has one upload
+      // route for both shapes, and it reads this field name for either.
+      filesToSend.forEach((f) => formData.append("files", f));
       formData.append("businessProfileId", String(selected!.id));
       const { data } = await api.post<ScanResult>("/records/receipts", formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -382,6 +655,34 @@ export function ScanReceipt() {
     } finally {
       setScanning(false);
     }
+  }
+
+  /**
+   * Turns the picked photos into a scanning plan and starts it.
+   *
+   * One photo, or "one long receipt" chosen for several: every photo becomes
+   * a page of ONE upload. "Separate receipts" instead: the first photo scans
+   * now, and the rest wait in `fileQueue` — handleConfirm advances through
+   * them one at a time, so a batch of receipts is reviewed in sequence
+   * without the owner returning to this screen between each one.
+   */
+  async function handleStartScanning(e: FormEvent) {
+    e.preventDefault();
+    if (pickedFiles.length === 0) return;
+
+    if (pickedFiles.length === 1 || combineChoice === "one") {
+      const toScan = pickedFiles;
+      setPickedFiles([]);
+      await scanFiles(toScan, toScan[0]!);
+      return;
+    }
+
+    const [first, ...rest] = pickedFiles;
+    setPickedFiles([]);
+    setFileQueue(rest);
+    setQueuePosition(1);
+    setQueueTotal(pickedFiles.length);
+    await scanFiles([first!], first!);
   }
 
   /**
@@ -496,6 +797,27 @@ export function ScanReceipt() {
       );
       const saved = (records.data as unknown[]).length;
       toast(saved === 1 ? "Expense saved from receipt" : `${saved} expenses saved from receipt`);
+
+      /*
+       * Advancing a queued "separate receipts" batch, rather than always
+       * navigating away.
+       *
+       * handleRescan already clears every field this scan populated; reusing
+       * it here is what keeps that reset logic in one place instead of a
+       * second copy that could drift from it.
+       */
+      if (fileQueue.length > 0) {
+        const [next, ...rest] = fileQueue;
+        resetReviewFields();
+        setFileQueue(rest);
+        setQueuePosition((p) => p + 1);
+        await scanFiles([next!], next!);
+        return;
+      }
+      if (queueTotal > 0) {
+        setQueuePosition(0);
+        setQueueTotal(0);
+      }
       navigate("/records");
     } catch (err) {
       setConfirmError(getErrorMessage(err));
@@ -505,16 +827,18 @@ export function ScanReceipt() {
   }
 
   /**
-   * Back to the file picker, without dragging the last scan's answers along.
+   * Clears everything one scan populated, without touching `fileQueue`.
    *
-   * This used to only null `scan`, which left every extracted value and the
-   * chosen category sitting in state. Re-submitting the same file then produced
-   * a second ReceiptScan row and a second stored image server-side while the
-   * first was orphaned in "Pending". The image is deliberately kept — the
-   * common case is rescanning the same photo — but everything derived from the
-   * previous read is cleared.
+   * Shared by handleRescan (the button — an explicit "start over", which also
+   * abandons any queued batch, below) and handleConfirm's queue advance
+   * (which resets the review fields for the NEXT queued receipt and must
+   * NOT clear the queue it is about to consume from). Keeping the two
+   * separate is what stops handleConfirm's `setQueuePosition((p) => p + 1)`
+   * from racing a `setQueuePosition(0)` in the same state-update batch — both
+   * queued in the same render would apply in call order, not in the order
+   * that makes sense, and the position would come out wrong by one.
    */
-  function handleRescan() {
+  function resetReviewFields() {
     // Any category suggestion still in flight is for the receipt being left
     // behind, so it must not land on the next one.
     latestScanId.current = null;
@@ -533,6 +857,27 @@ export function ScanReceipt() {
     setAmount("");
     setConfirmError(null);
     setScanError(null);
+  }
+
+  /**
+   * Back to the file picker, without dragging the last scan's answers along.
+   *
+   * This used to only null `scan`, which left every extracted value and the
+   * chosen category sitting in state. Re-submitting the same file then produced
+   * a second ReceiptScan row and a second stored image server-side while the
+   * first was orphaned in "Pending". The image is deliberately kept — the
+   * common case is rescanning the same photo — but everything derived from the
+   * previous read is cleared.
+   *
+   * Also abandons any queued "separate receipts" batch. Rescan is a
+   * deliberate "start over", and leaving a stale "2 of 4" behind with no way
+   * to act on it would be worse than dropping the rest of the batch.
+   */
+  function handleRescan() {
+    resetReviewFields();
+    setFileQueue([]);
+    setQueuePosition(0);
+    setQueueTotal(0);
   }
 
   // OCR never reads a description. The backend synthesises one from the vendor
@@ -772,18 +1117,43 @@ export function ScanReceipt() {
   if (!scan) {
     return (
       <FormPage eyebrow="Records" title="Scan a receipt">
-        <form onSubmit={handleScan} className="space-y-4">
-          <Field label="Receipt image" htmlFor="file" required>
-            <FileInput
-              accept="image/jpeg,image/png,image/webp"
-              maxBytes={8 * 1024 * 1024}
-              file={file}
-              onSelect={setFile}
-              hintText="JPEG, PNG or WEBP, up to 8MB. A flat, well-lit photo reads best."
+        <form onSubmit={handleStartScanning} className="space-y-4">
+          <Field label="Receipt photo" htmlFor="receipt-files" required>
+            <MultiFileInput
+              id="receipt-files"
+              files={pickedFiles}
+              onChange={setPickedFiles}
+              hintText="JPEG, PNG or WEBP, up to 8MB each. A flat, well-lit photo reads best. Add more than one only if this receipt did not fit in a single photo, or you're scanning several receipts at once."
             />
           </Field>
 
-          {receiptPreview}
+          {/*
+            The disambiguation only appears once there is something to
+            disambiguate. One photo has nothing to ask about — asking anyway
+            would put a question in front of every owner for the sake of the
+            minority with a long receipt.
+          */}
+          {pickedFiles.length > 1 ? (
+            <div className="space-y-2 rounded-xl border border-paper-200 bg-paper-50 p-3">
+              <p className="text-xs font-medium text-ink-700">
+                You added {pickedFiles.length} photos. What are they?
+              </p>
+              <GapOption
+                name="combine-choice"
+                checked={combineChoice === "separate"}
+                onChange={() => setCombineChoice("separate")}
+                label={`${pickedFiles.length} separate receipts`}
+                detail="Each photo becomes its own expense. Scanned and reviewed one after another."
+              />
+              <GapOption
+                name="combine-choice"
+                checked={combineChoice === "one"}
+                onChange={() => setCombineChoice("one")}
+                label={`One long receipt (${pickedFiles.length} pages)`}
+                detail="These photos continue from each other — one receipt too long for a single photo."
+              />
+            </div>
+          ) : null}
 
           {scanError ? <FormError>{scanError}</FormError> : null}
 
@@ -804,8 +1174,12 @@ export function ScanReceipt() {
             </div>
           ) : null}
 
-          <Button type="submit" variant="primary" fullWidth disabled={scanning || !file}>
-            {scanning ? "Reading receipt…" : "Scan receipt"}
+          <Button type="submit" variant="primary" fullWidth disabled={scanning || pickedFiles.length === 0}>
+            {scanning
+              ? "Reading receipt…"
+              : pickedFiles.length > 1 && combineChoice === "separate"
+                ? `Scan ${pickedFiles.length} receipts`
+                : "Scan receipt"}
           </Button>
         </form>
       </FormPage>
@@ -822,7 +1196,14 @@ export function ScanReceipt() {
       <PageHead
         eyebrow="Records"
         title="Check what FinSight read"
-        subtitle="Compare each value against the photo before saving."
+        subtitle={
+          // A queued batch says where it is in the batch, ahead of the usual
+          // instruction — "receipt 2 of 4" is the more useful thing to know
+          // first when several are coming one after another.
+          queueTotal > 0
+            ? `Receipt ${queuePosition} of ${queueTotal}. Compare each value against the photo before saving.`
+            : "Compare each value against the photo before saving."
+        }
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -870,6 +1251,46 @@ export function ScanReceipt() {
                 anyway, but blurred print is where it makes the most mistakes. If you still have the
                 receipt, taking another picture is usually quicker than correcting the figures
                 below.
+              </Callout>
+            ) : null}
+
+            {/*
+              A multi-page receipt's OTHER pages coming out blurry — page 1's
+              own reading is already covered above via captureQuality. Listed
+              by number rather than repeating the single-page wording once per
+              page, since a long receipt can have several.
+            */}
+            {scan.pageQualities && scan.pageQualities.length > 1
+              ? (() => {
+                  const blurryPages = scan.pageQualities
+                    .map((q, i) => (q?.tooBlurredToTrust ? i + 1 : null))
+                    .filter((n): n is number => n !== null && n !== 1);
+                  if (blurryPages.length === 0) return null;
+                  return (
+                    <Callout tone="warn">
+                      <b className="font-semibold">
+                        Page{blurryPages.length === 1 ? "" : "s"} {blurryPages.join(", ")} came out blurry.
+                      </b>{" "}
+                      Check the figures from {blurryPages.length === 1 ? "that page" : "those pages"} carefully
+                      below.
+                    </Callout>
+                  );
+                })()
+              : null}
+
+            {/*
+              Two adjacent photos that look like the same page shot twice.
+              Advisory, like looksLikeMultipleReceipts below — FinSight cannot
+              tell which photo to discard, only that it noticed.
+            */}
+            {scan.duplicatePages && scan.duplicatePages.length > 0 ? (
+              <Callout tone="warn">
+                <b className="font-semibold">
+                  Page{scan.duplicatePages.length === 1 ? "" : "s"}{" "}
+                  {scan.duplicatePages.map((p) => `${p - 1} and ${p}`).join(", ")} look the same.
+                </b>{" "}
+                If one is a repeat photo of the other, the figures below may be double-counted — check the
+                items against the photo, or rescan without the repeat.
               </Callout>
             ) : null}
 

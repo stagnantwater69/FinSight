@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ActivityIndicator,
   Alert as RNAlert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -1007,6 +1008,17 @@ interface ReceiptScanResult {
    */
   looksLikeMultipleReceipts?: boolean;
   /**
+   * Every page's own quality reading, in the order they were photographed.
+   * Present only on the upload response, for the same reason captureQuality
+   * is — it stops mattering once the scan is confirmed or abandoned.
+   */
+  pageQualities?: ({ sharpness: number; brightness: number; tooBlurredToTrust: boolean } | null)[];
+  /**
+   * 1-indexed page numbers that read as the same page photographed twice.
+   * Empty on a single-page scan.
+   */
+  duplicatePages?: number[];
+  /**
    * The individual lines the server read, each with the category it assigned.
    * A receipt with more than one is reviewed line by line below; anything
    * less keeps the single-category flow.
@@ -1027,11 +1039,34 @@ interface ReceiptScanResult {
   }[];
 }
 
+/** One photograph in a capture session, before it has been scanned. */
+interface CapturedPage {
+  /** Local only, for list keys and edits — the server assigns nothing yet. */
+  key: string;
+  uri: string;
+  fileName: string;
+  mimeType: string;
+  /** Null while checkingQuality is true, or if the check failed silently. */
+  quality: { sharpness: number; brightness: number; tooBlurredToTrust: boolean } | null;
+  checkingQuality: boolean;
+}
+
 export function ScanReceiptScreen({ navigation, route }: any) {
   const { selected, categories, refreshCategories } = useBusinessProfiles();
   const [scan, setScan] = useState<ReceiptScanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Photos captured so far in this session, before the receipt is scanned.
+   *
+   * A long receipt is photographed a page at a time via `capturePage`, which
+   * appends here rather than uploading immediately — the whole session is
+   * sent as one scan only once the owner taps "Scan this receipt". A single
+   * photo is simply a one-page session; there is no separate code path for
+   * the common case.
+   */
+  const [pages, setPages] = useState<CapturedPage[]>([]);
 
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [date, setDate] = useState(todayISO());
@@ -1107,7 +1142,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
     useCallback(() => {
       if (route?.params?.autoLaunch) {
         navigation.setParams({ autoLaunch: undefined });
-        takePhoto();
+        capturePage();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [route?.params?.autoLaunch]),
@@ -1115,19 +1150,74 @@ export function ScanReceiptScreen({ navigation, route }: any) {
 
   if (!selected) return null;
 
-  async function upload(asset: ImagePicker.ImagePickerAsset) {
+  /**
+   * Adds one photograph to the session and checks its own readability
+   * immediately — the point of doing this now rather than after the whole
+   * set uploads is that catching a blurry PAGE 2 while the camera is still
+   * open costs a tap, and catching it after costs an OCR pass, a possible
+   * vision call, and a wrong set of figures the owner has to notice and undo.
+   *
+   * The check runs against a DIFFERENT, lightweight endpoint
+   * (/records/receipts/quality-check) that does no OCR and writes nothing —
+   * it exists purely so this can be cheap enough to fire on every shutter
+   * press. Failing silently here is deliberate: a blur check that could not
+   * run is a missed nicety, not a reason to stop the owner from adding the
+   * page they just photographed.
+   */
+  async function addPage(asset: ImagePicker.ImagePickerAsset) {
+    const key = `${Date.now()}-${Math.random()}`;
+    const uri = asset.uri;
+    const fileName = asset.fileName ?? `receipt-${Date.now()}.jpg`;
+    const mimeType = asset.mimeType ?? "image/jpeg";
+    setPages((prev) => [...prev, { key, uri, fileName, mimeType, quality: null, checkingQuality: true }]);
+    setError(null);
+
+    try {
+      const form = new FormData();
+      // React Native's FormData takes this {uri,name,type} shape rather than
+      // a Blob — the browser's File API isn't available here.
+      form.append("file", { uri, name: fileName, type: mimeType } as any);
+      const quality = await api.upload<CapturedPage["quality"]>("/records/receipts/quality-check", form);
+      setPages((prev) => prev.map((p) => (p.key === key ? { ...p, quality, checkingQuality: false } : p)));
+    } catch {
+      setPages((prev) => prev.map((p) => (p.key === key ? { ...p, checkingQuality: false } : p)));
+    }
+  }
+
+  function removePage(key: string) {
+    setPages((prev) => prev.filter((p) => p.key !== key));
+  }
+
+  /** Moves a page earlier (delta -1) or later (delta +1) in the sequence. */
+  function movePage(key: string, delta: number) {
+    setPages((prev) => {
+      const index = prev.findIndex((p) => p.key === key);
+      const target = index + delta;
+      if (index === -1 || target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(index, 1);
+      next.splice(target, 0, moved!);
+      return next;
+    });
+  }
+
+  /**
+   * Sends every captured page as ONE scan. A single photo is simply a
+   * one-element page list — there is no separate upload path for it.
+   */
+  async function scanPages() {
+    if (pages.length === 0) return;
     setBusy(true);
     setError(null);
     try {
       const form = new FormData();
       form.append("businessProfileId", String(selected!.id));
-      // React Native's FormData takes this {uri,name,type} shape rather than a
-      // Blob — the browser's File API isn't available here.
-      form.append("file", {
-        uri: asset.uri,
-        name: asset.fileName ?? `receipt-${Date.now()}.jpg`,
-        type: asset.mimeType ?? "image/jpeg",
-      } as any);
+      // "files" — plural — repeated once per page: the server has one
+      // upload route for both a single photo and a long receipt's pages,
+      // and it reads this field name for either.
+      for (const p of pages) {
+        form.append("files", { uri: p.uri, name: p.fileName, type: p.mimeType } as any);
+      }
 
       const result = await api.upload<ReceiptScanResult>("/records/receipts", form);
       setScan(result);
@@ -1155,7 +1245,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
     }
   }
 
-  async function takePhoto() {
+  async function capturePage() {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
       setError("FinSight needs camera access to photograph a receipt. You can enable it in Settings.");
@@ -1163,12 +1253,12 @@ export function ScanReceiptScreen({ navigation, route }: any) {
     }
     haptics.committed();
     const res = await ImagePicker.launchCameraAsync({ quality: 0.7, mediaTypes: ["images"] });
-    if (!res.canceled && res.assets[0]) await upload(res.assets[0]);
+    if (!res.canceled && res.assets[0]) await addPage(res.assets[0]);
   }
 
-  async function pickPhoto() {
+  async function pickPage() {
     const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.7, mediaTypes: ["images"] });
-    if (!res.canceled && res.assets[0]) await upload(res.assets[0]);
+    if (!res.canceled && res.assets[0]) await addPage(res.assets[0]);
   }
 
   /*
@@ -1364,18 +1454,135 @@ export function ScanReceiptScreen({ navigation, route }: any) {
             <Card>
               <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Scan a receipt</T>
               <T variant="caption" style={{ marginBottom: space.lg }}>
-                Take a photo and FinSight will read the date, store and amount. You check them before anything is saved.
+                {pages.length === 0
+                  ? "Take a photo and FinSight will read the date, store and amount. You check them before anything is saved."
+                  : "Add another photo only if this receipt didn't fit in one — otherwise scan what you have."}
               </T>
+
               {busy ? (
                 <View style={{ alignItems: "center", paddingVertical: space.xl }}>
                   <ActivityIndicator color={brand[600]} />
                   <T variant="caption" style={{ marginTop: space.sm }}>Reading the receipt…</T>
                 </View>
               ) : (
-                <View style={{ gap: space.sm }}>
-                  <Button title="Take a photo" variant="primary" onPress={takePhoto} />
-                  <Button title="Choose from gallery" variant="secondary" onPress={pickPhoto} />
-                </View>
+                <>
+                  {/*
+                    The filmstrip, shown once there is something to show. A
+                    single photo never reaches this — pressing "Scan this
+                    receipt" fires the instant one page exists, same as the
+                    old single-tap flow, so the common case gains no step.
+                  */}
+                  {pages.length > 0 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: space.md }}>
+                      <View style={{ flexDirection: "row", gap: space.sm }}>
+                        {pages.map((p, i) => (
+                          <View key={p.key} style={{ width: 84 }}>
+                            <View
+                              style={{
+                                width: 84,
+                                height: 112,
+                                borderRadius: radius.sm,
+                                overflow: "hidden",
+                                backgroundColor: paper[100],
+                                borderWidth: 1,
+                                borderColor: ink[200],
+                              }}
+                            >
+                              <Image source={{ uri: p.uri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+                              <View
+                                style={{
+                                  position: "absolute",
+                                  top: 4,
+                                  left: 4,
+                                  backgroundColor: "rgba(255,255,255,0.9)",
+                                  borderRadius: radius.full,
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 1,
+                                }}
+                              >
+                                <T style={{ fontSize: 11, fontWeight: "700", color: ink[700] }}>{i + 1}</T>
+                              </View>
+                              <Pressable
+                                onPress={() => removePage(p.key)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Remove page ${i + 1}`}
+                                hitSlop={8}
+                                style={{
+                                  position: "absolute",
+                                  top: 4,
+                                  right: 4,
+                                  width: 22,
+                                  height: 22,
+                                  borderRadius: radius.full,
+                                  backgroundColor: "rgba(255,255,255,0.9)",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                              >
+                                <Ionicons name="close" size={14} color={ink[700]} />
+                              </Pressable>
+                              {p.checkingQuality ? (
+                                <View style={{ position: "absolute", bottom: 4, right: 4 }}>
+                                  <ActivityIndicator size="small" color={brand[600]} />
+                                </View>
+                              ) : null}
+                            </View>
+                            {/*
+                              Caught at capture, not after the whole session
+                              uploads — see addPage's own comment for why that
+                              order matters.
+                            */}
+                            {p.quality?.tooBlurredToTrust ? (
+                              <T style={{ fontSize: 10, color: statusText.warning, marginTop: 2, textAlign: "center" }}>
+                                ⚠ blurry
+                              </T>
+                            ) : null}
+                            <View style={{ flexDirection: "row", justifyContent: "center", gap: 2, marginTop: 2 }}>
+                              <Pressable
+                                onPress={() => movePage(p.key, -1)}
+                                disabled={i === 0}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Move page ${i + 1} earlier`}
+                                hitSlop={8}
+                                style={{ padding: 4, opacity: i === 0 ? 0.3 : 1 }}
+                              >
+                                <Ionicons name="chevron-up" size={16} color={ink[600]} />
+                              </Pressable>
+                              <Pressable
+                                onPress={() => movePage(p.key, 1)}
+                                disabled={i === pages.length - 1}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Move page ${i + 1} later`}
+                                hitSlop={8}
+                                style={{ padding: 4, opacity: i === pages.length - 1 ? 0.3 : 1 }}
+                              >
+                                <Ionicons name="chevron-down" size={16} color={ink[600]} />
+                              </Pressable>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    </ScrollView>
+                  ) : null}
+
+                  <View style={{ gap: space.sm }}>
+                    {pages.length === 0 ? (
+                      <>
+                        <Button title="Take a photo" variant="primary" onPress={capturePage} />
+                        <Button title="Choose from gallery" variant="secondary" onPress={pickPage} />
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          title={pages.length === 1 ? "Scan this receipt" : `Scan these ${pages.length} pages`}
+                          variant="primary"
+                          onPress={scanPages}
+                        />
+                        <Button title="Add another page" variant="secondary" onPress={capturePage} />
+                      </>
+                    )}
+                  </View>
+                </>
               )}
               {error ? <View style={{ marginTop: space.md }}><ErrorNote>{error}</ErrorNote></View> : null}
             </Card>
@@ -1403,6 +1610,44 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                     This photo came out blurry. FinSight read it anyway, but blurred print is where it makes
                     the most mistakes — if you still have the receipt, taking another picture is usually
                     quicker than correcting the figures below.
+                  </Callout>
+                </View>
+              ) : null}
+
+              {/*
+                A multi-page receipt's OTHER pages coming out blurry — page 1's
+                own reading is already covered above via captureQuality.
+              */}
+              {scan.pageQualities && scan.pageQualities.length > 1
+                ? (() => {
+                    const blurryPages = scan.pageQualities
+                      .map((q, i) => (q?.tooBlurredToTrust ? i + 1 : null))
+                      .filter((n): n is number => n !== null && n !== 1);
+                    if (blurryPages.length === 0) return null;
+                    return (
+                      <View style={{ marginBottom: space.md, marginTop: space.sm }}>
+                        <Callout tone="warn">
+                          Page{blurryPages.length === 1 ? "" : "s"} {blurryPages.join(", ")} came out blurry.
+                          Check the figures from {blurryPages.length === 1 ? "that page" : "those pages"} carefully
+                          below.
+                        </Callout>
+                      </View>
+                    );
+                  })()
+                : null}
+
+              {/*
+                Two adjacent photos that look like the same page shot twice.
+                Advisory, like looksLikeMultipleReceipts below — FinSight
+                cannot tell which photo to discard, only that it noticed.
+              */}
+              {scan.duplicatePages && scan.duplicatePages.length > 0 ? (
+                <View style={{ marginBottom: space.md, marginTop: space.sm }}>
+                  <Callout tone="warn">
+                    Page{scan.duplicatePages.length === 1 ? "" : "s"}{" "}
+                    {scan.duplicatePages.map((p) => `${p - 1} and ${p}`).join(", ")} look the same. If one is a
+                    repeat photo of the other, the figures below may be double-counted — check the items
+                    against the photos, or rescan without the repeat.
                   </Callout>
                 </View>
               ) : null}
@@ -1861,7 +2106,18 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                 loading={busy}
                 style={{ marginTop: space.md }}
               />
-              <Button title="Retake photo" variant="ghost" onPress={() => setScan(null)} />
+              <Button
+                title="Retake photo"
+                variant="ghost"
+                onPress={() => {
+                  setScan(null);
+                  // Rescan is a deliberate "start over" — the captured pages
+                  // belonged to the receipt just reviewed, and carrying them
+                  // into a new session would mean the next scan quietly
+                  // starts with photos of the WRONG receipt already loaded.
+                  setPages([]);
+                }}
+              />
             </Card>
           )}
         </ScrollView>
