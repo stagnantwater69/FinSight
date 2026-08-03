@@ -998,6 +998,15 @@ interface ReceiptScanResult {
   /** The line most likely misread, when the items don't add up to the total. */
   suspectItemId?: number | null;
   /**
+   * True when the photograph appears to hold more than one receipt.
+   *
+   * Advisory only, and one-directional: false means "no evidence of a second
+   * receipt", not "definitely one". The server cannot tell which items belong
+   * to which receipt, so it says what it noticed and the owner — who is
+   * holding the paper — decides.
+   */
+  looksLikeMultipleReceipts?: boolean;
+  /**
    * The individual lines the server read, each with the category it assigned.
    * A receipt with more than one is reviewed line by line below; anything
    * less keeps the single-category flow.
@@ -1394,6 +1403,27 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                     This photo came out blurry. FinSight read it anyway, but blurred print is where it makes
                     the most mistakes — if you still have the receipt, taking another picture is usually
                     quicker than correcting the figures below.
+                  </Callout>
+                </View>
+              ) : null}
+
+              {/*
+                Two receipts in one photograph, which saves both purchases as
+                one record — the items of both against the total of one. The
+                figures will never add up, and the owner ends up correcting an
+                arithmetic problem whose cause is upstream of every field here.
+
+                Kept separate from the reading warnings below because the
+                remedy is different: those say "check the figures", this says
+                "take two photos instead". On a phone that is one tap, which is
+                the same argument the blur warning above rests on.
+              */}
+              {scan.looksLikeMultipleReceipts ? (
+                <View style={{ marginBottom: space.md, marginTop: space.sm }}>
+                  <Callout tone="warn">
+                    This photo may hold two receipts. If it does, saving now would put both purchases into
+                    one record and the items won't add up to the total. Photograph each receipt on its own
+                    and they'll be recorded separately — if it really is one receipt, carry on.
                   </Callout>
                 </View>
               ) : null}

@@ -1,6 +1,7 @@
-import { View } from "react-native";
+import { useState } from "react";
+import { Image, Linking, Pressable, View } from "react-native";
 import { Callout, Money, T } from "./ui";
-import { ink, paper, radius, space, statusText } from "../theme/tokens";
+import { brand, ink, paper, radius, space, statusText } from "../theme/tokens";
 
 /**
  * Where a saved record came from.
@@ -10,8 +11,10 @@ import { ink, paper, radius, space, statusText } from "../theme/tokens";
  * Mobile showed none of that, so an expense the owner did not recognise was a
  * dead end: nothing on screen explained what made up the number.
  *
- * Mirrors web's RecordOriginPanel, minus the receipt image (mobile has no
- * signed-URL image viewer yet).
+ * Mirrors web's RecordOriginPanel. The receipt photograph and the imported
+ * file are both here now — the server has always returned signed links for
+ * them, and the phone that took the picture is the last place that should be
+ * unable to show it back.
  */
 
 export interface OriginItem {
@@ -32,6 +35,8 @@ export type RecordOrigin =
       scanId: number;
       scannedAt: string;
       extractedVendor: string | null;
+      /** A short-lived signed link. Null when it couldn't be minted. */
+      imageUrl: string | null;
       items: OriginItem[];
       itemsSubtotal: number;
       siblings: { id: number; description: string; amount: number; categoryName: string }[];
@@ -42,6 +47,8 @@ export type RecordOrigin =
       title: string;
       uploadDate: string;
       fileReference: string;
+      /** A short-lived signed download link. Null when it couldn't be minted. */
+      fileUrl: string | null;
       status: string;
       rowCount: number;
     };
@@ -55,6 +62,26 @@ export function RecordOriginPanel({ origin, recordAmount }: { origin: RecordOrig
           {origin.title} · {origin.rowCount} row{origin.rowCount === 1 ? "" : "s"} ·{" "}
           {origin.uploadDate.slice(0, 10)}
         </T>
+        {/*
+          A spreadsheet is not something to render on a phone — the useful
+          thing is handing it to whatever app the owner already opens files
+          with, which is what Linking does. Shown only when the link exists:
+          sourceCleanup removes the file once the last record from it is gone,
+          and a dead link that opens an XML error page is worse than no link.
+        */}
+        {origin.fileUrl ? (
+          <Pressable
+            onPress={() => Linking.openURL(origin.fileUrl!)}
+            hitSlop={12}
+            accessibilityRole="link"
+            accessibilityLabel="Open the file this record was imported from"
+            style={{ marginTop: space.sm }}
+          >
+            <T variant="caption" style={{ color: brand[700], fontWeight: "600" }}>
+              Open the file this came from
+            </T>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
@@ -157,6 +184,56 @@ export function RecordOriginPanel({ origin, recordAmount }: { origin: RecordOrig
             </View>
           ))}
         </View>
+      ) : null}
+
+      {origin.imageUrl ? <ReceiptPhoto url={origin.imageUrl} /> : null}
+    </View>
+  );
+}
+
+/**
+ * The receipt itself, behind a tap.
+ *
+ * Mobile has had the breakdown but never the photograph, so an owner who
+ * doubted a figure had nothing to check it against — on the one device that
+ * took the picture.
+ *
+ * Collapsed by default because the usual reason to open a record is to change
+ * a field, and a phone screen spent on a picture nobody asked for is a screen
+ * of scrolling before the form. Given a fixed height with `contain` rather
+ * than a free-running aspect ratio, for the reason the web panel learned the
+ * hard way: a till receipt is tall and narrow, so sizing it by width alone
+ * produces something thousands of pixels long.
+ */
+function ReceiptPhoto({ url }: { url: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <View style={{ marginTop: space.sm }}>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        hitSlop={12}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={open ? "Hide the receipt photo" : "Show the receipt photo"}
+      >
+        <T variant="caption" style={{ color: brand[700], fontWeight: "600" }}>
+          {open ? "Hide the receipt photo" : "Show the receipt photo"}
+        </T>
+      </Pressable>
+      {open ? (
+        <Image
+          source={{ uri: url }}
+          resizeMode="contain"
+          accessibilityLabel="The scanned receipt this record came from"
+          style={{
+            width: "100%",
+            height: 320,
+            marginTop: space.sm,
+            borderRadius: radius.sm,
+            backgroundColor: paper[200],
+          }}
+        />
       ) : null}
     </View>
   );
