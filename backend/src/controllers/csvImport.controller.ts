@@ -63,6 +63,32 @@ export async function preview(req: Request, res: Response) {
   res.status(200).json(result);
 }
 
+const listBatchesQuerySchema = z.object({
+  businessProfileId: z.coerce.number().int().positive(),
+});
+
+export async function listBatches(req: Request, res: Response) {
+  const query = listBatchesQuerySchema.parse(req.query);
+  const batches = await csvImportService.listImportBatches(req.user!.id, query.businessProfileId);
+  res.status(200).json(batches);
+}
+
+const batchParamsSchema = z.object({
+  batchId: z.coerce.number().int().positive(),
+});
+
+export async function previewBatch(req: Request, res: Response) {
+  const params = batchParamsSchema.parse(req.params);
+  const result = await csvImportService.previewImportBatch(req.user!.id, params.batchId);
+  // Null covers "not this owner's batch" too (previewImportBatch never
+  // distinguishes the two, matching requireOwnedBusinessProfile's rule), so
+  // this 404 carries the same non-disclosure guarantee as everywhere else.
+  if (!result) {
+    throw new ApiError(404, "No preview available for this import");
+  }
+  res.status(200).json(result);
+}
+
 export async function confirm(req: Request, res: Response) {
   if (!req.file) {
     throw new ApiError(400, "CSV file is required");

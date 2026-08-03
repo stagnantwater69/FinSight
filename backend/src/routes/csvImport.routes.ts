@@ -10,3 +10,5 @@ csvImportRouter.use(requireAuth);
 
 csvImportRouter.post("/preview", uploadCsv.single("file"), asyncHandler(csvImportController.preview));
 csvImportRouter.post("/confirm", uploadCsv.single("file"), asyncHandler(csvImportController.confirm));
+csvImportRouter.get("/batches", asyncHandler(csvImportController.listBatches));
+csvImportRouter.get("/batches/:batchId/preview", asyncHandler(csvImportController.previewBatch));

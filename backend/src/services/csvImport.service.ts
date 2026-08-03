@@ -1,7 +1,7 @@
 import { parse } from "csv-parse/sync";
 import { prisma } from "../config/prisma";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
-import { uploadCsvFile } from "./storage.service";
+import { uploadCsvFile, downloadCsvFile } from "./storage.service";
 import { bulkCreateExpenseRecords } from "./expenseRecord.service";
 import { bulkCreateSalesRecords } from "./salesRecord.service";
 import { createNotification, NOTIFICATION_TYPES } from "./notification.service";
@@ -61,6 +61,65 @@ export function previewCsv(buffer: Buffer): PreviewResult {
   const records = parseCsv(buffer);
   const headers = records.length > 0 ? Object.keys(records[0]!) : [];
   return { headers, previewRows: records.slice(0, PREVIEW_ROW_LIMIT), totalRows: records.length };
+}
+
+export interface ImportBatchSummary {
+  id: number;
+  title: string;
+  uploadDate: Date;
+  status: string;
+}
+
+/**
+ * Every CSV import a business profile has on file, newest first.
+ *
+ * Feeds the Records page's "which import" filter — an owner narrowing to CSV
+ * Upload needs a way to say WHICH file, not just that a record came from one.
+ */
+export async function listImportBatches(userId: number, businessProfileId: number): Promise<ImportBatchSummary[]> {
+  await requireOwnedBusinessProfile(userId, businessProfileId);
+
+  return prisma.cSVImportBatch.findMany({
+    where: { businessProfileId },
+    select: { id: true, title: true, uploadDate: true, status: true },
+    orderBy: { uploadDate: "desc" },
+  });
+}
+
+/**
+ * Re-reads a past import's own file as a table, for the "preview" toggle on a
+ * CSV-sourced record's origin panel.
+ *
+ * Ownership is checked via the batch's business profile rather than by
+ * accepting a businessProfileId argument — the caller only has a batchId (it
+ * came from a record the owner already has open), and trusting a caller-
+ * supplied businessProfileId instead would let one owner's batchId be probed
+ * against another's profile id.
+ *
+ * Returns null — never throws — when the batch doesn't exist, isn't the
+ * caller's, or the file itself can no longer be fetched (already swept by
+ * sourceCleanup, or a storage hiccup). Every one of those is "no preview to
+ * show", identical to how the panel already treats a missing fileUrl; a 404 or
+ * 500 here would take down a page that has a record perfectly capable of
+ * rendering without this.
+ */
+export async function previewImportBatch(userId: number, batchId: number): Promise<PreviewResult | null> {
+  const batch = await prisma.cSVImportBatch.findFirst({
+    where: { id: batchId, businessProfile: { userId } },
+    select: { fileReference: true },
+  });
+  if (!batch) return null;
+
+  const buffer = await downloadCsvFile(batch.fileReference);
+  if (!buffer) return null;
+
+  try {
+    return previewCsv(buffer);
+  } catch {
+    // A file that no longer parses (corrupted in storage, truncated) is the
+    // same "nothing to show" outcome as a missing one, not a 500.
+    return null;
+  }
 }
 
 /**

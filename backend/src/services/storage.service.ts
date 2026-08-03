@@ -81,6 +81,62 @@ export async function signedReceiptImageUrl(path: string): Promise<string | null
 }
 
 /**
+ * How long a link to an imported CSV stays valid.
+ *
+ * The same reasoning as RECEIPT_URL_TTL_SECONDS, and deliberately the same
+ * number: an imported spreadsheet holds the owner's actual figures, so the
+ * csv-imports bucket is private for exactly the reason the receipts one is,
+ * and a link that leaks out of devtools should stop working just as quickly.
+ */
+const CSV_URL_TTL_SECONDS = 10 * 60;
+
+/**
+ * Recovers the name the owner's file had before it was stored.
+ *
+ * uploadCsvFile writes `<profileId>/<uuid>-<originalname>`, so the original is
+ * whatever follows the UUID. Worth undoing rather than serving the stored path
+ * as-is: a file that lands in the owner's Downloads folder as
+ * "9f2e1c40-...-expenses.csv" is one they cannot recognise a month later,
+ * which defeats the point of offering it.
+ *
+ * Falls back to the stored basename when the path is not the shape uploadCsvFile
+ * writes — an ugly but honest name beats a confidently wrong one.
+ */
+function originalCsvName(path: string): string {
+  const basename = path.slice(path.lastIndexOf("/") + 1);
+  const withoutUuid = basename.replace(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i,
+    "",
+  );
+  return withoutUuid || basename;
+}
+
+/**
+ * A temporary link that downloads the file a CSV import came from.
+ *
+ * `download` rather than an inline view, unlike a receipt photo: a browser
+ * renders a spreadsheet as a wall of commas, and the place an owner can
+ * actually compare a row against the record it became is their own
+ * spreadsheet program.
+ *
+ * Returns null rather than throwing, exactly as signedReceiptImageUrl does. A
+ * record whose source file has since been swept (see lib/sourceCleanup) must
+ * still open and still be editable — losing the link is a degraded panel, and
+ * a 500 here would be an unusable page over a file the owner may not even want.
+ */
+export async function signedCsvFileUrl(path: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.storage
+    .from(CSV_IMPORT_BUCKET)
+    .createSignedUrl(path, CSV_URL_TTL_SECONDS, { download: originalCsvName(path) });
+
+  if (error || !data?.signedUrl) {
+    console.error(`Could not sign CSV file URL for "${path}": ${error?.message ?? "no URL returned"}`);
+    return null;
+  }
+  return data.signedUrl;
+}
+
+/**
  * Removes a stored object, and never fails the caller if it cannot.
  *
  * Deletion is always the SECOND half of an operation whose first half has
@@ -110,6 +166,24 @@ export async function deleteReceiptImage(path: string): Promise<boolean> {
 /** Deletes an uploaded CSV. Safe to call for a path that is already gone. */
 export async function deleteCsvFile(path: string): Promise<boolean> {
   return removeObject(CSV_IMPORT_BUCKET, path);
+}
+
+/**
+ * Fetches an imported CSV's own bytes back out of storage, for previewing it
+ * as a table rather than only offering it as a download.
+ *
+ * Returns null on any failure — no object at that path, bucket unreachable —
+ * for the same reason signedCsvFileUrl does: the panel this feeds must
+ * degrade to "no preview available", never take the record's edit page down
+ * with it.
+ */
+export async function downloadCsvFile(path: string): Promise<Buffer | null> {
+  const { data, error } = await supabaseAdmin.storage.from(CSV_IMPORT_BUCKET).download(path);
+  if (error || !data) {
+    console.error(`Could not download CSV file "${path}": ${error?.message ?? "no data returned"}`);
+    return null;
+  }
+  return Buffer.from(await data.arrayBuffer());
 }
 
 export async function uploadCsvFile(businessProfileId: number, buffer: Buffer, originalname: string) {
