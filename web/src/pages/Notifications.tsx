@@ -145,14 +145,31 @@ export function Notifications() {
                       action={
                         <div className="flex items-center gap-1">
                           {item.expenseRecordId ? (
+                            /*
+                              A duplicate notification goes straight to the
+                              decision, not to the list. "Review record" used
+                              to land the owner on /records with the row
+                              highlighted, which answered "which record?" but
+                              not "what do you want me to do about it?" —
+                              they still had to find the compare action
+                              themselves. Every other notification kind has no
+                              single decision attached, so those still open
+                              the record in its list context.
+                            */
                             <Link
-                              to={`/records?highlightRecordId=${item.expenseRecordId}`}
+                              to={
+                                alertKindFromType(item.type) === "duplicate"
+                                  ? `/records?reviewDuplicateId=${item.expenseRecordId}`
+                                  : `/records?highlightRecordId=${item.expenseRecordId}`
+                              }
                               onClick={() => {
                                 if (!item.readStatus) markRead(item.id);
                               }}
                               className="tap rounded-lg px-2 text-xs font-semibold text-tone-brand transition hover:bg-tint-brand"
                             >
-                              Review record
+                              {alertKindFromType(item.type) === "duplicate"
+                                ? "Review duplicate"
+                                : "Review record"}
                               <span className="sr-only"> — {item.message}</span>
                             </Link>
                           ) : null}

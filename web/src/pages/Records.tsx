@@ -9,7 +9,7 @@ import { Button, ButtonLink } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { DataTable, type Column } from "../components/DataTable";
 import { IconEdit, IconSearch, IconTrash } from "../components/icons";
-import { RECORD_SOURCE_LABELS, type RecordItem, type RecordSource } from "../lib/types";
+import { RECORD_SOURCE_LABELS, type ImportBatchSummary, type RecordItem, type RecordSource } from "../lib/types";
 import { PageHead, Pill, Tag, type PillTone } from "../components/ui";
 import { SelectInput, TextInput } from "../components/Field";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -17,6 +17,7 @@ import { useDebounced } from "../lib/hooks";
 import { useToast } from "../components/Toast";
 import { AddExpenseModal } from "../components/AddExpenseModal";
 import { AddSalesModal } from "../components/AddSalesModal";
+import { DuplicateReviewModal } from "../components/DuplicateReviewModal";
 
 interface Filters {
   type: "all" | "expense" | "sales";
@@ -25,6 +26,8 @@ interface Filters {
   dateTo: string;
   keyword: string;
   source: "" | RecordSource;
+  /** Only meaningful alongside source === "CSV_UPLOAD" — see the Source select. */
+  importBatchId: string;
 }
 
 const emptyFilters: Filters = {
@@ -34,11 +37,12 @@ const emptyFilters: Filters = {
   dateTo: "",
   keyword: "",
   source: "",
+  importBatchId: "",
 };
 
 /** Which filters count as "advanced" for Hick's Law progressive disclosure. */
 function activeAdvancedCount(f: Filters) {
-  return [f.categoryId, f.dateFrom, f.dateTo, f.source].filter(Boolean).length;
+  return [f.categoryId, f.dateFrom, f.dateTo, f.source, f.importBatchId].filter(Boolean).length;
 }
 
 /**
@@ -74,17 +78,26 @@ function filtersToParams(f: Filters): URLSearchParams {
   if (f.dateFrom) params.set("dateFrom", f.dateFrom);
   if (f.dateTo) params.set("dateTo", f.dateTo);
   if (f.source) params.set("source", f.source);
+  // Only meaningful with source, so only ever written alongside it — but
+  // written unconditionally on that, rather than re-deriving "is this a CSV
+  // filter" here too.
+  if (f.source && f.importBatchId) params.set("importBatchId", f.importBatchId);
   return params;
 }
 
 function filtersFromParams(params: URLSearchParams): Filters {
+  const source = (params.get("source") as Filters["source"]) ?? "";
   return {
     type: (params.get("type") as Filters["type"]) || "all",
     categoryId: params.get("categoryId") ?? "",
     keyword: params.get("keyword") ?? "",
     dateFrom: params.get("dateFrom") ?? "",
     dateTo: params.get("dateTo") ?? "",
-    source: (params.get("source") as Filters["source"]) ?? "",
+    source,
+    // A stray ?importBatchId= surviving a source change in the URL (e.g. a
+    // hand-edited link) should not silently scope the results to a batch the
+    // Source select no longer shows as selected.
+    importBatchId: source === "CSV_UPLOAD" ? (params.get("importBatchId") ?? "") : "",
   };
 }
 
@@ -170,6 +183,11 @@ export function Records() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flaggedCount, setFlaggedCount] = useState(0);
+  // Only loaded once the owner has actually chosen "CSV Upload" as the
+  // source — fetching every business profile's whole import history on every
+  // Records page load would be wasted work on the common case of never
+  // touching this filter.
+  const [importBatches, setImportBatches] = useState<ImportBatchSummary[]>([]);
   // Hick's Law: the two filters people reach for most (type, search) stay
   // visible; the other four are collapsed until asked for. Auto-expanded when
   // any of them is already set, so an active filter is never hidden.
@@ -180,6 +198,22 @@ export function Records() {
   // since only here is the list already on screen and worth staying on.
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [addSalesOpen, setAddSalesOpen] = useState(false);
+  /**
+   * The record whose duplicate flag is being decided, if any.
+   *
+   * Seeded from ?reviewDuplicateId so a notification can link straight to the
+   * decision rather than dropping the owner on the list to find it themselves.
+   */
+  const [reviewDuplicate, setReviewDuplicate] = useState<{ id: number; type: "expense" | "sales" } | null>(
+    () => {
+      const raw = searchParams.get("reviewDuplicateId");
+      const parsed = raw ? Number(raw) : NaN;
+      if (!Number.isInteger(parsed) || parsed <= 0) return null;
+      // Notifications only ever carry an expense record id (notification.
+      // expenseRecordId), so there is nothing else this could be.
+      return { id: parsed, type: "expense" };
+    },
+  );
 
   /**
    * SCALE CEILING, deliberate: /records/search returns the whole result set and
@@ -209,6 +243,7 @@ export function Records() {
           dateTo: appliedFilters.dateTo || undefined,
           keyword: appliedFilters.keyword || undefined,
           source: appliedFilters.source || undefined,
+          importBatchId: appliedFilters.importBatchId || undefined,
         },
       });
       setRecords(data);
@@ -252,7 +287,31 @@ export function Records() {
     appliedFilters.dateTo,
     appliedFilters.keyword,
     appliedFilters.source,
+    appliedFilters.importBatchId,
   ]);
+
+  // Fetched only while the Source filter is actually set to CSV Upload —
+  // there is nowhere in the UI to pick a specific import otherwise, so
+  // fetching it eagerly would be wasted on every other filter state.
+  useEffect(() => {
+    if (!selected || filters.source !== "CSV_UPLOAD") {
+      setImportBatches([]);
+      return;
+    }
+    const controller = new AbortController();
+    api
+      .get<ImportBatchSummary[]>("/records/csv-imports/batches", {
+        signal: controller.signal,
+        params: { businessProfileId: selected.id },
+      })
+      .then(({ data }) => setImportBatches(data))
+      .catch(() => {
+        // The picker degrading to "no imports listed" is a minor
+        // inconvenience, not a reason to break the rest of the page.
+      });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, filters.source]);
 
   /**
    * Arriving from a notification's "review this" link — looks up the real
@@ -446,8 +505,13 @@ export function Records() {
       cell: (r) => (
         <div className="flex items-center justify-end gap-1">
           {r.duplicateStatus === "Flagged" ? (
-            <Link
-              to="/records/flagged"
+            /*
+              A button, not a link to the flagged queue. The decision is about
+              THIS row and belongs next to it — see DuplicateReviewModal.
+            */
+            <button
+              type="button"
+              onClick={() => setReviewDuplicate({ id: r.id, type: r.type })}
               title="Review possible duplicate"
               aria-label={`Review possible duplicate — ${r.description}`}
               className="tap flex h-9 w-9 min-h-0 min-w-0 items-center justify-center rounded-lg text-tone-info transition hover:bg-tint-info"
@@ -455,7 +519,7 @@ export function Records() {
               <span aria-hidden className="text-base leading-none">
                 ⧉
               </span>
-            </Link>
+            </button>
           ) : null}
           <Link
             to={editPath(r)}
@@ -571,7 +635,16 @@ export function Records() {
             <SelectInput
               id="rec-src"
               value={filters.source}
-              onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value as Filters["source"] }))}
+              onChange={(e) => {
+                const source = e.target.value as Filters["source"];
+                // Switching away from CSV Upload leaves a chosen import
+                // pointing at nothing the Source select still shows —
+                // filtersFromParams enforces the same rule on a URL that
+                // arrives with a stale combination, so this keeps state and
+                // URL agreeing about when importBatchId is allowed to mean
+                // anything.
+                setFilters((f) => ({ ...f, source, importBatchId: source === "CSV_UPLOAD" ? f.importBatchId : "" }));
+              }}
               className="px-2"
             >
               <option value="">All sources</option>
@@ -582,6 +655,26 @@ export function Records() {
               ))}
             </SelectInput>
           </div>
+          {filters.source === "CSV_UPLOAD" ? (
+            <div>
+              <label htmlFor="rec-batch" className="mb-1 block text-xs font-medium text-ink-500">
+                Which import
+              </label>
+              <SelectInput
+                id="rec-batch"
+                value={filters.importBatchId}
+                onChange={(e) => setFilters((f) => ({ ...f, importBatchId: e.target.value }))}
+                className="px-2"
+              >
+                <option value="">All imports</option>
+                {importBatches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.title} · {new Date(b.uploadDate).toLocaleDateString()}
+                  </option>
+                ))}
+              </SelectInput>
+            </div>
+          ) : null}
           <div>
             <label htmlFor="rec-from" className="mb-1 block text-xs font-medium text-ink-500">
               From
@@ -729,13 +822,14 @@ export function Records() {
                 </span>
                 <div className="flex gap-1">
                   {r.duplicateStatus === "Flagged" ? (
-                    <Link
-                      to="/records/flagged"
+                    <button
+                      type="button"
+                      onClick={() => setReviewDuplicate({ id: r.id, type: r.type })}
                       className="tap rounded-lg px-3 text-sm font-medium text-tone-info transition hover:bg-tint-info"
                     >
                       Compare
                       <span className="sr-only"> possible duplicate — {r.description}</span>
-                    </Link>
+                    </button>
                   ) : null}
                   <Link
                     to={editPath(r)}
@@ -773,6 +867,16 @@ export function Records() {
         open={addSalesOpen}
         onClose={() => setAddSalesOpen(false)}
         onSaved={() => {
+          loadRecords();
+          loadFlaggedCount();
+        }}
+      />
+      <DuplicateReviewModal
+        recordId={reviewDuplicate?.id ?? null}
+        recordType={reviewDuplicate?.type ?? "expense"}
+        open={reviewDuplicate !== null}
+        onClose={() => setReviewDuplicate(null)}
+        onResolved={() => {
           loadRecords();
           loadFlaggedCount();
         }}
