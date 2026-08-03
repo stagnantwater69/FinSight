@@ -45,6 +45,13 @@ interface ScanResult {
   ocrConfidence?: number | null;
   /** The line most likely misread, when the items don't add up. */
   suspectItemId?: number | null;
+  /**
+   * True when the photograph appears to hold more than one receipt.
+   *
+   * Advisory only. FinSight cannot tell which items belong to which receipt,
+   * so it says what it noticed and leaves the decision with the owner.
+   */
+  looksLikeMultipleReceipts?: boolean;
 }
 
 interface ScannedItem {
@@ -863,6 +870,31 @@ export function ScanReceipt() {
                 anyway, but blurred print is where it makes the most mistakes. If you still have the
                 receipt, taking another picture is usually quicker than correcting the figures
                 below.
+              </Callout>
+            ) : null}
+
+            {/*
+              Two receipts in one photograph, which produces one record holding
+              two purchases — the items of both against the total of one. The
+              figures below will not add up and the owner is left correcting an
+              arithmetic problem whose real cause is upstream of every field on
+              this screen.
+
+              Stated as an observation with a question, not a verdict: the
+              check reads a date label appearing twice, which is evidence and
+              not proof (see looksLikeMultipleReceipts). The owner is holding
+              the paper and can settle it in a second.
+
+              Separate from the reading warnings below rather than folded into
+              them, because it has a different remedy — those say "check the
+              figures", this says "take two photos instead".
+            */}
+            {scan.looksLikeMultipleReceipts ? (
+              <Callout tone="warn">
+                <b className="font-semibold">This photo may hold two receipts.</b> If it does, saving
+                now would put both purchases into one record, and the items won't add up to the
+                total. Photograph each receipt on its own and they'll be recorded separately — if
+                it's really one receipt, carry on.
               </Callout>
             ) : null}
 

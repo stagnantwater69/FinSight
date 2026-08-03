@@ -6,6 +6,7 @@ import {
   confidenceForValue,
   extractReceipt,
   extractText,
+  looksLikeMultipleReceipts,
   overallConfidence,
   parseLineItems,
   parseReceiptFields,
@@ -121,6 +122,15 @@ function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = []) {
      * something the engine knows.
      */
     suspectItemId: suspectItemId(scan, items),
+    /**
+     * True when the photograph appears to hold more than one receipt.
+     *
+     * Derived from the stored rawText rather than a column of its own, so it
+     * needs no migration and reads correctly for scans taken before the check
+     * existed. See looksLikeMultipleReceipts for what the evidence is and how
+     * often it is wrong.
+     */
+    looksLikeMultipleReceipts: looksLikeMultipleReceipts(scan.rawText),
     /**
      * The lines read off the receipt, each with the category FinSight
      * assigned it. Empty when the receipt has no parseable item lines — the

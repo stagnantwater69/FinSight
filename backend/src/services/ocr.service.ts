@@ -703,6 +703,50 @@ export function parseLineItems(text: string): ParsedLineItem[] {
   return items;
 }
 
+/**
+ * Marks the start of a receipt, for counting how many are in one photograph.
+ *
+ * WHY THIS MARKER AND NOT A BETTER-SOUNDING ONE. The obvious candidates were
+ * measured against the 31-image corpus (tests/ocr-accuracy/results.json), and
+ * the obvious ones lose:
+ *
+ *   "SALES INVOICE" / "OFFICIAL RECEIPT"   1 of 31 receipts carry it
+ *   a TIN / VAT-REG number                 3 of 31
+ *   "Thank you"                            1 of 31
+ *   a DATE: label                         28 of 31   <-- this one
+ *
+ * Counting the word TOTAL, which is the first thing anyone reaches for, is
+ * actively wrong: a single real receipt in the corpus prints "Total gross
+ * value", "Total QTY" AND "AMOUNT DUE", so it would report two receipts on
+ * nearly every photograph. That is the cry-wolf failure reconcileItems is
+ * written to avoid, and it is worse than not checking.
+ *
+ * Measured on the corpus: fires on 0 of 31 single receipts (no receipt carries
+ * two date labels), and catches 81% of artificial two-receipt pairs. The
+ * misses are all pairs built from the three receipts that print no date label
+ * at all — a limit of the marker, not a tuning problem.
+ */
+const RECEIPT_START_MARKER = /\bdate\s*[:.]/gi;
+
+/**
+ * Whether one photograph appears to hold more than one receipt.
+ *
+ * Deliberately one-directional: false means "no evidence of a second
+ * receipt", NOT "definitely one receipt". Two receipts photographed together
+ * where neither prints a date label read past this undetected, and the items
+ * failing to reconcile is what catches them instead.
+ *
+ * Nothing acts on this but a sentence on the confirm screen. Splitting the
+ * photograph automatically would mean deciding which items belong to which
+ * receipt, and a wrong split puts money against the wrong purchase — the
+ * owner can see two receipts in their own hand far more reliably than this
+ * can infer it.
+ */
+export function looksLikeMultipleReceipts(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return (text.match(RECEIPT_START_MARKER) ?? []).length >= 2;
+}
+
 export function parseReceiptFields(text: string): ParsedReceiptFields {
   const vendor = parseVendor(text);
   return {

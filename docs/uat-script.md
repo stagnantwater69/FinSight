@@ -149,9 +149,14 @@ Use the participant's own receipt if they brought one.
 | Did they notice the values were editable before saving? | |
 | Did they check the values, or accept them without looking? | |
 | How did they react to a wrong value? | |
+| **Did the whole receipt fit in one photo?** | Yes · No — it took ______ photos to cover it |
+| **If it did not fit, what did they do?** | Photographed the top only · Photographed twice and saved twice · Gave up and typed it · Other: ______ |
+| **Did they try to photograph two receipts at once?** | Yes · No |
 | Problems | |
 
 > **Watch for:** whether they *check* the extracted values. Known limitation — scanning is accurate on clean printed receipts and unreliable on creased or faded thermal paper. The design depends on the owner reviewing before saving. If participants accept values without reading them, that is a significant finding and should be written up.
+
+> **Why the "one photo" questions:** the system currently assumes one receipt is one photograph, and a receipt too long to fit has no supported path — the owner either loses the bottom of it or saves it as two unrelated expenses. Supporting multi-page capture is a large change (it touches the database, both apps and the whole scanning pipeline), so it should be built only if this turns out to be real for these owners rather than assumed. **Count it: how many participants hit it at all, and on what kind of receipt.** A supermarket grocery run and a sari-sari restock are very different lengths, and if nobody's receipts overflow a single photo the change is not worth its risk. Do not prompt — only record it if it comes up naturally with their own receipt.
 
 ---
 
