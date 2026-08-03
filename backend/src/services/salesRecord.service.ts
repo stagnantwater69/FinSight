@@ -30,6 +30,7 @@ export interface SearchFilters {
   dateTo?: string;
   keyword?: string;
   source?: SalesRecordSource;
+  importBatchId?: number;
 }
 
 function toDTO(record: SalesReferenceRecord) {
@@ -263,6 +264,48 @@ export async function deleteSalesRecord(userId: number, id: number) {
   await cleanUpImportBatchIfOrphaned(existing.importBatchId);
 }
 
+/**
+ * The sales-record half of a bulk duplicate resolution.
+ *
+ * See bulkResolveExpenseDuplicates for why this exists and why discarding a
+ * whole flagged group cannot delete the owner's original. Kept as a separate
+ * function rather than generalised over both tables: the two models have
+ * different columns and different cleanup (a sales row never came from a
+ * receipt), and one function branching on which table it was handed is harder
+ * to read than two that each say what they do.
+ */
+export async function bulkResolveSalesDuplicates(
+  userId: number,
+  businessProfileId: number,
+  ids: number[],
+  action: "keep" | "discard",
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  await requireOwnedBusinessProfile(userId, businessProfileId);
+
+  const owned = await prisma.salesReferenceRecord.findMany({
+    where: { id: { in: ids }, businessProfileId },
+    select: { id: true, importBatchId: true },
+  });
+  if (owned.length === 0) return 0;
+  const ownedIds = owned.map((r) => r.id);
+
+  if (action === "keep") {
+    const { count } = await prisma.salesReferenceRecord.updateMany({
+      where: { id: { in: ownedIds } },
+      data: { duplicateStatus: "Not a Duplicate", reviewStatus: "Reviewed" },
+    });
+    return count;
+  }
+
+  await prisma.salesReferenceRecord.deleteMany({ where: { id: { in: ownedIds } } });
+
+  const batchIds = [...new Set(owned.map((r) => r.importBatchId).filter((v): v is number => v !== null))];
+  for (const batchId of batchIds) await cleanUpImportBatchIfOrphaned(batchId);
+
+  return ownedIds.length;
+}
+
 export async function searchSalesRecords(userId: number, filters: SearchFilters) {
   await requireOwnedBusinessProfile(userId, filters.businessProfileId);
 
@@ -270,6 +313,7 @@ export async function searchSalesRecords(userId: number, filters: SearchFilters)
     where: {
       businessProfileId: filters.businessProfileId,
       source: filters.source,
+      importBatchId: filters.importBatchId,
       date: {
         gte: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
         lte: filters.dateTo ? new Date(filters.dateTo) : undefined,

@@ -5,7 +5,7 @@ import { ApiError } from "../middleware/error.middleware";
 import { cleanUpImportBatchIfOrphaned, cleanUpReceiptScanIfOrphaned } from "../lib/sourceCleanup";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { createNotification, NOTIFICATION_TYPES } from "./notification.service";
-import { signedReceiptImageUrl } from "./storage.service";
+import { signedReceiptImageUrl, signedCsvFileUrl } from "./storage.service";
 
 interface CreateInput {
   businessProfileId: number;
@@ -41,6 +41,7 @@ export interface SearchFilters {
   dateTo?: string;
   keyword?: string;
   source?: ExpenseRecordSource;
+  importBatchId?: number;
 }
 
 function toDTO(record: ExpenseRecord) {
@@ -440,6 +441,17 @@ async function buildOrigin(record: RecordWithOrigin) {
       title: record.importBatch.title,
       uploadDate: record.importBatch.uploadDate,
       fileReference: record.importBatch.fileReference,
+      /*
+       * The file itself, not just its stored path.
+       *
+       * A CSV row carries no evidence of its own the way a scanned receipt
+       * does — there is no photo to compare against, so an owner who thinks a
+       * figure looks wrong has nothing to check it against unless they still
+       * have the spreadsheet they uploaded. This is that check. Null when the
+       * link cannot be minted, which the panel reads as "no file to offer"
+       * rather than as an error.
+       */
+      fileUrl: await signedCsvFileUrl(record.importBatch.fileReference),
       status: record.importBatch.status,
       rowCount,
     };
@@ -545,6 +557,69 @@ export async function deleteExpenseRecord(userId: number, id: number) {
   await cleanUpImportBatchIfOrphaned(existing.importBatchId);
 }
 
+/**
+ * Settles a whole set of duplicate flags at once.
+ *
+ * WHY THIS EXISTS: a re-imported spreadsheet flags every row it repeats, so
+ * "you have 3 possible duplicates" and "you have 300" are the same mistake made
+ * once. Resolving them one at a time asks the owner to answer the same question
+ * three hundred times, and the answer they give the first time is the answer
+ * they will give every time.
+ *
+ * WHY DISCARDING A WHOLE GROUP IS SAFE. Only COPIES carry the flag — both
+ * findDuplicate and bulkCreateExpenseRecords leave the oldest matching record
+ * as "Not a Duplicate" and flag what came after it. So a set of flagged records
+ * never contains the original, and discarding all of them cannot take the
+ * owner's real record with it. The screen says so in those words, because
+ * "discard 40 records" read on its own sounds like it might.
+ *
+ * Ids that are not this profile's are silently skipped rather than rejected —
+ * the same rule requireOwnedBusinessProfile follows, so a list of ids cannot be
+ * used to find out which of them exist.
+ *
+ * Returns how many records were actually affected, so the caller reports what
+ * happened rather than what was asked for.
+ */
+export async function bulkResolveExpenseDuplicates(
+  userId: number,
+  businessProfileId: number,
+  ids: number[],
+  action: "keep" | "discard",
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  await requireOwnedBusinessProfile(userId, businessProfileId);
+
+  const owned = await prisma.expenseRecord.findMany({
+    where: { id: { in: ids }, businessProfileId },
+    select: { id: true, receiptScanId: true, importBatchId: true },
+  });
+  if (owned.length === 0) return 0;
+  const ownedIds = owned.map((r) => r.id);
+
+  if (action === "keep") {
+    const { count } = await prisma.expenseRecord.updateMany({
+      where: { id: { in: ownedIds } },
+      data: { duplicateStatus: "Not a Duplicate", reviewStatus: "Reviewed" },
+    });
+    return count;
+  }
+
+  await prisma.expenseRecord.deleteMany({ where: { id: { in: ownedIds } } });
+
+  /*
+   * The same source cleanup deleteExpenseRecord performs, but run once per
+   * distinct source rather than once per record — deleting 300 rows of one
+   * import should check that import once, not 300 times. Ids are read off the
+   * rows fetched above, since after deleteMany there is nothing left to read.
+   */
+  const scanIds = [...new Set(owned.map((r) => r.receiptScanId).filter((v): v is number => v !== null))];
+  const batchIds = [...new Set(owned.map((r) => r.importBatchId).filter((v): v is number => v !== null))];
+  for (const scanId of scanIds) await cleanUpReceiptScanIfOrphaned(scanId);
+  for (const batchId of batchIds) await cleanUpImportBatchIfOrphaned(batchId);
+
+  return ownedIds.length;
+}
+
 export async function searchExpenseRecords(userId: number, filters: SearchFilters) {
   await requireOwnedBusinessProfile(userId, filters.businessProfileId);
 
@@ -553,6 +628,7 @@ export async function searchExpenseRecords(userId: number, filters: SearchFilter
       businessProfileId: filters.businessProfileId,
       categoryId: filters.categoryId,
       source: filters.source,
+      importBatchId: filters.importBatchId,
       date: {
         gte: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
         lte: filters.dateTo ? new Date(filters.dateTo) : undefined,

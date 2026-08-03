@@ -9,3 +9,4 @@ recordsRouter.use(requireAuth);
 
 recordsRouter.get("/search", asyncHandler(recordsController.search));
 recordsRouter.get("/flagged", asyncHandler(recordsController.flagged));
+recordsRouter.post("/duplicates/resolve", asyncHandler(recordsController.resolveDuplicates));
