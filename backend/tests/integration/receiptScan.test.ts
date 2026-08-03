@@ -106,9 +106,7 @@ afterAll(disconnectDb);
 async function upload() {
   return uploadAndScan(ctx.user.id, {
     businessProfileId: ctx.profile.id,
-    buffer: Buffer.from("fake-image-bytes"),
-    mimetype: "image/jpeg",
-    originalname: "receipt.jpg",
+    pages: [{ buffer: Buffer.from("fake-image-bytes"), mimetype: "image/jpeg", originalname: "receipt.jpg" }],
   });
 }
 
@@ -146,9 +144,7 @@ describe("upload and scan", () => {
     await expect(
       uploadAndScan(ctx.user.id, {
         businessProfileId: other.profile.id,
-        buffer: Buffer.from("x"),
-        mimetype: "image/jpeg",
-        originalname: "receipt.jpg",
+        pages: [{ buffer: Buffer.from("x"), mimetype: "image/jpeg", originalname: "receipt.jpg" }],
       })
     ).rejects.toMatchObject({ status: 404 });
     expect(await prisma.receiptScan.count({ where: { businessProfileId: other.profile.id } })).toBe(0);
@@ -553,9 +549,7 @@ describe("vendor corrected from confirmed history", () => {
     );
     const scan = await uploadAndScan(other.user.id, {
       businessProfileId: other.profile.id,
-      buffer: Buffer.from("fake-image-bytes"),
-      mimetype: "image/jpeg",
-      originalname: "receipt.jpg",
+      pages: [{ buffer: Buffer.from("fake-image-bytes"), mimetype: "image/jpeg", originalname: "receipt.jpg" }],
     });
     // Uncorrected: this business has never confirmed that vendor.
     expect(scan.extractedVendor).toBe("SAVEM0RE MARKET");
@@ -804,9 +798,7 @@ describe("classification context", () => {
     categoriseMock.mockClear();
     await uploadAndScan(other.user.id, {
       businessProfileId: other.profile.id,
-      buffer: Buffer.from("fake-image-bytes"),
-      mimetype: "image/jpeg",
-      originalname: "receipt.jpg",
+      pages: [{ buffer: Buffer.from("fake-image-bytes"), mimetype: "image/jpeg", originalname: "receipt.jpg" }],
     });
 
     const [, , context] = categoriseMock.mock.calls[0]!;

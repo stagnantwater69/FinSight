@@ -38,17 +38,30 @@ export async function cleanUpReceiptScanIfOrphaned(receiptScanId: number | null 
 
   const scan = await prisma.receiptScan.findUnique({
     where: { id: receiptScanId },
-    select: { id: true, imageFile: true, confirmationStatus: true },
+    select: { id: true, imageFile: true, confirmationStatus: true, pages: { select: { imageFile: true } } },
   });
   if (!scan || scan.confirmationStatus !== "Confirmed") return;
 
   const remaining = await prisma.expenseRecord.count({ where: { receiptScanId } });
   if (remaining > 0) return;
 
-  // Items cascade from the scan row, so deleting it takes the extracted lines
-  // with it. The image is a separate system and has to be asked for.
+  /*
+   * EVERY page's image, not just the cover.
+   *
+   * Deleting the ReceiptScan row cascades ReceiptScanPage's DB ROWS (see
+   * schema header note 14) — but Storage is a separate system, and cascade
+   * only ever reaches the database. A scan with three pages that deleted only
+   * scan.imageFile would leave pages 2 and 3 in Storage forever, orphaned and
+   * silent: removeObject never throws, so nothing would ever surface the
+   * leak.
+   *
+   * A Set, because scan.imageFile and pages[0].imageFile are the same path
+   * (uploadAndScan writes the cover as page 1's own file) — deduplicated so
+   * deleteReceiptImage is not asked to delete the same object twice.
+   */
+  const files = new Set([scan.imageFile, ...scan.pages.map((p) => p.imageFile)]);
   await prisma.receiptScan.delete({ where: { id: receiptScanId } });
-  await deleteReceiptImage(scan.imageFile);
+  for (const file of files) await deleteReceiptImage(file);
 }
 
 /**

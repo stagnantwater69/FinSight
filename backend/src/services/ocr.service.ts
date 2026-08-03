@@ -747,6 +747,62 @@ export function looksLikeMultipleReceipts(text: string | null | undefined): bool
   return (text.match(RECEIPT_START_MARKER) ?? []).length >= 2;
 }
 
+/**
+ * How much of the shorter page's lines must reappear in the other to call it
+ * a duplicate.
+ *
+ * A majority rather than a supermajority, deliberately: on a short receipt —
+ * common in this market — a four-line page with one line OCR reads
+ * differently already falls to a 0.75 overlap, so 0.8 would miss the exact
+ * case this exists to catch. 0.6 still requires most of the page to agree,
+ * which two genuinely different pages sharing only a header or a footer line
+ * will not reach.
+ */
+const DUPLICATE_PAGE_OVERLAP = 0.6;
+
+/**
+ * Whether two photographed pages of a multi-page scan look like the same
+ * page, shot twice — the owner's shutter finger firing early, or a retake
+ * that was kept alongside the original by mistake.
+ *
+ * UNMEASURED, unlike looksLikeMultipleReceipts. That check had a 31-receipt
+ * corpus of real photographs to test candidate markers against; there is no
+ * equivalent corpus of "the same page photographed twice" pairs, because
+ * nobody has one — it is not a thing anyone photographs on purpose to build
+ * a test set from. So this is a considered threshold, not a validated one,
+ * and the honest thing is to say so rather than borrow the confidence the
+ * measurement above earned.
+ *
+ * A ratio rather than exact equality, because two photographs of the
+ * identical physical page will not produce byte-identical OCR text — a
+ * slightly different angle or a fold moves a handful of characters — and a
+ * check that only caught perfect matches would miss the real case it exists
+ * for. Compared as whole trimmed lines rather than characters: OCR noise
+ * scrambles individual characters far more than it drops or repeats whole
+ * lines, so the line is the more stable unit to compare on.
+ *
+ * Deliberately not folded into the upload pipeline's automatic decisions —
+ * it only ever produces a sentence the owner can dismiss with one tap. Two
+ * genuinely identical pages of a short receipt (a two-line kiosk slip
+ * photographed as pages 1 and 2 by mistake) would otherwise have its real
+ * page silently dropped by anything more automatic than a question.
+ */
+export function looksLikeDuplicatePage(pageA: string, pageB: string): boolean {
+  const significantLines = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => line.trim().toLowerCase())
+      .filter((line) => line.length > 0);
+
+  const a = significantLines(pageA);
+  const b = significantLines(pageB);
+  if (a.length === 0 || b.length === 0) return false;
+
+  const bLines = new Set(b);
+  const shared = a.filter((line) => bLines.has(line)).length;
+  return shared / Math.min(a.length, b.length) >= DUPLICATE_PAGE_OVERLAP;
+}
+
 export function parseReceiptFields(text: string): ParsedReceiptFields {
   const vendor = parseVendor(text);
   return {

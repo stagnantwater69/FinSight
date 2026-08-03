@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import * as receiptScanService from "../services/receiptScan.service";
+import { assessImageQuality } from "../lib/imageQuality";
 import { ApiError } from "../middleware/error.middleware";
 
 const uploadSchema = z.object({
@@ -98,19 +99,45 @@ function parseItemId(raw: string): number {
 }
 
 export async function upload(req: Request, res: Response) {
-  if (!req.file) {
-    throw new ApiError(400, "Receipt image file is required");
+  // multer's .array() always sets req.files to an array (possibly empty),
+  // never to req.file — checking both is what lets this controller serve
+  // both the field name older clients might still send and the current one.
+  const files = Array.isArray(req.files) ? req.files : req.file ? [req.file] : [];
+  if (files.length === 0) {
+    throw new ApiError(400, "At least one receipt photo is required");
   }
   const { businessProfileId } = uploadSchema.parse(req.body);
 
   const scan = await receiptScanService.uploadAndScan(req.user!.id, {
     businessProfileId,
-    buffer: req.file.buffer,
-    mimetype: req.file.mimetype,
-    originalname: req.file.originalname,
+    pages: files.map((file) => ({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      originalname: file.originalname,
+    })),
   });
 
   res.status(201).json(scan);
+}
+
+/**
+ * A single page's own readability, with none of the rest of the pipeline —
+ * no OCR, no vision call, no storage write, no database row.
+ *
+ * WHY THIS EXISTS SEPARATELY FROM `upload`. A capture session takes its
+ * photos one at a time, and a blurry page is far cheaper to catch while the
+ * camera is still open than after the whole set has been OCR'd — retaking
+ * costs a tap; discovering it later costs an OCR pass, a possible vision
+ * call, and a wrong set of figures the owner has to notice and undo. This
+ * gives the client that answer after every shutter press, not only once at
+ * the end.
+ */
+export async function checkQuality(req: Request, res: Response) {
+  if (!req.file) {
+    throw new ApiError(400, "A photo is required");
+  }
+  const quality = await assessImageQuality(req.file.buffer);
+  res.status(200).json(quality);
 }
 
 /**

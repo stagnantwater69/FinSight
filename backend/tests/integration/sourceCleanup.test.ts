@@ -129,6 +129,52 @@ describe("receipt image cleanup", () => {
     expect(await prisma.receiptScan.findUnique({ where: { id: pending.id } })).not.toBeNull();
   });
 
+  /**
+   * The trap the multi-page migration's own comment names: cascade deletes
+   * the ReceiptScanPage ROWS for free, but Storage is a separate system and
+   * still has to be asked, per page, to delete the actual objects. A scan
+   * with three pages that only deleted the cover would leave pages 2 and 3
+   * in Storage forever — silently, since removeObject never throws.
+   */
+  it("deletes every page's image, not only the cover, for a multi-page scan", async () => {
+    const scan = await prisma.receiptScan.create({
+      data: {
+        businessProfileId: ctx.profile.id,
+        imageFile: "1/page-1.jpg",
+        confirmationStatus: "Confirmed",
+        extractedAmount: 1000,
+        pages: {
+          create: [
+            { pageNumber: 1, imageFile: "1/page-1.jpg" },
+            { pageNumber: 2, imageFile: "1/page-2.jpg" },
+            { pageNumber: 3, imageFile: "1/page-3.jpg" },
+          ],
+        },
+      },
+    });
+    const record = await expenses.createExpenseRecord(ctx.user.id, {
+      businessProfileId: ctx.profile.id,
+      categoryId: ctx.categories.Inventory!,
+      date: TODAY(),
+      description: "Long receipt",
+      amount: 1000,
+      source: "RECEIPT_SCAN",
+      receiptScanId: scan.id,
+    });
+
+    await expenses.deleteExpenseRecord(ctx.user.id, record.id);
+
+    expect(deleteReceiptImageMock).toHaveBeenCalledWith("1/page-1.jpg");
+    expect(deleteReceiptImageMock).toHaveBeenCalledWith("1/page-2.jpg");
+    expect(deleteReceiptImageMock).toHaveBeenCalledWith("1/page-3.jpg");
+    // Deduplicated: page 1's file and the scan's own cover are the same path
+    // in real usage (uploadAndScan writes the cover as page 1), so a scan
+    // with 3 pages must ask Storage to delete 3 objects, not 4.
+    expect(deleteReceiptImageMock).toHaveBeenCalledTimes(3);
+    expect(await prisma.receiptScan.findUnique({ where: { id: scan.id } })).toBeNull();
+    expect(await prisma.receiptScanPage.count({ where: { receiptScanId: scan.id } })).toBe(0);
+  });
+
   it("does not try to delete anything for a hand-typed record", async () => {
     const manual = await expenses.createExpenseRecord(ctx.user.id, {
       businessProfileId: ctx.profile.id,

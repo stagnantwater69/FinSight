@@ -5,7 +5,7 @@ import { uploadReceiptImage } from "./storage.service";
 import {
   confidenceForValue,
   extractReceipt,
-  extractText,
+  looksLikeDuplicatePage,
   looksLikeMultipleReceipts,
   overallConfidence,
   parseLineItems,
@@ -18,16 +18,26 @@ import {
 import { findKnownVendorInText, normaliseForMatch } from "../lib/historyMatching";
 import { assessImageQuality } from "../lib/imageQuality";
 import { categoriseReceiptItems, UNCATEGORISED } from "./ai.service";
-import { extractReceiptWithVision } from "./visionOcr.service";
+import { extractReceiptWithVision, type VisionPage } from "./visionOcr.service";
 import { createExpenseRecord } from "./expenseRecord.service";
 import { allocateProportionally, type ReconciliationMode } from "../lib/allocation";
 import type { ReceiptScan, ReceiptScanItem } from "@prisma/client";
 
-interface UploadInput {
-  businessProfileId: number;
+/** One photographed page of a receipt, as it arrives from the upload. */
+export interface UploadPage {
   buffer: Buffer;
   mimetype: string;
   originalname: string;
+}
+
+/**
+ * A receipt too long for one photograph is now several pages of ONE scan.
+ * `pages` is always non-empty; a single photo is simply a one-element array
+ * — there is no separate "one page" shape to keep in sync with this one.
+ */
+interface UploadInput {
+  businessProfileId: number;
+  pages: UploadPage[];
 }
 
 export interface ReceiptSplit {
@@ -287,32 +297,91 @@ async function ensureUncategorised(businessProfileId: number): Promise<number> {
   return created.id;
 }
 
+/**
+ * A receipt too long for one photograph, and not a receipt any more.
+ *
+ * Exported so the upload route's multer limit and this function's own check
+ * are the same number rather than two copies that could quietly disagree —
+ * the same discipline duplicateKeyOf documents for its own shared constant.
+ */
+export const MAX_PAGES = 8;
+
 export async function uploadAndScan(userId: number, input: UploadInput) {
   await requireOwnedBusinessProfile(userId, input.businessProfileId);
 
-  const imagePath = await uploadReceiptImage(
-    input.businessProfileId,
-    input.buffer,
-    input.mimetype,
-    input.originalname
-  );
+  if (input.pages.length === 0) {
+    throw new ApiError(400, "At least one receipt photo is required");
+  }
+  if (input.pages.length > MAX_PAGES) {
+    // A receipt needing nine photographs is a scanning problem, not a
+    // receipt — caught here too, not only at the HTTP boundary, since this
+    // function is the one place both the route and the tests actually call.
+    throw new ApiError(400, `A receipt can have at most ${MAX_PAGES} pages`);
+  }
 
-  // extractReceipt rather than extractText: the same read, but keeping the
-  // per-word confidences tesseract reports so the confirm screen can say which
-  // figure it doubts instead of asking the owner to check everything equally.
-  const ocr = await extractReceipt(input.buffer);
-  const text = ocr.text;
-  const parsed = parseReceiptFields(text);
-  const deterministicItems = parseLineItems(text);
+  // Uploaded and OCR'd in the order the pages arrived — every step after this
+  // one (the concatenated text, the vision call, the stored page numbers)
+  // depends on that order to mean anything, and nothing downstream re-derives
+  // it. The pages are the client's assertion, not something inferred here.
+  const imagePaths: string[] = [];
+  const ocrResults: OcrResult[] = [];
+  for (const page of input.pages) {
+    imagePaths.push(await uploadReceiptImage(input.businessProfileId, page.buffer, page.mimetype, page.originalname));
+    // extractReceipt rather than extractText: the same read, but keeping the
+    // per-word confidences tesseract reports so the confirm screen can say
+    // which figure it doubts instead of asking the owner to check everything
+    // equally.
+    ocrResults.push(await extractReceipt(page.buffer));
+  }
 
-  const rescued = await rescueWithVision(input, parsed, deterministicItems, ocr);
-  const vendor = await snapVendorToHistory(input.businessProfileId, text, rescued.vendor);
-  const quality = await assessImageQuality(input.buffer);
+  /*
+   * One continuous document from here on, not N photographs.
+   *
+   * Every parser below — dates, totals, line items, reconciliation — already
+   * reads a receipt as lines of text with no concept of "photograph
+   * boundary". Concatenating in page order is what lets a total printed on
+   * page 3 reconcile against items spanning pages 1 and 2 without a single
+   * line of any of those functions changing. The alternative, stitching the
+   * IMAGES into one before OCR, was rejected in the plan this implements
+   * (docs/multi-page-receipts-plan.md §7): overlapping photos would then
+   * double-count items, which concatenating plain text cannot do.
+   */
+  const combinedText = ocrResults.map((r) => r.text).join("\n");
+  const combinedLines = ocrResults.flatMap((r) => r.lines);
+  const parsed = parseReceiptFields(combinedText);
+  const deterministicItems = parseLineItems(combinedText);
+
+  // The worst page, not the average — see rescueWithVision's own note.
+  const worstPageConfidence = Math.min(...ocrResults.map((r) => overallConfidence(r)));
+
+  const rescued = await rescueWithVision(input, parsed, deterministicItems, combinedText, worstPageConfidence);
+  const vendor = await snapVendorToHistory(input.businessProfileId, combinedText, rescued.vendor);
+
+  // Assessed per page, not once for the whole scan — the client can then say
+  // WHICH page came out blurry rather than "something about this did".
+  const pageQualities = await Promise.all(input.pages.map((p) => assessImageQuality(p.buffer)));
+
+  /*
+   * Adjacent pages only, not every pair.
+   *
+   * The real mistake this catches is the shutter firing twice in a row —
+   * pages that are NEIGHBOURS in the sequence the owner just photographed.
+   * Comparing every pair against every other would also flag two genuinely
+   * different pages of a long receipt whose stock-restock lines happen to
+   * read similarly, which is a false alarm neighbour-comparison does not
+   * produce because those pages are usually not adjacent to begin with.
+   */
+  const duplicatePages: number[] = [];
+  for (let i = 1; i < ocrResults.length; i++) {
+    if (looksLikeDuplicatePage(ocrResults[i - 1]!.text, ocrResults[i]!.text)) {
+      duplicatePages.push(i + 1); // 1-indexed, matching ReceiptScanPage.pageNumber
+    }
+  }
 
   const scan = await prisma.receiptScan.create({
     data: {
       businessProfileId: input.businessProfileId,
-      imageFile: imagePath,
+      imageFile: imagePaths[0]!, // the page-1 cover — see schema header note 14
       extractedDate: rescued.date ? new Date(rescued.date) : undefined,
       extractedVendor: vendor ?? undefined,
       // Rebuilt from the settled vendor, so a name corrected from history is
@@ -320,11 +389,19 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
       extractedDescription: vendor ? `Purchase from ${vendor}` : rescued.description ?? undefined,
       extractedAmount: rescued.amount ?? undefined,
       confirmationStatus: "Pending",
-      rawText: text,
+      rawText: combinedText,
       visionAssisted: rescued.visionAssisted,
       // Null on a vision-assisted read: the figure would describe text
       // tesseract could not make sense of, which is not what it looks like.
-      ocrConfidence: rescued.visionAssisted ? null : overallConfidence(ocr),
+      ocrConfidence: rescued.visionAssisted ? null : worstPageConfidence,
+      pages: {
+        create: input.pages.map((_, i) => ({
+          pageNumber: i + 1,
+          imageFile: imagePaths[i]!,
+          rawText: ocrResults[i]!.text,
+          ocrConfidence: overallConfidence(ocrResults[i]!),
+        })),
+      },
     },
   });
 
@@ -334,7 +411,7 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
     rescued.items,
     vendor,
     rescued.itemsFromVision,
-    rescued.itemsFromVision ? [] : rescued.items.map((i) => confidenceForValue(ocr.lines, i.amount.toFixed(2))),
+    rescued.itemsFromVision ? [] : rescued.items.map((i) => confidenceForValue(combinedLines, i.amount.toFixed(2))),
   );
   /*
    * Capture quality rides on the upload response rather than being stored.
@@ -345,7 +422,16 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
    * the scan or retaken it, and the answer is worth nothing. Persisting it
    * would mean a migration and a column for data with that lifespan.
    */
-  return { ...toDTO(scan, items), captureQuality: quality };
+  return {
+    ...toDTO(scan, items),
+    // `captureQuality` kept as page 1's own reading — the shape a single-photo
+    // scan has always returned, so a one-page upload (still the common case)
+    // is unchanged. `pageQualities` is the array every page's quality lives
+    // in, page 1 included; a multi-page client reads that instead.
+    captureQuality: pageQualities[0] ?? null,
+    pageQualities,
+    duplicatePages,
+  };
 }
 
 /**
@@ -424,10 +510,16 @@ async function rescueWithVision(
   input: UploadInput,
   parsed: ParsedReceiptFields,
   deterministicItems: ParsedLineItem[],
-  ocr: OcrResult,
+  combinedText: string,
+  /**
+   * The worst per-page confidence, not an average. One unreadable page in an
+   * otherwise clean 3-page receipt is still a page the owner needs help
+   * with — averaging it away would let two good pages outvote the one that
+   * actually needs the model.
+   */
+  worstPageConfidence: number,
 ): Promise<RescuedFields> {
-  const reconciliation = reconcileItems(ocr.text, deterministicItems, parsed.amount);
-  const pageConfidence = overallConfidence(ocr);
+  const reconciliation = reconcileItems(combinedText, deterministicItems, parsed.amount);
 
   /*
    * Ordered most-certain-first, so the log says the strongest reason the call
@@ -440,7 +532,7 @@ async function rescueWithVision(
         ? "no-total"
         : !reconciliation.reconciled
           ? "does-not-add-up"
-          : pageConfidence < LOW_CONFIDENCE
+          : worstPageConfidence < LOW_CONFIDENCE
             ? "low-confidence"
             : null;
 
@@ -451,7 +543,9 @@ async function rescueWithVision(
   // Never throws — a failed rescue leaves the scan exactly as the
   // deterministic parse left it, which is still a correctable draft.
   const startedAt = Date.now();
-  const vision = await extractReceiptWithVision(input.buffer, input.mimetype);
+  const vision = await extractReceiptWithVision(
+    input.pages.map((p): VisionPage => ({ buffer: p.buffer, mimetype: p.mimetype })),
+  );
   const elapsedMs = Date.now() - startedAt;
 
   /*
@@ -474,7 +568,8 @@ async function rescueWithVision(
   const recovered = vision ? (deterministicItems.length === 0 ? vision.items.length : 0) : 0;
   console.info(
     `[vision-ocr] business=${input.businessProfileId} trigger=${trigger} reached=${vision !== null} ` +
-      `recoveredItems=${recovered} hadTotal=${parsed.amount !== null} confidence=${pageConfidence} ms=${elapsedMs}`,
+      `pages=${input.pages.length} recoveredItems=${recovered} hadTotal=${parsed.amount !== null} ` +
+      `confidence=${worstPageConfidence} ms=${elapsedMs}`,
   );
 
   if (!vision) {
@@ -512,7 +607,7 @@ async function rescueWithVision(
    */
   const visionReconciles =
     visionItems.length > 0 &&
-    reconcileItems(ocr.text, visionItems, parsed.amount ?? vision.amount).reconciled;
+    reconcileItems(combinedText, visionItems, parsed.amount ?? vision.amount).reconciled;
   const visionSettlesTheGap = !reconciliation.reconciled && visionReconciles;
 
   const itemsFromVision = visionItems.length > 0 && (deterministicItems.length === 0 || visionSettlesTheGap);

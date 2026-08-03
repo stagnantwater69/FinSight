@@ -69,7 +69,11 @@ export interface VisionReceipt {
  * one — a missing row costs the owner some typing, an invented row puts
  * money in their accounts that they never spent.
  */
-const PROMPT = `You are reading a photograph of a shop receipt from the Philippines.
+const PROMPT = `You are reading a photograph of a shop receipt from the Philippines. You may
+be given more than one image — if so, they are PAGES OF THE SAME RECEIPT, in
+order (a receipt too long for one photograph). Read them as one continuous
+document: items may appear on any page, and the total is usually on the last
+one.
 
 Return ONLY a JSON object, no prose and no code fences:
 {"date": "YYYY-MM-DD" or null,
@@ -82,6 +86,7 @@ RULES — these matter more than completeness:
 - If you cannot read an item's price, LEAVE THE ITEM OUT entirely. A missing item is a minor problem; an invented one puts money in someone's accounts that they never spent.
 - "items" means things purchased. Do NOT include subtotals, totals, VAT or tax lines, discounts, change, payment/tender lines, or register metadata.
 - "total" is the final amount payable, not the subtotal.
+- If more than one page shows a total, they are the SAME receipt's total repeated (a running total, or the same figure reprinted) — report it once, not summed.
 - Numeric dates are DAY/MONTH/YEAR (Philippine convention): 11/07/2026 is 11 July 2026.
 - Ignore BIR permit, PTU, accreditation and "valid until" dates — they are not the transaction date.
 - Return an empty items array if no individual items are legible.`;
@@ -149,19 +154,31 @@ export function validateVisionReceipt(raw: string): VisionReceipt | null {
   };
 }
 
+/** One photographed page, as the vision call needs it. */
+export interface VisionPage {
+  buffer: Buffer;
+  mimetype: string;
+}
+
 /**
- * Reads a receipt image with the vision model.
+ * Reads a receipt with the vision model — one page, or several pages of one
+ * long receipt.
+ *
+ * Every page rides in the SAME request as additional `inlineData` parts
+ * rather than one request per page. Gemini reads a multi-part message as one
+ * document in the order the parts arrive, so a 3-page receipt costs exactly
+ * what a 1-page one does — the alternative, one call per page, would both
+ * triple the bill and hand back three unrelated extractions with no shared
+ * notion of "the total is on the last page, the items span all three".
  *
  * Returns null rather than throwing on every failure path — no key, provider
  * down, timeout, unparseable answer. This is a last-ditch attempt to rescue a
  * scan that already failed to parse; it must never be the reason an upload is
  * lost, which is the same promise the categoriser makes.
  */
-export async function extractReceiptWithVision(
-  buffer: Buffer,
-  mimetype: string,
-): Promise<VisionReceipt | null> {
+export async function extractReceiptWithVision(pages: VisionPage[]): Promise<VisionReceipt | null> {
   if (!env.GOOGLE_GEMINI_API_KEY) return null;
+  if (pages.length === 0) return null;
 
   try {
     const res = await fetch(GEMINI_ENDPOINT, {
@@ -172,7 +189,10 @@ export async function extractReceiptWithVision(
           {
             role: "user",
             parts: [
-              { inlineData: { mimeType: mimetype, data: buffer.toString("base64") } },
+              // Pages first, in capture order, then the instruction — so a
+              // model reading front-to-back sees every page before it is told
+              // what to do with them.
+              ...pages.map((p) => ({ inlineData: { mimeType: p.mimetype, data: p.buffer.toString("base64") } })),
               { text: PROMPT },
             ],
           },

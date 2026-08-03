@@ -128,6 +128,11 @@ export function rateLimit({ name, limit, windowMs }: RateLimitOptions) {
 export const LIMITS = {
   SCAN_RECEIPT_BURST: { name: "scan-receipt-burst", limit: 15, windowMs: 60_000 },
   SCAN_RECEIPT_HOURLY: { name: "scan-receipt-hourly", limit: 200, windowMs: 60 * 60_000 },
+  // Generous relative to SCAN_RECEIPT_BURST: this fires once per SHUTTER
+  // PRESS during a multi-page capture session (up to MAX_PAGES photos, plus
+  // retakes), not once per submitted receipt — a real session can call this
+  // several times before a single scan-receipt call ever happens.
+  QUALITY_CHECK_BURST: { name: "quality-check-burst", limit: 40, windowMs: 60_000 },
   ASK_BURST: { name: "ai-ask-burst", limit: 20, windowMs: 60_000 },
   ASK_HOURLY: { name: "ai-ask-hourly", limit: 200, windowMs: 60 * 60_000 },
   SUGGEST_CATEGORY: { name: "ai-suggest-category", limit: 60, windowMs: 60_000 },

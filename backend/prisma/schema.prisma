@@ -85,6 +85,16 @@
 //      instead of presenting 1,120.00 as though the items added up to it.
 //      Null on records predating this column and on any receipt that
 //      reconciled exactly. Signed: negative for a discount.
+//  14. ReceiptScanPage [ADDED] — a long receipt that does not fit one
+//      photograph is now several pages of one scan rather than several
+//      unrelated scans. ReceiptScan.imageFile stays the page-1 cover (every
+//      caller written against it — signed URLs, the origin panels, source
+//      cleanup — keeps working unchanged); this table holds every page,
+//      including the first, so "every page of this scan" is always one
+//      query rather than a special case for scans with exactly one photo.
+//      onDelete: Cascade on the DB row — the Storage OBJECT is a separate
+//      system and still has to be deleted explicitly by whatever deletes the
+//      scan; see cleanUpReceiptScanIfOrphaned.
 
 generator client {
   provider = "prisma-client-js"
@@ -260,9 +270,34 @@ model ReceiptScan {
   businessProfile BusinessProfile?  @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
   expenseRecords  ExpenseRecord[]
   items           ReceiptScanItem[]
+  pages           ReceiptScanPage[]
 
   @@index([businessProfileId])
   @@map("ReceiptScan")
+}
+
+/// [ADDED] see schema header note 14. Every page of a scan, in the order the
+/// owner photographed them — including the first, so a single-photo receipt
+/// (still the common case) and a five-page one are read the same way.
+model ReceiptScanPage {
+  id            Int     @id @default(autoincrement()) @map("ReceiptScanPage_ID")
+  receiptScanId Int     @map("ReceiptScan_ID")
+  pageNumber    Int     @map("ReceiptScanPage_Number")
+  imageFile     String  @map("ReceiptScanPage_ImageFile") @db.VarChar(255)
+  /// This page's own OCR text. ReceiptScan.rawText holds all pages
+  /// concatenated in order — the shape every parser already reads — so this
+  /// is kept only for per-page re-processing (a retaken page 2 must not force
+  /// re-reading pages 1 and 3), not as the primary text store.
+  rawText       String? @map("ReceiptScanPage_RawText") @db.Text
+  /// This page's own OCR confidence, for a per-page "this one looks rough"
+  /// signal. ReceiptScan.ocrConfidence remains the whole-scan figure.
+  ocrConfidence Int?    @map("ReceiptScanPage_OcrConfidence")
+
+  receiptScan ReceiptScan @relation(fields: [receiptScanId], references: [id], onDelete: Cascade)
+
+  @@unique([receiptScanId, pageNumber])
+  @@index([receiptScanId])
+  @@map("ReceiptScanPage")
 }
 
 /// [ADDED] see schema header note 11
