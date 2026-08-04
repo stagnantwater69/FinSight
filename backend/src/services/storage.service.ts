@@ -186,8 +186,50 @@ export async function downloadCsvFile(path: string): Promise<Buffer | null> {
   return Buffer.from(await data.arrayBuffer());
 }
 
+/**
+ * Reduces a client-supplied filename to something safe to embed in a storage
+ * key, while keeping it recognisable to the owner.
+ *
+ * WHY SANITISE RATHER THAN DROP. uploadReceiptImage and uploadPublicImage
+ * both discard the original name entirely and keep only the extension, which
+ * is the simplest safe thing. This one cannot: signedCsvFileUrl reads the
+ * name back out of the key (see originalCsvName) to name the download, so an
+ * owner opening their Downloads folder a month later sees "expenses.csv"
+ * rather than a bare UUID. The name is load-bearing here, so it has to be
+ * made safe rather than thrown away.
+ *
+ * WHAT IT DEFENDS AGAINST. The name arrives from the client verbatim and was
+ * previously interpolated straight into the object key, so a crafted name
+ * containing "/" or ".." could steer the written key outside the
+ * `<profileId>/` prefix every other object in the bucket lives under. Object
+ * stores generally treat keys as opaque strings rather than filesystem paths,
+ * which is why this was a latent risk rather than an active break — but the
+ * prefix is what makes a key attributable to one business, and nothing should
+ * be able to write outside its own.
+ *
+ * An ALLOWLIST, not a list of bad characters to remove: anything outside
+ * [A-Za-z0-9._-] becomes an underscore, which covers path separators,
+ * control characters, quotes and unicode lookalikes in one rule rather than
+ * as a list of individually-remembered cases. Leading dots are stripped
+ * separately, so a name cannot begin ".." even though dots are otherwise
+ * allowed.
+ *
+ * The UUID already guarantees uniqueness, so two different names collapsing
+ * to the same sanitised string is harmless. The length cap keeps the whole
+ * key inside VARCHAR(255) with room for the profile id and UUID prefix, and
+ * the fallback covers a name that sanitises away to nothing at all.
+ */
+export function safeStoredFileName(originalname: string): string {
+  const basename = originalname.split(/[/\\]/).pop() ?? "";
+  const cleaned = basename
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/^\.+/, "")
+    .slice(0, 100);
+  return cleaned || "upload.csv";
+}
+
 export async function uploadCsvFile(businessProfileId: number, buffer: Buffer, originalname: string) {
-  const path = `${businessProfileId}/${randomUUID()}-${originalname}`;
+  const path = `${businessProfileId}/${randomUUID()}-${safeStoredFileName(originalname)}`;
   await uploadWithRetry(CSV_IMPORT_BUCKET, path, buffer, "text/csv");
   return path;
 }
