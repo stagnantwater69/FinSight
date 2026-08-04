@@ -363,13 +363,27 @@ function MultiFileInput({
     return ACCEPTED_TYPES.split(",").includes(f.type.toLowerCase());
   }
 
+  /**
+   * ADDS the newly picked photos to what is already selected, rather than
+   * replacing it.
+   *
+   * A native `<input multiple>` hands back a fresh FileList on every
+   * invocation with no memory of a previous one — that is what made this
+   * button silently discard page 1 the moment it was used to add page 2. The
+   * remove (×) on each thumbnail is the deliberate way to drop a photo;
+   * picking again should only ever add to the set it already has.
+   */
   function take(list: FileList | File[] | null) {
     setRejected(null);
     if (!list || list.length === 0) return;
     const incoming = Array.from(list);
+    const combined = [...files, ...incoming];
 
-    if (incoming.length > MAX_RECEIPT_FILES) {
-      setRejected(`A receipt can have at most ${MAX_RECEIPT_FILES} photos — you picked ${incoming.length}.`);
+    if (combined.length > MAX_RECEIPT_FILES) {
+      setRejected(
+        `A receipt can have at most ${MAX_RECEIPT_FILES} photos — you already have ${files.length} and picked ` +
+          `${incoming.length} more.`,
+      );
       return;
     }
     const badType = incoming.find((f) => !accepts(f));
@@ -383,7 +397,7 @@ function MultiFileInput({
       setRejected(`${tooBig.name} is over ${limit}MB — try a smaller photo.`);
       return;
     }
-    onChange(incoming);
+    onChange(combined);
   }
 
   function removeAt(index: number) {
@@ -422,7 +436,7 @@ function MultiFileInput({
         <span aria-hidden className="text-base">
           ⇪
         </span>
-        <span className="font-medium">{files.length > 0 ? "Choose different photos" : "Choose photos"}</span>
+        <span className="font-medium">{files.length > 0 ? "Add more photos" : "Choose photos"}</span>
         <span className="text-ink-400">or drag them here</span>
       </label>
 
