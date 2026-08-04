@@ -518,6 +518,20 @@ export function ScanReceipt() {
   /** 1-based "which receipt is this" for a queued batch; 0 outside one. */
   const [queuePosition, setQueuePosition] = useState(0);
   const [queueTotal, setQueueTotal] = useState(0);
+  /**
+   * Receipts already confirmed earlier in this batch, so the owner reviewing
+   * receipt 2 of 3 has a way to check receipt 1 again.
+   *
+   * WHY THIS EXISTS: confirming a receipt saves it and immediately advances
+   * to the next one — by design, so a batch reviews as a sequence rather than
+   * bouncing back to an empty picker between each. But that meant a receipt,
+   * once confirmed, was simply gone from the screen with no way back to it
+   * short of leaving the batch entirely to search Records. This is what
+   * "confirmed" actually left behind: which position it was, and the record
+   * ids Confirm created, so a link to it can be shown without abandoning the
+   * receipt currently being reviewed.
+   */
+  const [queueHistory, setQueueHistory] = useState<{ position: number; recordIds: number[] }[]>([]);
 
   const [date, setDate] = useState("");
   const [description, setDescription] = useState("");
@@ -809,8 +823,8 @@ export function ScanReceipt() {
           })),
         }),
       );
-      const saved = (records.data as unknown[]).length;
-      toast(saved === 1 ? "Expense saved from receipt" : `${saved} expenses saved from receipt`);
+      const saved = records.data as { id: number }[];
+      toast(saved.length === 1 ? "Expense saved from receipt" : `${saved.length} expenses saved from receipt`);
 
       /*
        * Advancing a queued "separate receipts" batch, rather than always
@@ -821,6 +835,10 @@ export function ScanReceipt() {
        * second copy that could drift from it.
        */
       if (fileQueue.length > 0) {
+        // Recorded before the fields it describes are cleared — this is the
+        // only trace of receipt N that survives resetReviewFields, and it is
+        // what lets receipt N+1's screen show "Receipt 1 — view it".
+        setQueueHistory((prev) => [...prev, { position: queuePosition, recordIds: saved.map((r) => r.id) }]);
         const [next, ...rest] = fileQueue;
         resetReviewFields();
         setFileQueue(rest);
@@ -892,6 +910,7 @@ export function ScanReceipt() {
     setFileQueue([]);
     setQueuePosition(0);
     setQueueTotal(0);
+    setQueueHistory([]);
   }
 
   // OCR never reads a description. The backend synthesises one from the vendor
@@ -1210,26 +1229,65 @@ export function ScanReceipt() {
       <PageHead
         eyebrow="Records"
         title="Check what FinSight read"
-        subtitle={
-          // A queued batch says where it is in the batch, ahead of the usual
-          // instruction — "receipt 2 of 4" is the more useful thing to know
-          // first when several are coming one after another.
-          queueTotal > 0
-            ? `Receipt ${queuePosition} of ${queueTotal}. Compare each value against the photo before saving.`
-            : "Compare each value against the photo before saving."
-        }
+        subtitle="Compare each value against the photo before saving."
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-4 lg:sticky lg:top-24 lg:self-start">
-          {receiptPreview ?? (
-            <p className="py-8 text-center text-sm text-ink-400">
-              The photo isn't available to show here, but the values below are the ones FinSight read from
-              it.
-            </p>
-          )}
-        </Card>
+      {/*
+        The batch progress row — a plain-text "Receipt 2 of 4" in the subtitle
+        was easy to miss, and gave no way to actually SEE receipt 1 again once
+        it scrolled past. Each earlier receipt is now a real link.
 
+        Opens in a NEW TAB rather than navigating in place: this app is a
+        single-page client, and an in-app navigation to a saved record would
+        unmount this screen — losing fileQueue, queuePosition and everything
+        else this in-progress batch is holding. A new tab leaves the batch
+        exactly where it was.
+      */}
+      {queueTotal > 0 ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2" role="list" aria-label="Receipts in this batch">
+          {Array.from({ length: queueTotal }, (_, i) => i + 1).map((n) => {
+            const history = queueHistory.find((h) => h.position === n);
+            if (n === queuePosition) {
+              return (
+                <span
+                  key={n}
+                  role="listitem"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  Receipt {n} · Reviewing now
+                </span>
+              );
+            }
+            if (history && history.recordIds[0] !== undefined) {
+              return (
+                <a
+                  key={n}
+                  role="listitem"
+                  href={`/records/expenses/${history.recordIds[0]}/edit`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="tap-inline inline-flex items-center gap-1.5 rounded-full bg-tint-brand px-3 py-1.5 text-xs font-medium text-tone-brand ring-1 ring-edge-brand transition hover:bg-tint-brand/70"
+                >
+                  <span aria-hidden>✓</span>
+                  Receipt {n} · Saved — view it
+                  <span className="sr-only">(opens in a new tab)</span>
+                </a>
+              );
+            }
+            return (
+              <span
+                key={n}
+                role="listitem"
+                className="inline-flex items-center gap-1.5 rounded-full bg-paper-100 px-3 py-1.5 text-xs text-ink-400"
+              >
+                Receipt {n} · Not yet
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-5 sm:p-6">
           <form onSubmit={handleConfirm} className="space-y-4">
             {/*
@@ -2026,6 +2084,15 @@ export function ScanReceipt() {
               </Button>
             </div>
           </form>
+        </Card>
+
+        <Card className="p-4 lg:sticky lg:top-24 lg:self-start">
+          {receiptPreview ?? (
+            <p className="py-8 text-center text-sm text-ink-400">
+              The photo isn't available to show here, but the values below are the ones FinSight read from
+              it.
+            </p>
+          )}
         </Card>
       </div>
     </div>
