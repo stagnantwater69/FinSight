@@ -596,6 +596,31 @@ export function ScanReceipt() {
   const latestScanId = useRef<number | null>(null);
 
   /**
+   * Scans a SINGLE photo, keyed so the same request is never made twice for
+   * the same File.
+   *
+   * WHY THIS EXISTS — the bug it fixes, and the feature it enables, turned
+   * out to be the same root cause. "Separate receipts" used to scan receipt
+   * 1 immediately and leave receipt 2 sitting untouched in `fileQueue` —
+   * OCR and the categoriser only ran on it once receipt 1 was confirmed.
+   * That was slow (every receipt after the first waited for the one before
+   * it), and it was FRAGILE: the file was popped out of `fileQueue` before
+   * that later scan ran, so if it failed for any reason — a network blip, a
+   * cold backend — the photo was gone from every piece of state at once,
+   * and the only way forward was to pick it again from the device. That is
+   * the exact "I have to upload the second receipt again" report.
+   *
+   * The fix is to start scanning EVERY receipt in the batch the moment the
+   * owner submits, not one at a time as each is reached — seeded from
+   * handleStartScanning below. This cache is what makes that safe to do
+   * without ever asking twice: a caller reaching a receipt whose scan is
+   * already finished gets the answer instantly: one still running is
+   * awaited in place (the ordinary "Reading your receipt…" screen just
+   * waits a little longer); one already asked for is never asked again.
+   */
+  const scanPromises = useRef<Map<File, Promise<ScanResult>>>(new Map());
+
+  /**
    * The receipt preview.
    *
    * Built from the local File rather than the stored image, so it appears
@@ -616,6 +641,23 @@ export function ScanReceipt() {
 
   if (!selected) return null;
 
+  function ensureScanned(file: File): Promise<ScanResult> {
+    const existing = scanPromises.current.get(file);
+    if (existing) return existing;
+
+    const promise = (async () => {
+      const formData = new FormData();
+      formData.append("files", file);
+      formData.append("businessProfileId", String(selected!.id));
+      const { data } = await api.post<ScanResult>("/records/receipts", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return data;
+    })();
+    scanPromises.current.set(file, promise);
+    return promise;
+  }
+
   /**
    * Sends one or more photos to the server as a SINGLE scan and populates the
    * review screen from the answer. A single photo is simply a one-element
@@ -625,20 +667,40 @@ export function ScanReceipt() {
    * multi-page receipt, the only file otherwise. Showing every page here is
    * Phase 4 work (docs/multi-page-receipts-plan.md) — for now the photo the
    * owner sees during review is always the receipt's first.
+   *
+   * Rethrows on failure, unlike most of this screen's handlers — the queue
+   * advance in handleConfirm needs to know a scan failed so it can retry
+   * rather than silently treating a rejected background prefetch as success.
+   * scanError is still set before the throw, so every OTHER caller — which
+   * does not care why, only that the picker should show the message — needs
+   * no change at all.
    */
   async function scanFiles(filesToSend: File[], representativeFile: File) {
     setFile(representativeFile);
     setScanning(true);
     setScanError(null);
     try {
-      const formData = new FormData();
-      // "files" — plural — even for one photo: the server has one upload
-      // route for both shapes, and it reads this field name for either.
-      filesToSend.forEach((f) => formData.append("files", f));
-      formData.append("businessProfileId", String(selected!.id));
-      const { data } = await api.post<ScanResult>("/records/receipts", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      // A single photo — the common case, and every "separate receipts"
+      // queue entry — is routed through the shared cache above, so a page
+      // already scanning in the background is awaited instead of re-asked
+      // for. A multi-page "one long receipt" upload has no single File to
+      // key a cache entry on and nothing else prefetches it, so it keeps its
+      // own direct request exactly as before.
+      const data =
+        filesToSend.length === 1
+          ? await ensureScanned(filesToSend[0]!)
+          : await (async () => {
+              const formData = new FormData();
+              // "files" — plural — even for one photo: the server has one
+              // upload route for both shapes, and it reads this field name
+              // for either.
+              filesToSend.forEach((f) => formData.append("files", f));
+              formData.append("businessProfileId", String(selected!.id));
+              const res = await api.post<ScanResult>("/records/receipts", formData, {
+                headers: { "Content-Type": "multipart/form-data" },
+              });
+              return res.data;
+            })();
       /*
        * Reload the category list BEFORE showing the review table.
        *
@@ -680,6 +742,7 @@ export function ScanReceipt() {
       }
     } catch (err) {
       setScanError(getErrorMessage(err));
+      throw err;
     } finally {
       setScanning(false);
     }
@@ -701,7 +764,11 @@ export function ScanReceipt() {
     if (pickedFiles.length === 1 || combineChoice === "one") {
       const toScan = pickedFiles;
       setPickedFiles([]);
-      await scanFiles(toScan, toScan[0]!);
+      // scanFiles already recorded the failure in scanError before
+      // rethrowing; the picker's existing error display reacts to that
+      // state directly, so this caller has nothing further to do with the
+      // rejection beyond not letting it go unhandled.
+      await scanFiles(toScan, toScan[0]!).catch(() => {});
       return;
     }
 
@@ -710,7 +777,23 @@ export function ScanReceipt() {
     setFileQueue(rest);
     setQueuePosition(1);
     setQueueTotal(pickedFiles.length);
-    await scanFiles([first!], first!);
+
+    /*
+     * Every OTHER receipt in the batch starts scanning now too, not once
+     * confirming receipt 1 reaches it — this is the actual fix: OCR and the
+     * categoriser run for every photo in the batch, concurrently, instead of
+     * only the first.
+     *
+     * Errors are swallowed here on purpose. A background prefetch failing is
+     * surfaced properly, with a retry, at the moment the owner actually
+     * reaches that receipt (handleConfirm's queue advance) — not as an alert
+     * about a receipt they have not been asked to look at yet.
+     */
+    rest.forEach((f) => {
+      ensureScanned(f).catch(() => {});
+    });
+
+    await scanFiles([first!], first!).catch(() => {});
   }
 
   /**
@@ -843,7 +926,32 @@ export function ScanReceipt() {
         resetReviewFields();
         setFileQueue(rest);
         setQueuePosition((p) => p + 1);
-        await scanFiles([next!], next!);
+        try {
+          // The common path: receipt N+1 has been scanning in the background
+          // since the batch started, so this is usually just picking up an
+          // already-finished (or already in-flight) result — not starting
+          // its OCR from zero.
+          await scanFiles([next!], next!);
+        } catch {
+          /*
+           * The background prefetch failed. One automatic retry against a
+           * FRESH request — not the same rejected promise — covers the
+           * ordinary transient cause (a network blip, a cold backend) without
+           * making the owner notice and act.
+           *
+           * Caught HERE rather than left to the outer try/catch below: that
+           * one sets confirmError, which describes "saving receipt N failed"
+           * — a claim that would be false. Receipt N saved; it is receipt
+           * N+1's read that stumbled, and scanFiles already recorded that
+           * under scanError, which the picker screen already shows.
+           *
+           * A failure that survives the retry leaves the owner on the picker
+           * with the reason visible — the same outcome any other failed scan
+           * has always had, not a new dead end.
+           */
+          scanPromises.current.delete(next!);
+          await scanFiles([next!], next!).catch(() => {});
+        }
         return;
       }
       if (queueTotal > 0) {
