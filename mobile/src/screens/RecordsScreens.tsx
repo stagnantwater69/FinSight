@@ -2182,15 +2182,57 @@ export function ScanReceiptScreen({ navigation, route }: any) {
 // ---------------------------------------------------------------- CSV import
 
 export function ImportCsvScreen({ navigation }: any) {
-  const { selected } = useBusinessProfiles();
+  const { selected, categories } = useBusinessProfiles();
   const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
+  /**
+   * The rows the preview returned, kept so the screen can say which category
+   * names in the file this business does not have yet. Previously only
+   * `headers` was read off the same response and the rows were discarded.
+   */
+  const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
+  const [totalRows, setTotalRows] = useState(0);
   const [mapping, setMapping] = useState({ date: "", description: "", amount: "", category: "" });
   const [result, setResult] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!selected) return null;
+
+  /**
+   * Category names in the file that this business does not have yet.
+   *
+   * WHY THIS IS WORTH SAYING OUT LOUD: confirmImport CREATES every category
+   * name it cannot match (resolveCategories), silently. That is the right
+   * behaviour — an import must not fail because a category does not exist
+   * yet — but it means one typo becomes a permanent second category. A file
+   * reading "Inventroy" against a business that already has "Inventory"
+   * imports perfectly cleanly, and the owner finds the near-duplicate weeks
+   * later in a report that has quietly split their stock spending in two.
+   *
+   * Matched case-insensitively because resolveCategories matches that way; a
+   * warning that flagged "inventory" as new when the server will match it to
+   * "Inventory" would be a lie about what is about to happen.
+   *
+   * Computed from the rows on screen, not the whole file, which is why the
+   * callout says so whenever the preview is truncated — a category first
+   * appearing at row 300 of a 500-row file is not something this can see.
+   */
+  const newCategoryNames = (() => {
+    if (!mapping.category) return [];
+    const existing = new Set(categories.map((c) => c.name.trim().toLowerCase()));
+    const seen = new Map<string, string>();
+    for (const row of previewRows) {
+      const raw = row[mapping.category]?.trim();
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      // Deduplicated on the same key resolveCategories uses, so a file
+      // spelling it "Inventory" and "inventory" reports one new category
+      // rather than two — which is also what the server will create.
+      if (!existing.has(key) && !seen.has(key)) seen.set(key, raw);
+    }
+    return [...seen.values()];
+  })();
 
   function formFor(f: DocumentPicker.DocumentPickerAsset) {
     const form = new FormData();
@@ -2206,8 +2248,14 @@ export function ImportCsvScreen({ navigation }: any) {
     setBusy(true);
     setError(null);
     try {
-      const preview = await api.upload<{ headers: string[] }>("/records/csv-imports/preview", formFor(f));
+      const preview = await api.upload<{
+        headers: string[];
+        previewRows: Record<string, string>[];
+        totalRows: number;
+      }>("/records/csv-imports/preview", formFor(f));
       setHeaders(preview.headers);
+      setPreviewRows(preview.previewRows ?? []);
+      setTotalRows(preview.totalRows ?? 0);
       // Best-effort auto-match, so the common case needs no tapping at all.
       const guess = (want: RegExp) => preview.headers.find((h) => want.test(h)) ?? "";
       setMapping({
@@ -2298,6 +2346,31 @@ export function ImportCsvScreen({ navigation }: any) {
                   </View>
                 </View>
               ))}
+              {/*
+                What this import will ADD, not just what it will bring in.
+
+                Creating a category is a side effect the owner never asked
+                for and previously never saw — they asked to import expenses
+                and got new entries in a list they curate elsewhere. Naming
+                them here makes a typo obvious while the mapping can still be
+                changed, which is the only moment it is cheap to fix.
+
+                An observation, never a blocker: a genuinely new category is
+                the normal case for a first import.
+              */}
+              {newCategoryNames.length > 0 ? (
+                <View style={{ marginBottom: space.md }}>
+                  <Callout tone="info">
+                    This import will create {newCategoryNames.length} new categor
+                    {newCategoryNames.length === 1 ? "y" : "ies"}: {newCategoryNames.join(", ")}.
+                    {previewRows.length < totalRows
+                      ? ` That is from the ${previewRows.length} rows checked — later rows may add more.`
+                      : ""}{" "}
+                    If one is a misspelling of a category you already have, change the Category column above,
+                    or you'll end up with two categories for the same thing.
+                  </Callout>
+                </View>
+              ) : null}
               {error ? <ErrorNote>{error}</ErrorNote> : null}
               <Button
                 title="Import these rows"
@@ -2307,7 +2380,19 @@ export function ImportCsvScreen({ navigation }: any) {
                 disabled={!mapping.date || !mapping.description || !mapping.amount || !mapping.category}
                 style={{ marginTop: space.sm }}
               />
-              <Button title="Choose a different file" variant="ghost" onPress={() => { setFile(null); setHeaders([]); }} />
+              <Button
+                title="Choose a different file"
+                variant="ghost"
+                onPress={() => {
+                  setFile(null);
+                  setHeaders([]);
+                  // Cleared with the file they describe — leaving them behind
+                  // would let the next file's callout be computed from the
+                  // previous file's rows.
+                  setPreviewRows([]);
+                  setTotalRows(0);
+                }}
+              />
             </View>
           )}
           {error && !file ? <View style={{ marginTop: space.md }}><ErrorNote>{error}</ErrorNote></View> : null}
@@ -2586,17 +2671,104 @@ export function EditRecordScreen({ route, navigation }: any) {
 
 // ---------------------------------------------------------------- Flagged review
 
+/** A past CSV import, used only to name a group of duplicates. */
+interface ImportBatchSummary {
+  id: number;
+  title: string;
+  uploadDate: string;
+  status: string;
+}
+
+interface DuplicateGroup {
+  key: string;
+  /** The batch these came in on, when they all did. */
+  batch: ImportBatchSummary | null;
+  records: RecordItem[];
+}
+
+/**
+ * HOW THIS SCREEN GROUPS DUPLICATES, AND WHY IT GROUPS THEM AT ALL
+ * ================================================================
+ * A flat list asks one question per flagged record. That is fine for three
+ * and unusable for three hundred — and three hundred is not a strange case,
+ * it is what re-importing one spreadsheet produces. The answer an owner gives
+ * to the first row is almost always the answer they would give to every row,
+ * so the screen should ask once.
+ *
+ * Every flagged record appears in EXACTLY ONE group, which is the property
+ * that makes a bulk action safe. Two overlapping groupings would let the same
+ * record be discarded from one card and kept from another, and whichever was
+ * tapped second would act on a record that no longer exists.
+ *
+ * So duplicates are split by where they came from: those that arrived on a
+ * CSV import group by that import (the real story is "this file was imported
+ * twice", and one decision settles the whole file), and everything else
+ * groups by duplicateOfRecordId — the record they all duplicate, which
+ * findDuplicate already points every copy at, so the key is free rather than
+ * reconstructed here.
+ *
+ * Records flagged for being LARGE rather than duplicated are not grouped at
+ * all: each is its own judgement about one purchase, and there is nothing to
+ * batch. Mirrors web's FlaggedRecords.tsx exactly.
+ */
+function groupDuplicates(
+  duplicates: RecordItem[],
+  batches: ImportBatchSummary[],
+): { byImport: DuplicateGroup[]; byMatch: DuplicateGroup[] } {
+  const batchById = new Map(batches.map((b) => [b.id, b]));
+  const importGroups = new Map<number, RecordItem[]>();
+  const matchGroups = new Map<string, RecordItem[]>();
+
+  for (const record of duplicates) {
+    if (record.importBatchId) {
+      const list = importGroups.get(record.importBatchId) ?? [];
+      list.push(record);
+      importGroups.set(record.importBatchId, list);
+      continue;
+    }
+    // Falls back to the record's own id so a copy whose original has since
+    // been deleted still forms a group of one rather than being dropped.
+    const key = `match-${record.duplicateOfRecordId ?? `self-${record.type}-${record.id}`}`;
+    const list = matchGroups.get(key) ?? [];
+    list.push(record);
+    matchGroups.set(key, list);
+  }
+
+  return {
+    byImport: [...importGroups.entries()].map(([batchId, records]) => ({
+      key: `import-${batchId}`,
+      batch: batchById.get(batchId) ?? null,
+      records,
+    })),
+    byMatch: [...matchGroups.entries()].map(([key, records]) => ({ key, batch: null, records })),
+  };
+}
+
 export function FlaggedRecordsScreen() {
   const { selected, categories } = useBusinessProfiles();
   const [records, setRecords] = useState<RecordItem[]>([]);
+  const [batches, setBatches] = useState<ImportBatchSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!selected) return;
     setLoading(true);
     try {
-      setRecords(await api.get<RecordItem[]>("/records/flagged", { businessProfileId: selected.id }));
+      // Together rather than in sequence: the batch list only supplies names
+      // for the groups below, so waiting for one before asking for the other
+      // would delay the screen for no reason.
+      const [flagged, importBatches] = await Promise.all([
+        api.get<RecordItem[]>("/records/flagged", { businessProfileId: selected.id }),
+        api
+          .get<ImportBatchSummary[]>("/records/csv-imports/batches", { businessProfileId: selected.id })
+          // A group that cannot name its import still works — it just says
+          // "an import" instead of the file's title.
+          .catch(() => [] as ImportBatchSummary[]),
+      ]);
+      setRecords(flagged);
+      setBatches(importBatches);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -2612,7 +2784,119 @@ export function FlaggedRecordsScreen() {
     await load();
   }
 
+  /**
+   * One decision applied to a whole group.
+   *
+   * The confirm states the count and says what survives. "Discard 40 records"
+   * on its own reads as though it might take the owner's real purchases with
+   * it — naming the originals as safe is the difference between a button
+   * someone can press and one they abandon.
+   */
+  async function resolveGroup(group: DuplicateGroup, action: "keep" | "discard") {
+    if (!selected) return;
+    const count = group.records.length;
+
+    const run = async () => {
+      setBusyKey(group.key);
+      try {
+        const res = await api.post<{ resolved: number }>("/records/duplicates/resolve", {
+          businessProfileId: selected.id,
+          action,
+          expenseIds: group.records.filter((r) => r.type === "expense").map((r) => r.id),
+          salesIds: group.records.filter((r) => r.type === "sales").map((r) => r.id),
+        });
+        action === "discard" ? haptics.warned() : haptics.succeeded();
+        // The server's count, not the group's — it excludes anything already
+        // resolved elsewhere, and saying "40" when 38 were left would be a
+        // small lie about the owner's own books.
+        setFlash(
+          action === "keep"
+            ? `Kept ${res.resolved} record${res.resolved === 1 ? "" : "s"}`
+            : `Discarded ${res.resolved} record${res.resolved === 1 ? "" : "s"}`,
+        );
+        await load();
+      } catch (err) {
+        haptics.failed();
+        setError(errorMessage(err));
+      } finally {
+        setBusyKey(null);
+      }
+    };
+
+    if (action === "keep") {
+      await run();
+      return;
+    }
+
+    RNAlert.alert(
+      `Discard ${count} record${count === 1 ? "" : "s"}?`,
+      `This deletes ${count === 1 ? "this copy" : `these ${count} copies`} for good. The original ` +
+        `record${count === 1 ? "" : "s"} they duplicate ${count === 1 ? "is" : "are"} not flagged and ` +
+        `${count === 1 ? "stays" : "stay"} exactly as ${count === 1 ? "it is" : "they are"}.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: `Discard ${count}`, style: "destructive", onPress: () => void run() },
+      ],
+    );
+  }
+
   if (!selected) return null;
+
+  const duplicates = records.filter((r) => r.duplicateStatus === "Flagged");
+  const others = records.filter((r) => r.duplicateStatus !== "Flagged");
+  const { byImport, byMatch } = groupDuplicates(duplicates, batches);
+
+  const renderGroup = (group: DuplicateGroup) => {
+    const count = group.records.length;
+    const first = group.records[0]!;
+    return (
+      <Card key={group.key} style={{ marginBottom: space.sm }}>
+        {group.batch ? (
+          <>
+            <T style={{ fontFamily: "Inter_500Medium" }}>{group.batch.title}</T>
+            <T variant="caption">
+              Imported {group.batch.uploadDate.slice(0, 10)} · {count} possible duplicate
+              {count === 1 ? "" : "s"}
+            </T>
+          </>
+        ) : (
+          <>
+            <T style={{ fontFamily: "Inter_500Medium" }}>{first.description}</T>
+            <T variant="caption">
+              {first.date.slice(0, 10)} · {count} cop{count === 1 ? "y" : "ies"}
+            </T>
+          </>
+        )}
+
+        <View style={{ marginTop: space.sm }}>
+          <Callout tone="warn">
+            {group.batch
+              ? "Every record here repeats one you already had — which usually means this file was imported twice. Discarding them leaves the records you already had untouched."
+              : `${count === 1 ? "This record has" : `These ${count} records have`} the same date, amount and description as a record you already had. Discarding ${count === 1 ? "it leaves" : "them leaves"} the original untouched.`}
+          </Callout>
+        </View>
+
+        <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.md }}>
+          <View style={{ flex: 1 }}>
+            <Button
+              title={count === 1 ? "Keep it" : `Keep all ${count}`}
+              variant="secondary"
+              disabled={busyKey === group.key}
+              onPress={() => void resolveGroup(group, "keep")}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Button
+              title={count === 1 ? "Discard it" : `Discard all ${count}`}
+              variant="danger"
+              disabled={busyKey === group.key}
+              onPress={() => void resolveGroup(group, "discard")}
+            />
+          </View>
+        </View>
+      </Card>
+    );
+  };
 
   return (
     <Screen>
@@ -2628,19 +2912,40 @@ export function FlaggedRecordsScreen() {
             body="FinSight flags possible duplicates and unusually large expenses here as you record them."
           />
         ) : (
-          records.map((r) => (
-            <Card key={`${r.type}-${r.id}`} style={{ marginBottom: space.sm }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.md }}>
-                <View style={{ flex: 1 }}>
-                  <T style={{ fontFamily: "Inter_500Medium" }}>{r.description}</T>
-                  <T variant="caption">{r.date.slice(0, 10)} · {categories.find((c) => c.id === r.categoryId)?.name ?? r.type}</T>
-                </View>
-                <Money value={r.amount} size={15} weight="semibold" />
-              </View>
-              {badges(r)}
-              <Button title="Looks right — mark reviewed" variant="secondary" onPress={() => resolve(r)} style={{ marginTop: space.md }} />
-            </Card>
-          ))
+          <>
+            {byImport.length > 0 ? (
+              <>
+                <T variant="label" style={{ marginBottom: space.sm }}>Duplicates from an imported file</T>
+                {byImport.map(renderGroup)}
+              </>
+            ) : null}
+
+            {byMatch.length > 0 ? (
+              <>
+                <T variant="label" style={{ marginTop: space.md, marginBottom: space.sm }}>Possible duplicates</T>
+                {byMatch.map(renderGroup)}
+              </>
+            ) : null}
+
+            {others.length > 0 ? (
+              <>
+                <T variant="label" style={{ marginTop: space.md, marginBottom: space.sm }}>Other records to check</T>
+                {others.map((r) => (
+                  <Card key={`${r.type}-${r.id}`} style={{ marginBottom: space.sm }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.md }}>
+                      <View style={{ flex: 1 }}>
+                        <T style={{ fontFamily: "Inter_500Medium" }}>{r.description}</T>
+                        <T variant="caption">{r.date.slice(0, 10)} · {categories.find((c) => c.id === r.categoryId)?.name ?? r.type}</T>
+                      </View>
+                      <Money value={r.amount} size={15} weight="semibold" />
+                    </View>
+                    {badges(r)}
+                    <Button title="Looks right — mark reviewed" variant="secondary" onPress={() => resolve(r)} style={{ marginTop: space.md }} />
+                  </Card>
+                ))}
+              </>
+            ) : null}
+          </>
         )}
       </ScrollView>
     </Screen>
