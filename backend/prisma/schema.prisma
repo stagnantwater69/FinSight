@@ -95,6 +95,21 @@
 //      onDelete: Cascade on the DB row — the Storage OBJECT is a separate
 //      system and still has to be deleted explicitly by whatever deletes the
 //      scan; see cleanUpReceiptScanIfOrphaned.
+//  15. ReceiptScan.processingStatus / processingError [ADDED] — reading a
+//      receipt (Tesseract per page, sometimes a vision model, then the
+//      categoriser) used to run inline in the HTTP request, so an owner's
+//      upload held a connection open for as long as the whole pipeline took
+//      and the single Node process could not serve anyone else meanwhile. The
+//      row is now created immediately as "Processing" and the pipeline
+//      continues in the background, so the request returns at once and the
+//      client polls. Kept SEPARATE from confirmationStatus on purpose: that
+//      field means "has the owner accepted this yet", and a scan can be fully
+//      read but unconfirmed, or still being read and therefore not yet
+//      confirmable. One field for both would make those indistinguishable.
+//      A scan interrupted by a restart stays "Processing" forever — accepted,
+//      since re-scanning is cheap and a durable job store is not warranted at
+//      this scale; see docs/multi-page-receipts-plan.md for where that line
+//      is drawn.
 
 generator client {
   provider = "prisma-client-js"
@@ -255,6 +270,15 @@ model ReceiptScan {
   extractedDescription String?   @map("ReceiptScan_ExtractedDescription") @db.VarChar(255)
   extractedAmount      Decimal?  @map("ReceiptScan_ExtractedAmount") @db.Decimal(12, 2)
   confirmationStatus   String    @default("Pending") @map("ReceiptScan_ConfirmationStatus") @db.VarChar(50)
+  /// [ADDED] see schema header note 15. How far the READ has got:
+  /// "Processing" | "Complete" | "Failed". Deliberately separate from
+  /// confirmationStatus, which is about the OWNER's decision afterwards —
+  /// conflating them would make "still being read" and "read, awaiting the
+  /// owner" the same state, and they need different screens.
+  processingStatus     String    @default("Processing") @map("ReceiptScan_ProcessingStatus") @db.VarChar(50)
+  /// Why the read failed, for the owner. Null unless processingStatus is
+  /// "Failed".
+  processingError      String?   @map("ReceiptScan_ProcessingError") @db.VarChar(500)
   rawText              String?   @map("ReceiptScan_RawText") @db.Text // [ADDED] see schema header note 10
   /// True when the deterministic OCR parse came back empty and a vision model
   /// was asked to interpret the photo instead. The confirm screen says so
@@ -292,6 +316,19 @@ model ReceiptScanPage {
   /// This page's own OCR confidence, for a per-page "this one looks rough"
   /// signal. ReceiptScan.ocrConfidence remains the whole-scan figure.
   ocrConfidence Int?    @map("ReceiptScanPage_OcrConfidence")
+  /// How readable the photograph itself was — see lib/imageQuality.
+  ///
+  /// STORED, where it deliberately was not before. The old reasoning was that
+  /// this answers "should you retake it?", which is only worth asking while
+  /// the owner still holds the receipt, so it rode on the upload response and
+  /// was never persisted. That held only while the response WAS the finished
+  /// scan. Now the read happens in the background and the client polls for it,
+  /// so anything not written down is simply lost before it can be shown. The
+  /// lifespan argument was about how long it stays USEFUL, not about whether
+  /// it can be stored, and the two came apart when the pipeline went async.
+  sharpness         Float?   @map("ReceiptScanPage_Sharpness")
+  brightness        Float?   @map("ReceiptScanPage_Brightness")
+  tooBlurredToTrust Boolean? @map("ReceiptScanPage_TooBlurredToTrust")
 
   receiptScan ReceiptScan @relation(fields: [receiptScanId], references: [id], onDelete: Cascade)
 

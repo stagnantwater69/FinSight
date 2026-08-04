@@ -36,5 +36,14 @@ receiptRouter.post(
   uploadReceiptImage.single("file"),
   asyncHandler(receiptScanController.checkQuality),
 );
+/*
+ * Polled by both clients after an upload until the read finishes.
+ *
+ * Deliberately NOT rate-limited alongside the expensive endpoints above: this
+ * one runs two indexed queries and no OCR, no model call and no Storage
+ * write, and it is called REPEATEDLY by design — a burst limit sized for
+ * scans would start rejecting the very polling that scanning now depends on.
+ */
+receiptRouter.get("/:id", asyncHandler(receiptScanController.show));
 receiptRouter.delete("/:id/items/:itemId", asyncHandler(receiptScanController.deleteItem));
 receiptRouter.post("/:id/confirm", asyncHandler(receiptScanController.confirm));

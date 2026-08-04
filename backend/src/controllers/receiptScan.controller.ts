@@ -117,7 +117,22 @@ export async function upload(req: Request, res: Response) {
     })),
   });
 
-  res.status(201).json(scan);
+  /*
+   * 202, not 201: the photographs have been accepted and a scan exists, but
+   * reading them is still in progress. The client polls `show` below until
+   * processingStatus leaves "Processing". The body is the same DTO shape the
+   * finished scan will have — the extracted fields are simply still null — so
+   * a client can render from one type throughout rather than switching shapes
+   * halfway through.
+   */
+  res.status(202).json(scan);
+}
+
+/** One scan as it currently stands — what the client polls after uploading. */
+export async function show(req: Request, res: Response) {
+  const id = parseId(req.params.id!);
+  const scan = await receiptScanService.getScan(req.user!.id, id);
+  res.json(scan);
 }
 
 /**

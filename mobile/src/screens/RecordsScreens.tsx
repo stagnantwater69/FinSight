@@ -1019,6 +1019,15 @@ interface ReceiptScanResult {
    */
   duplicatePages?: number[];
   /**
+   * How far the server has got READING this scan: "Processing" | "Complete" |
+   * "Failed". Distinct from confirmationStatus, which is the owner's own
+   * decision afterwards. The upload responds before the read finishes, so
+   * this is what pollUntilRead waits on.
+   */
+  processingStatus?: "Processing" | "Complete" | "Failed";
+  /** Why the read failed. Present only when processingStatus is "Failed". */
+  processingError?: string | null;
+  /**
    * The individual lines the server read, each with the category it assigned.
    * A receipt with more than one is reviewed line by line below; anything
    * less keeps the single-category flow.
@@ -1040,6 +1049,47 @@ interface ReceiptScanResult {
 }
 
 /** One photograph in a capture session, before it has been scanned. */
+/**
+ * How often, and for how long, to ask whether a scan has finished reading.
+ *
+ * Matches the web client's figures deliberately — the same server work is
+ * being waited on, and two different cadences would be two numbers to keep
+ * in step for no reason. The endpoint polled runs two indexed queries and no
+ * OCR, so this is cheap; the generous ceiling exists to end a wait that will
+ * never finish (a server restart mid-read strands a scan on "Processing"),
+ * not to cut short one that is merely slow.
+ */
+const SCAN_POLL_INTERVAL_MS = 1500;
+const SCAN_POLL_TIMEOUT_MS = 3 * 60 * 1000;
+
+/**
+ * Waits for a scan the server has accepted but not yet finished reading.
+ *
+ * Throws on a failed or never-finishing read rather than returning a
+ * half-empty scan — scanPages' existing catch then shows the reason and
+ * leaves the owner on the capture screen with their photos intact, which is
+ * the same outcome any other failed scan has always had.
+ */
+async function pollUntilRead(initial: ReceiptScanResult): Promise<ReceiptScanResult> {
+  if (initial.processingStatus && initial.processingStatus !== "Processing") {
+    if (initial.processingStatus === "Failed") {
+      throw new Error(initial.processingError ?? "This receipt could not be read. Try scanning it again.");
+    }
+    return initial;
+  }
+
+  const deadline = Date.now() + SCAN_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, SCAN_POLL_INTERVAL_MS));
+    const next = await api.get<ReceiptScanResult>(`/records/receipts/${initial.id}`);
+    if (next.processingStatus === "Failed") {
+      throw new Error(next.processingError ?? "This receipt could not be read. Try scanning it again.");
+    }
+    if (next.processingStatus === "Complete") return next;
+  }
+  throw new Error("This receipt is taking longer than expected to read. Try scanning it again.");
+}
+
 interface CapturedPage {
   /** Local only, for list keys and edits — the server assigns nothing yet. */
   key: string;
@@ -1219,7 +1269,10 @@ export function ScanReceiptScreen({ navigation, route }: any) {
         form.append("files", { uri: p.uri, name: p.fileName, type: p.mimeType } as any);
       }
 
-      const result = await api.upload<ReceiptScanResult>("/records/receipts", form);
+      const accepted = await api.upload<ReceiptScanResult>("/records/receipts", form);
+      // The upload returns as soon as the photos are stored; the read itself
+      // finishes behind it. See pollUntilRead.
+      const result = await pollUntilRead(accepted);
       setScan(result);
       // Pre-fill from OCR — as a draft the owner checks, never as truth.
       if (result.extractedDate) setDate(String(result.extractedDate).slice(0, 10));

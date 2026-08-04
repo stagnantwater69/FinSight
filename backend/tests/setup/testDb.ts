@@ -26,6 +26,38 @@ export async function disconnectDb() {
   await prisma.$disconnect();
 }
 
+/**
+ * Waits for a receipt scan's background read to finish.
+ *
+ * uploadAndScan returns as soon as the photographs are stored, leaving OCR,
+ * the vision rescue and the categoriser running behind the response — so a
+ * test that asserted on extracted fields immediately would be racing work
+ * that had not happened yet.
+ *
+ * POLLS rather than awaiting the background promise directly, deliberately:
+ * that is exactly what both clients do, so a test using this exercises the
+ * real upload-then-poll contract instead of reaching through it into an
+ * internal handle no client has. It also means these tests would catch a
+ * scan that never reaches a terminal state at all, which awaiting an internal
+ * promise would quietly hide.
+ *
+ * Returns the terminal status so a caller can assert on "Failed" as easily as
+ * on "Complete"; throws only if neither is reached, which is a real bug
+ * rather than slowness — the work is fully mocked in these suites.
+ */
+export async function waitForScanProcessing(scanId: number, timeoutMs = 15_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const scan = await prisma.receiptScan.findUnique({
+      where: { id: scanId },
+      select: { processingStatus: true },
+    });
+    if (scan && scan.processingStatus !== "Processing") return scan.processingStatus;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Scan ${scanId} never left "Processing" within ${timeoutMs}ms`);
+}
+
 // ---------------------------------------------------------------
 // Factories
 // ---------------------------------------------------------------

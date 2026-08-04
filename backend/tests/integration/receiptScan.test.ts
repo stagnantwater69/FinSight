@@ -73,9 +73,9 @@ vi.mock("../../src/services/visionOcr.service", async (importOriginal) => {
 });
 
 import { prisma } from "../../src/config/prisma";
-import { confirmReceipt, deleteScanItem, uploadAndScan } from "../../src/services/receiptScan.service";
+import { confirmReceipt, deleteScanItem, getScan, uploadAndScan } from "../../src/services/receiptScan.service";
 import { getExpenseRecord } from "../../src/services/expenseRecord.service";
-import { disconnectDb, makeOwnerWithProfile, resetDb, utcDayString } from "../setup/testDb";
+import { disconnectDb, makeOwnerWithProfile, resetDb, utcDayString, waitForScanProcessing } from "../setup/testDb";
 
 let ctx: Awaited<ReturnType<typeof makeOwnerWithProfile>>;
 
@@ -103,11 +103,22 @@ beforeEach(async () => {
 
 afterAll(disconnectDb);
 
+/**
+ * Uploads a receipt and returns it once the background read has finished.
+ *
+ * uploadAndScan now returns as soon as the photographs are stored, with OCR
+ * and categorisation continuing behind the response — so every assertion in
+ * this file about extracted fields would otherwise be racing work that had
+ * not happened yet. Polling here mirrors exactly what both clients do, so
+ * these tests exercise the real contract rather than an internal shortcut.
+ */
 async function upload() {
-  return uploadAndScan(ctx.user.id, {
+  const created = await uploadAndScan(ctx.user.id, {
     businessProfileId: ctx.profile.id,
     pages: [{ buffer: Buffer.from("fake-image-bytes"), mimetype: "image/jpeg", originalname: "receipt.jpg" }],
   });
+  await waitForScanProcessing(created.id);
+  return getScan(ctx.user.id, created.id);
 }
 
 describe("upload and scan", () => {
@@ -547,10 +558,12 @@ describe("vendor corrected from confirmed history", () => {
     extractTextMock.mockResolvedValue(
       ["SAVEM0RE MARKET", "Date: 2026-07-21", "Bread 60.00", "TOTAL 60.00"].join("\n"),
     );
-    const scan = await uploadAndScan(other.user.id, {
+    const created = await uploadAndScan(other.user.id, {
       businessProfileId: other.profile.id,
       pages: [{ buffer: Buffer.from("fake-image-bytes"), mimetype: "image/jpeg", originalname: "receipt.jpg" }],
     });
+    await waitForScanProcessing(created.id);
+    const scan = await getScan(other.user.id, created.id);
     // Uncorrected: this business has never confirmed that vendor.
     expect(scan.extractedVendor).toBe("SAVEM0RE MARKET");
   });
@@ -796,10 +809,11 @@ describe("classification context", () => {
 
     const other = await makeOwnerWithProfile();
     categoriseMock.mockClear();
-    await uploadAndScan(other.user.id, {
+    const otherScan = await uploadAndScan(other.user.id, {
       businessProfileId: other.profile.id,
       pages: [{ buffer: Buffer.from("fake-image-bytes"), mimetype: "image/jpeg", originalname: "receipt.jpg" }],
     });
+    await waitForScanProcessing(otherScan.id);
 
     const [, , context] = categoriseMock.mock.calls[0]!;
     expect(context.priorChoices).toEqual([]);

@@ -47,8 +47,9 @@ vi.mock("../../src/services/visionOcr.service", async (importOriginal) => {
 });
 
 import { prisma } from "../../src/config/prisma";
-import { uploadAndScan, MAX_PAGES } from "../../src/services/receiptScan.service";
-import { disconnectDb, makeOwnerWithProfile, resetDb, utcDayString } from "../setup/testDb";
+import * as ocrService from "../../src/services/ocr.service";
+import { confirmReceipt, getScan, uploadAndScan, MAX_PAGES } from "../../src/services/receiptScan.service";
+import { disconnectDb, makeOwnerWithProfile, resetDb, utcDayString, waitForScanProcessing } from "../setup/testDb";
 
 let ctx: Awaited<ReturnType<typeof makeOwnerWithProfile>>;
 
@@ -71,12 +72,19 @@ function page(text: string, confidence = 95) {
   return { buffer: Buffer.from(`fake-bytes-${text.length}`), mimetype: "image/jpeg", originalname: "page.jpg" };
 }
 
+/**
+ * Uploads pages and returns the scan once its background read has finished —
+ * see waitForScanProcessing. Polling mirrors what both clients do, so these
+ * assertions exercise the real upload-then-poll contract.
+ */
 async function uploadPages(texts: { text: string; confidence?: number }[]) {
   for (const t of texts) pageQueue.push({ text: t.text, confidence: t.confidence ?? 95 });
-  return uploadAndScan(ctx.user.id, {
+  const created = await uploadAndScan(ctx.user.id, {
     businessProfileId: ctx.profile.id,
     pages: texts.map((t) => page(t.text)),
   });
+  await waitForScanProcessing(created.id);
+  return getScan(ctx.user.id, created.id);
 }
 
 describe("multi-page receipt upload", () => {
@@ -126,6 +134,123 @@ describe("multi-page receipt upload", () => {
     await expect(
       uploadAndScan(ctx.user.id, { businessProfileId: ctx.profile.id, pages: [] }),
     ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+/**
+ * The read now finishes AFTER the response. These pin the states that
+ * behaviour introduces — a client that polls has to be able to tell "still
+ * working" from "finished" from "gave up", and must never be handed a
+ * half-written scan as though it were done.
+ */
+describe("background processing", () => {
+  it("returns before the read has finished, with the scan already pollable", async () => {
+    pageQueue.push({ text: "Date: 2026-07-20\nItem A 10.00\nTOTAL 10.00", confidence: 95 });
+    const created = await uploadAndScan(ctx.user.id, {
+      businessProfileId: ctx.profile.id,
+      pages: [page("x")],
+    });
+
+    // The row exists and is addressable immediately — that is what makes
+    // polling possible at all.
+    expect(created.id).toBeGreaterThan(0);
+    expect(created.confirmationStatus).toBe("Pending");
+    // Its page rows exist too, so the client can show what it uploaded while
+    // it waits.
+    expect(await prisma.receiptScanPage.count({ where: { receiptScanId: created.id } })).toBe(1);
+
+    await waitForScanProcessing(created.id);
+  });
+
+  it("reaches Complete, and only then carries the extracted fields", async () => {
+    pageQueue.push({ text: "ABC STORE\nDate: 2026-07-20\nRice 25kg 1220.00\nTOTAL 1220.00", confidence: 95 });
+    const created = await uploadAndScan(ctx.user.id, {
+      businessProfileId: ctx.profile.id,
+      pages: [page("x")],
+    });
+
+    expect(await waitForScanProcessing(created.id)).toBe("Complete");
+
+    const done = await getScan(ctx.user.id, created.id);
+    expect(done.processingStatus).toBe("Complete");
+    expect(done.processingError).toBeNull();
+    expect(done.extractedAmount).toBe(1220);
+  });
+
+  it("records a failed read as Failed with a reason, rather than hanging on Processing", async () => {
+    // A scan whose OCR throws must not sit in "Processing" forever — the
+    // client would poll indefinitely with nothing to show the owner.
+    const boom = new Error("tesseract exploded");
+    const spy = vi.spyOn(ocrService, "extractReceipt").mockRejectedValueOnce(boom);
+
+    const created = await uploadAndScan(ctx.user.id, {
+      businessProfileId: ctx.profile.id,
+      pages: [page("x")],
+    });
+
+    expect(await waitForScanProcessing(created.id)).toBe("Failed");
+    const failed = await getScan(ctx.user.id, created.id);
+    expect(failed.processingError).toContain("tesseract exploded");
+    spy.mockRestore();
+  });
+
+  it("refuses to confirm a receipt that is still being read", async () => {
+    // Not reachable through the clients, which only show the confirm screen
+    // once polling reports Complete — but confirming mid-read would race the
+    // background write and could validate a split against items that do not
+    // exist yet.
+    const scan = await prisma.receiptScan.create({
+      data: {
+        businessProfileId: ctx.profile.id,
+        imageFile: "1/mid-read.jpg",
+        confirmationStatus: "Pending",
+        processingStatus: "Processing",
+      },
+    });
+
+    await expect(
+      confirmReceipt(ctx.user.id, scan.id, {
+        date: utcDayString(0),
+        description: "Anything",
+        amount: 100,
+        splits: [{ categoryId: ctx.categories.Inventory!, amount: 100 }],
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("refuses to confirm a receipt whose read failed", async () => {
+    const scan = await prisma.receiptScan.create({
+      data: {
+        businessProfileId: ctx.profile.id,
+        imageFile: "1/failed.jpg",
+        confirmationStatus: "Pending",
+        processingStatus: "Failed",
+        processingError: "could not be read",
+      },
+    });
+
+    await expect(
+      confirmReceipt(ctx.user.id, scan.id, {
+        date: utcDayString(0),
+        description: "Anything",
+        amount: 100,
+        splits: [{ categoryId: ctx.categories.Inventory!, amount: 100 }],
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("does not hand another owner's scan to a poller", async () => {
+    const other = await makeOwnerWithProfile();
+    pageQueue.push({ text: "TOTAL 10.00", confidence: 95 });
+    const created = await uploadAndScan(ctx.user.id, {
+      businessProfileId: ctx.profile.id,
+      pages: [page("x")],
+    });
+    await waitForScanProcessing(created.id);
+
+    // 404 rather than 403, matching the non-disclosure rule used everywhere
+    // else — a poller must not be able to confirm a scan id even exists.
+    await expect(getScan(other.user.id, created.id)).rejects.toMatchObject({ status: 404 });
   });
 
   /**

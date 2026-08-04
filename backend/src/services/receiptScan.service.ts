@@ -21,7 +21,7 @@ import { categoriseReceiptItems, UNCATEGORISED } from "./ai.service";
 import { extractReceiptWithVision, type VisionPage } from "./visionOcr.service";
 import { createExpenseRecord } from "./expenseRecord.service";
 import { allocateProportionally, type ReconciliationMode } from "../lib/allocation";
-import type { ReceiptScan, ReceiptScanItem } from "@prisma/client";
+import type { ReceiptScan, ReceiptScanItem, ReceiptScanPage } from "@prisma/client";
 
 /** One photographed page of a receipt, as it arrives from the upload. */
 export interface UploadPage {
@@ -98,7 +98,42 @@ interface ConfirmInput {
 /** Description given to the standalone record that carries a receipt's tax. */
 const CHARGES_DESCRIPTION = "Tax and charges";
 
-function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = []) {
+function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = [], pages: ReceiptScanPage[] = []) {
+  /*
+   * Adjacent pages only, not every pair — and recomputed here rather than
+   * stored in a column of its own.
+   *
+   * The evidence it rests on (each page's own rawText) is already persisted,
+   * so a column would be a second copy of an answer derivable from the first,
+   * with the usual risk of the two disagreeing. It is a string comparison
+   * over rows already loaded for this response, which is cheap enough not to
+   * be worth denormalising.
+   *
+   * Why adjacent only: the mistake this catches is the shutter firing twice
+   * in a row, i.e. pages that are NEIGHBOURS in the sequence just
+   * photographed. Comparing every page against every other would also flag
+   * two genuinely different pages of a long receipt whose stock-restock lines
+   * happen to read alike — a false alarm neighbour-comparison does not
+   * produce, because such pages are usually not adjacent.
+   */
+  const ordered = [...pages].sort((a, b) => a.pageNumber - b.pageNumber);
+  const duplicatePages: number[] = [];
+  for (let i = 1; i < ordered.length; i++) {
+    if (looksLikeDuplicatePage(ordered[i - 1]!.rawText ?? "", ordered[i]!.rawText ?? "")) {
+      duplicatePages.push(ordered[i]!.pageNumber);
+    }
+  }
+
+  const pageQualities = ordered.map((p) =>
+    p.tooBlurredToTrust === null
+      ? null
+      : {
+          sharpness: p.sharpness ?? 0,
+          brightness: p.brightness ?? 0,
+          tooBlurredToTrust: p.tooBlurredToTrust,
+        },
+  );
+
   return {
     id: scan.id,
     businessProfileId: scan.businessProfileId,
@@ -108,7 +143,30 @@ function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = []) {
     extractedDescription: scan.extractedDescription,
     extractedAmount: scan.extractedAmount ? Number(scan.extractedAmount) : null,
     confirmationStatus: scan.confirmationStatus,
+    /**
+     * How far the READ has got: "Processing" | "Complete" | "Failed".
+     *
+     * Separate from confirmationStatus, which is the owner's decision
+     * afterwards — see schema header note 15. The client polls this after
+     * upload rather than holding a request open for the whole pipeline.
+     */
+    processingStatus: scan.processingStatus,
+    /** Why the read failed. Null unless processingStatus is "Failed". */
+    processingError: scan.processingError,
     createdAt: scan.createdAt,
+    /**
+     * Every page's own readability, in page order — page 1 included.
+     * Entries are null for scans read before this was measured.
+     */
+    pageQualities,
+    /**
+     * Page 1's own reading, kept under the name a single-photo scan has
+     * always returned so that the common case is unchanged for clients that
+     * never look at pageQualities.
+     */
+    captureQuality: pageQualities[0] ?? null,
+    /** 1-indexed pages that read as the same page photographed twice. */
+    duplicatePages,
     /**
      * True when the deterministic parse failed and a model interpreted the
      * photo instead. The confirm screen warns on this — values guessed from
@@ -306,6 +364,27 @@ async function ensureUncategorised(businessProfileId: number): Promise<number> {
  */
 export const MAX_PAGES = 8;
 
+/**
+ * Accepts the photographs and returns immediately, leaving the reading to
+ * `processScan` in the background.
+ *
+ * WHY THIS RETURNS BEFORE THE WORK IS DONE. Reading a receipt is Tesseract
+ * per page, sometimes a vision model, then the categoriser — seconds of work,
+ * multiplied by up to MAX_PAGES. Doing that inline meant the owner's upload
+ * held an HTTP connection open for the whole pipeline (a timeout risk on a
+ * long receipt over a phone connection) and, worse, occupied the single Node
+ * process the whole time, so a second owner scanning concurrently simply
+ * waited. The request now ends once the bytes are safely in Storage and a row
+ * exists to poll.
+ *
+ * WHAT STAYS SYNCHRONOUS, and why exactly these. Ownership and the page-count
+ * limit, because a rejected upload must fail as a 4xx the client can act on
+ * rather than as a row that quietly turns into "Failed". And the Storage
+ * upload itself, because if the bytes cannot be stored there is nothing to
+ * process later and the honest answer is an immediate error — it is also I/O
+ * -bound rather than CPU-bound, so it does not block the event loop the way
+ * OCR does.
+ */
 export async function uploadAndScan(userId: number, input: UploadInput) {
   await requireOwnedBusinessProfile(userId, input.businessProfileId);
 
@@ -319,119 +398,182 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
     throw new ApiError(400, `A receipt can have at most ${MAX_PAGES} pages`);
   }
 
-  // Uploaded and OCR'd in the order the pages arrived — every step after this
-  // one (the concatenated text, the vision call, the stored page numbers)
-  // depends on that order to mean anything, and nothing downstream re-derives
-  // it. The pages are the client's assertion, not something inferred here.
+  // Uploaded in the order the pages arrived — every step after this one (the
+  // concatenated text, the vision call, the stored page numbers) depends on
+  // that order to mean anything, and nothing downstream re-derives it. The
+  // order is the client's assertion, not something inferred here.
   const imagePaths: string[] = [];
-  const ocrResults: OcrResult[] = [];
   for (const page of input.pages) {
     imagePaths.push(await uploadReceiptImage(input.businessProfileId, page.buffer, page.mimetype, page.originalname));
-    // extractReceipt rather than extractText: the same read, but keeping the
-    // per-word confidences tesseract reports so the confirm screen can say
-    // which figure it doubts instead of asking the owner to check everything
-    // equally.
-    ocrResults.push(await extractReceipt(page.buffer));
-  }
-
-  /*
-   * One continuous document from here on, not N photographs.
-   *
-   * Every parser below — dates, totals, line items, reconciliation — already
-   * reads a receipt as lines of text with no concept of "photograph
-   * boundary". Concatenating in page order is what lets a total printed on
-   * page 3 reconcile against items spanning pages 1 and 2 without a single
-   * line of any of those functions changing. The alternative, stitching the
-   * IMAGES into one before OCR, was rejected in the plan this implements
-   * (docs/multi-page-receipts-plan.md §7): overlapping photos would then
-   * double-count items, which concatenating plain text cannot do.
-   */
-  const combinedText = ocrResults.map((r) => r.text).join("\n");
-  const combinedLines = ocrResults.flatMap((r) => r.lines);
-  const parsed = parseReceiptFields(combinedText);
-  const deterministicItems = parseLineItems(combinedText);
-
-  // The worst page, not the average — see rescueWithVision's own note.
-  const worstPageConfidence = Math.min(...ocrResults.map((r) => overallConfidence(r)));
-
-  const rescued = await rescueWithVision(input, parsed, deterministicItems, combinedText, worstPageConfidence);
-  const vendor = await snapVendorToHistory(input.businessProfileId, combinedText, rescued.vendor);
-
-  // Assessed per page, not once for the whole scan — the client can then say
-  // WHICH page came out blurry rather than "something about this did".
-  const pageQualities = await Promise.all(input.pages.map((p) => assessImageQuality(p.buffer)));
-
-  /*
-   * Adjacent pages only, not every pair.
-   *
-   * The real mistake this catches is the shutter firing twice in a row —
-   * pages that are NEIGHBOURS in the sequence the owner just photographed.
-   * Comparing every pair against every other would also flag two genuinely
-   * different pages of a long receipt whose stock-restock lines happen to
-   * read similarly, which is a false alarm neighbour-comparison does not
-   * produce because those pages are usually not adjacent to begin with.
-   */
-  const duplicatePages: number[] = [];
-  for (let i = 1; i < ocrResults.length; i++) {
-    if (looksLikeDuplicatePage(ocrResults[i - 1]!.text, ocrResults[i]!.text)) {
-      duplicatePages.push(i + 1); // 1-indexed, matching ReceiptScanPage.pageNumber
-    }
   }
 
   const scan = await prisma.receiptScan.create({
     data: {
       businessProfileId: input.businessProfileId,
       imageFile: imagePaths[0]!, // the page-1 cover — see schema header note 14
-      extractedDate: rescued.date ? new Date(rescued.date) : undefined,
-      extractedVendor: vendor ?? undefined,
-      // Rebuilt from the settled vendor, so a name corrected from history is
-      // the one the owner sees rather than the raw OCR reading.
-      extractedDescription: vendor ? `Purchase from ${vendor}` : rescued.description ?? undefined,
-      extractedAmount: rescued.amount ?? undefined,
       confirmationStatus: "Pending",
-      rawText: combinedText,
-      visionAssisted: rescued.visionAssisted,
-      // Null on a vision-assisted read: the figure would describe text
-      // tesseract could not make sense of, which is not what it looks like.
-      ocrConfidence: rescued.visionAssisted ? null : worstPageConfidence,
+      processingStatus: "Processing",
       pages: {
-        create: input.pages.map((_, i) => ({
-          pageNumber: i + 1,
-          imageFile: imagePaths[i]!,
-          rawText: ocrResults[i]!.text,
-          ocrConfidence: overallConfidence(ocrResults[i]!),
-        })),
+        create: imagePaths.map((imageFile, i) => ({ pageNumber: i + 1, imageFile })),
       },
     },
+    include: { pages: true },
   });
 
-  const items = await persistCategorisedItems(
-    input.businessProfileId,
-    scan.id,
-    rescued.items,
-    vendor,
-    rescued.itemsFromVision,
-    rescued.itemsFromVision ? [] : rescued.items.map((i) => confidenceForValue(combinedLines, i.amount.toFixed(2))),
-  );
   /*
-   * Capture quality rides on the upload response rather than being stored.
+   * Deliberately NOT awaited — this is the whole point of the change.
    *
-   * It answers exactly one question — "is this photograph worth trusting, or
-   * should you take another?" — and it is only answerable while the owner is
-   * still holding the receipt. Thirty seconds later they have either confirmed
-   * the scan or retaken it, and the answer is worth nothing. Persisting it
-   * would mean a migration and a column for data with that lifespan.
+   * `processScan` never rejects (it records failure on the row instead), so
+   * there is no unhandled rejection to guard against; the `.catch` is belt
+   * and braces for a genuinely unexpected throw before its own try block.
    */
-  return {
-    ...toDTO(scan, items),
-    // `captureQuality` kept as page 1's own reading — the shape a single-photo
-    // scan has always returned, so a one-page upload (still the common case)
-    // is unchanged. `pageQualities` is the array every page's quality lives
-    // in, page 1 included; a multi-page client reads that instead.
-    captureQuality: pageQualities[0] ?? null,
-    pageQualities,
-    duplicatePages,
-  };
+  void processScan(scan.id, input).catch((err) => {
+    console.error(`[receipt-scan] background processing threw for scan=${scan.id}:`, err);
+  });
+
+  return toDTO(scan, [], scan.pages);
+}
+
+/**
+ * The actual read: OCR every page, parse, rescue with vision where warranted,
+ * categorise, and write the result back onto the scan row.
+ *
+ * Runs after the HTTP response has already gone out, so it CANNOT report a
+ * failure by throwing — nobody is listening. Every failure path instead lands
+ * the scan in "Failed" with a message the polling client can show, which is
+ * why the whole body sits inside one try/catch rather than letting individual
+ * steps propagate.
+ *
+ * In-process rather than on a queue: this project runs one backend container
+ * and has no Redis (see rateLimit.middleware.ts, which documents the same
+ * boundary for the same reason). The known cost is that a restart mid-read
+ * strands a scan in "Processing" — accepted, because re-scanning is cheap and
+ * a durable job store is a large piece of infrastructure to add for a failure
+ * mode a "Rescan" button already covers.
+ */
+async function processScan(scanId: number, input: UploadInput): Promise<void> {
+  try {
+    // extractReceipt rather than extractText: the same read, but keeping the
+    // per-word confidences tesseract reports so the confirm screen can say
+    // which figure it doubts instead of asking the owner to check everything
+    // equally.
+    const ocrResults: OcrResult[] = [];
+    for (const page of input.pages) {
+      ocrResults.push(await extractReceipt(page.buffer));
+    }
+
+    /*
+     * One continuous document from here on, not N photographs.
+     *
+     * Every parser below — dates, totals, line items, reconciliation — already
+     * reads a receipt as lines of text with no concept of "photograph
+     * boundary". Concatenating in page order is what lets a total printed on
+     * page 3 reconcile against items spanning pages 1 and 2 without a single
+     * line of any of those functions changing. The alternative, stitching the
+     * IMAGES into one before OCR, was rejected in the plan this implements
+     * (docs/multi-page-receipts-plan.md §7): overlapping photos would then
+     * double-count items, which concatenating plain text cannot do.
+     */
+    const combinedText = ocrResults.map((r) => r.text).join("\n");
+    const combinedLines = ocrResults.flatMap((r) => r.lines);
+    const parsed = parseReceiptFields(combinedText);
+    const deterministicItems = parseLineItems(combinedText);
+
+    // The worst page, not the average — see rescueWithVision's own note.
+    const worstPageConfidence = Math.min(...ocrResults.map((r) => overallConfidence(r)));
+
+    const rescued = await rescueWithVision(input, parsed, deterministicItems, combinedText, worstPageConfidence);
+    const vendor = await snapVendorToHistory(input.businessProfileId, combinedText, rescued.vendor);
+
+    // Assessed per page, not once for the whole scan — the client can then say
+    // WHICH page came out blurry rather than "something about this did".
+    const pageQualities = await Promise.all(input.pages.map((p) => assessImageQuality(p.buffer)));
+
+    await prisma.receiptScan.update({
+      where: { id: scanId },
+      data: {
+        extractedDate: rescued.date ? new Date(rescued.date) : undefined,
+        extractedVendor: vendor ?? undefined,
+        // Rebuilt from the settled vendor, so a name corrected from history is
+        // the one the owner sees rather than the raw OCR reading.
+        extractedDescription: vendor ? `Purchase from ${vendor}` : rescued.description ?? undefined,
+        extractedAmount: rescued.amount ?? undefined,
+        rawText: combinedText,
+        visionAssisted: rescued.visionAssisted,
+        // Null on a vision-assisted read: the figure would describe text
+        // tesseract could not make sense of, which is not what it looks like.
+        ocrConfidence: rescued.visionAssisted ? null : worstPageConfidence,
+      },
+    });
+
+    // Per page, because the pages were created before any of this was known.
+    // Scoped by receiptScanId as well as pageNumber so a page number can only
+    // ever be updated within its own scan.
+    for (let i = 0; i < ocrResults.length; i++) {
+      await prisma.receiptScanPage.updateMany({
+        where: { receiptScanId: scanId, pageNumber: i + 1 },
+        data: {
+          rawText: ocrResults[i]!.text,
+          ocrConfidence: overallConfidence(ocrResults[i]!),
+          sharpness: pageQualities[i]?.sharpness ?? null,
+          brightness: pageQualities[i]?.brightness ?? null,
+          tooBlurredToTrust: pageQualities[i]?.tooBlurredToTrust ?? null,
+        },
+      });
+    }
+
+    await persistCategorisedItems(
+      input.businessProfileId,
+      scanId,
+      rescued.items,
+      vendor,
+      rescued.itemsFromVision,
+      rescued.itemsFromVision ? [] : rescued.items.map((i) => confidenceForValue(combinedLines, i.amount.toFixed(2))),
+    );
+
+    // Last, so a client that sees "Complete" is guaranteed to find the fields
+    // and items already written rather than racing them.
+    await prisma.receiptScan.update({
+      where: { id: scanId },
+      data: { processingStatus: "Complete" },
+    });
+  } catch (err) {
+    console.error(`[receipt-scan] processing failed for scan=${scanId}:`, err);
+    await prisma.receiptScan
+      .update({
+        where: { id: scanId },
+        data: {
+          processingStatus: "Failed",
+          // Truncated to the column width. The owner is told the read failed
+          // and offered a rescan; the full error is in the server log.
+          processingError: (err instanceof Error ? err.message : "The receipt could not be read").slice(0, 500),
+        },
+      })
+      .catch((updateErr) => {
+        // Nothing further to try — the scan stays "Processing" and the client
+        // eventually offers a rescan, which is the same recovery a restart
+        // mid-read leaves behind.
+        console.error(`[receipt-scan] could not record failure for scan=${scanId}:`, updateErr);
+      });
+  }
+}
+
+/**
+ * One scan as it currently stands, for the client polling after upload.
+ *
+ * Ownership is enforced through the scan's own business profile, and a scan
+ * belonging to someone else is reported as 404 rather than 403 — the same
+ * non-disclosure rule requireOwnedBusinessProfile follows everywhere else.
+ */
+export async function getScan(userId: number, scanId: number) {
+  const scan = await prisma.receiptScan.findFirst({
+    where: { id: scanId, businessProfile: { userId } },
+    include: { items: { orderBy: { lineNumber: "asc" } }, pages: true },
+  });
+  if (!scan) {
+    throw new ApiError(404, "Receipt scan not found");
+  }
+  return toDTO(scan, scan.items, scan.pages);
 }
 
 /**
@@ -827,11 +969,15 @@ export async function deleteScanItem(userId: number, receiptScanId: number, item
     throw new ApiError(404, "Item not found on this receipt scan");
   }
 
-  const items = await prisma.receiptScanItem.findMany({
-    where: { receiptScanId },
-    orderBy: { lineNumber: "asc" },
-  });
-  return toDTO(scan, items);
+  const [items, pages] = await Promise.all([
+    prisma.receiptScanItem.findMany({ where: { receiptScanId }, orderBy: { lineNumber: "asc" } }),
+    // Loaded so the returned scan keeps its per-page quality and
+    // duplicate-page findings — the review screen re-renders from this
+    // response, and dropping them here would make those warnings vanish the
+    // moment an owner removed one line.
+    prisma.receiptScanPage.findMany({ where: { receiptScanId } }),
+  ]);
+  return toDTO(scan, items, pages);
 }
 
 export async function confirmReceipt(userId: number, receiptScanId: number, input: ConfirmInput) {
@@ -843,6 +989,23 @@ export async function confirmReceipt(userId: number, receiptScanId: number, inpu
   }
   if (scan.confirmationStatus === "Confirmed") {
     throw new ApiError(400, "This receipt scan has already been confirmed");
+  }
+  /*
+   * A scan still being read cannot be confirmed.
+   *
+   * The clients only show the confirm screen once polling reports "Complete",
+   * so this is not reachable through the ordinary flow — but confirming
+   * mid-read would race the background write, and the loser would be the
+   * owner: the items the split is validated against might not exist yet, so a
+   * perfectly correct receipt could be rejected as not adding up, or worse,
+   * accepted against a partial reading. Refusing is the only safe answer, and
+   * the message names the state rather than blaming their input.
+   */
+  if (scan.processingStatus === "Processing") {
+    throw new ApiError(400, "This receipt is still being read. Try again in a moment.");
+  }
+  if (scan.processingStatus === "Failed") {
+    throw new ApiError(400, "This receipt could not be read. Scan it again.");
   }
   if (!scan.businessProfileId) {
     throw new ApiError(400, "Receipt scan is not linked to a business profile");

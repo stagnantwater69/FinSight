@@ -64,6 +64,15 @@ interface ScanResult {
    * Empty on a single-page scan — there is nothing adjacent to compare.
    */
   duplicatePages?: number[];
+  /**
+   * How far the server has got READING this scan: "Processing" | "Complete" |
+   * "Failed". Distinct from confirmationStatus, which is the owner's own
+   * decision afterwards. The upload responds before the read finishes, so
+   * this is what pollUntilRead waits on.
+   */
+  processingStatus?: "Processing" | "Complete" | "Failed";
+  /** Why the read failed. Present only when processingStatus is "Failed". */
+  processingError?: string | null;
 }
 
 interface ScannedItem {
@@ -250,6 +259,23 @@ const MAX_FILE_BYTES = 8 * 1024 * 1024;
  * comment rather than imported, since the client has no access to backend
  * source; the server is still the one place that actually enforces it. */
 const MAX_RECEIPT_FILES = 8;
+
+/**
+ * How often, and for how long, to ask whether a scan has finished reading.
+ *
+ * 1.5s is short enough that a fast read feels immediate and long enough that
+ * a slow one does not flood the server — the endpoint being polled runs two
+ * indexed queries and no OCR, so this is cheap, but it is still a request per
+ * interval per scanning owner.
+ *
+ * The ceiling is generous because the work behind it genuinely is slow: up to
+ * MAX_RECEIPT_FILES pages of Tesseract, sometimes a vision-model round trip,
+ * then the categoriser. It exists to end a wait that will never finish (a
+ * server restart mid-read strands a scan on "Processing"), not to cut short
+ * one that is merely taking its time.
+ */
+const SCAN_POLL_INTERVAL_MS = 1500;
+const SCAN_POLL_TIMEOUT_MS = 3 * 60 * 1000;
 
 /**
  * One picked photo, shown as a thumbnail with its own object URL.
@@ -652,10 +678,53 @@ export function ScanReceipt() {
       const { data } = await api.post<ScanResult>("/records/receipts", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      return data;
+      return pollUntilRead(data);
     })();
     scanPromises.current.set(file, promise);
     return promise;
+  }
+
+  /**
+   * Waits for a scan the server has accepted but not yet finished reading.
+   *
+   * The upload now returns as soon as the photographs are stored (202), with
+   * OCR, the vision rescue and the categoriser running behind it — so the
+   * response carries an id and a status rather than the extracted figures.
+   * This polls until that read reaches a terminal state and resolves with the
+   * finished scan, so everything upstream keeps its old shape: `ensureScanned`
+   * still returns `Promise<ScanResult>`, and every caller of it — the promise
+   * cache, `scanFiles`, `handleConfirm`'s queue advance — is unchanged. The
+   * one function that knew how to fetch a scan is still the only one that
+   * does.
+   *
+   * Rejects on a failed read rather than resolving with a half-empty scan:
+   * the caller's existing error path then shows the reason and leaves the
+   * owner on the picker, which is the same outcome any other failed scan has.
+   */
+  async function pollUntilRead(initial: ScanResult): Promise<ScanResult> {
+    if (initial.processingStatus && initial.processingStatus !== "Processing") {
+      if (initial.processingStatus === "Failed") {
+        throw new Error(initial.processingError ?? "This receipt could not be read. Try scanning it again.");
+      }
+      return initial;
+    }
+
+    const deadline = Date.now() + SCAN_POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, SCAN_POLL_INTERVAL_MS));
+      const { data } = await api.get<ScanResult>(`/records/receipts/${initial.id}`);
+      if (data.processingStatus === "Failed") {
+        throw new Error(data.processingError ?? "This receipt could not be read. Try scanning it again.");
+      }
+      if (data.processingStatus === "Complete") return data;
+    }
+    /*
+     * A scan that never finishes is a real possibility, not a hypothetical:
+     * the read runs in the server process, so a restart mid-read strands it on
+     * "Processing" with nothing left to finish it. Giving up with a message
+     * that names the remedy is better than polling forever behind a spinner.
+     */
+    throw new Error("This receipt is taking longer than expected to read. Try scanning it again.");
   }
 
   /**
@@ -699,7 +768,12 @@ export function ScanReceipt() {
               const res = await api.post<ScanResult>("/records/receipts", formData, {
                 headers: { "Content-Type": "multipart/form-data" },
               });
-              return res.data;
+              // Polled here too, not only in ensureScanned: this branch is a
+              // multi-page receipt, which is the SLOWEST read there is (up to
+              // MAX_RECEIPT_FILES pages of OCR). It has no single File to key
+              // the promise cache on, which is the only reason it bypasses
+              // that path — the waiting is identical.
+              return pollUntilRead(res.data);
             })();
       /*
        * Reload the category list BEFORE showing the review table.
