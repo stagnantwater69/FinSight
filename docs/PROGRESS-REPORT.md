@@ -5,6 +5,9 @@
 **Branch reviewed:** `feat/mobile-ui-refine`
 
 **Baseline commit:** `53dca4d`
+
+**Stabilization status:** completed in five coherent commits after the baseline; working tree clean
+
 **Scope:** Backend API, web application, mobile application, database, OCR/AI capabilities, automated tests, security, UAT, and deployment readiness.
 
 ## Executive summary
@@ -266,9 +269,9 @@ The following checks were run against the current working tree:
 
 The backend tests required the repository's dedicated PostgreSQL container. The container initially existed but was stopped; after it was started, all backend tests passed. Warning output from deliberately invalid mock image bytes and simulated provider failures was expected by the relevant tests and did not produce failures.
 
-## Current work in progress
+## Candidate stabilization completed
 
-At the time of review, the repository had a large uncommitted workstream spanning backend, web, mobile, schema, tests, documentation, and assets.
+At the start of this review, the repository had a large uncommitted workstream spanning backend, web, mobile, schema, tests, documentation, and assets.
 
 Tracked changes represented approximately:
 
@@ -287,7 +290,11 @@ Major themes include:
 - revised web help, legal, marketing, and contact content;
 - new automated tests and mobile assets.
 
-Although the current working tree passes the automated gates, it should not be treated as delivered until the changes are reviewed and committed in coherent units. The branch name `feat/mobile-ui-refine` also understates the backend, database, and web changes now included.
+That workstream has now been reviewed and split into five commits covering dashboard API work, receipt-extraction feedback, mobile UI, web content, and documentation. Required migrations, tests, generated frames, source artwork, and document moves are included intentionally, and the working tree is clean. The branch name `feat/mobile-ui-refine` still understates the backend, database, and web changes now included, but the commit boundaries make those concerns independently reviewable.
+
+The complete 843-test/typecheck/build gate passed before and after the commits. All 16 migrations were also applied to a new local scratch database. The resulting correction table was checked for its cascade foreign key, indexes, and enabled row-level security. A local data-to-dashboard smoke check returned the expected expense, sales, category, and cashflow totals.
+
+Real Supabase registration, Auth redirects, Storage uploads, receipt capture, and dashboard rendering remain UAT environment checks; the local smoke result does not claim to validate those external integrations.
 
 ## Key risks and blockers
 
@@ -316,20 +323,23 @@ Although the current working tree passes the automated gates, it should not be t
 15. **Expo build-tool advisories remain.** These should be reassessed during the next SDK upgrade.
 16. **Migration configuration is sensitive.** Both `DATABASE_URL` and `DIRECT_URL` must be set when migrating a target environment to avoid using the wrong database.
 
-### Project-control risks
+### Project-control note
 
-17. **The uncommitted change set is broad.** Mixed schema, API, UI, content, test, and binary-asset work increases review and omission risk.
+The broad working tree and stale primary documentation identified during the initial review have been resolved. The branch name remains broader in content than its name suggests; preserve the coherent commit boundaries during review or integration.
 
 ## Recommended next steps
 
 ### Priority 0 — stabilize the current candidate
 
-1. Review the current working tree and intentionally include all required migrations, tests, assets, and documentation.
-2. Update the root README and development workflow to reflect the real system status.
-3. Run the complete 843-test/build gate.
-4. Split the working tree into coherent commits.
-5. Perform a manual clean-database smoke test covering registration through dashboard results.
-6. Re-run the complete automated gate against the committed state.
+Completed locally:
+
+1. Reviewed and split the working tree into five coherent commits.
+2. Included the required migrations, tests, assets, and documentation intentionally.
+3. Re-ran the complete 843-test/typecheck/build gate against the committed state.
+4. Updated the root README and development workflow.
+5. Applied all migrations to a clean scratch database and smoke-tested seeded financial data through the dashboard services.
+
+Remaining external portion: perform the registration-through-dashboard and receipt-upload smoke flow against the isolated Supabase UAT environment. This requires real Auth, redirect, and Storage configuration and belongs to Priority 1 rather than the local automated gate.
 
 ### Priority 1 — conduct UAT
 
@@ -375,11 +385,11 @@ FinSight should enter a production pilot only when:
 - centralized errors and actionable logs are available;
 - stale receipt scans have a recovery path;
 - user-data deletion can be honored reliably;
-- the current working changes are reviewed and committed;
-- primary project documentation accurately describes the system.
+- the current working changes remain reviewed and committed;
+- primary project documentation continues to describe the system accurately.
 
 ## Conclusion
 
 FinSight is no longer an early-stage scaffold. It is a broad and well-tested product candidate with thoughtful safeguards around ownership, financial confirmation, receipt reconciliation, source provenance, and AI failure behavior.
 
-The next milestone should focus on **stabilization and evidence rather than additional broad features**: consolidate the active work, conduct UAT, validate physical-device and real-receipt behavior, and close the operational gaps required for a dependable financial service.
+The local candidate is stabilized. The next milestone should focus on **external evidence rather than additional broad features**: provision the isolated Supabase UAT environment, conduct UAT, validate physical-device and real-receipt behavior, and close the operational gaps required for a dependable financial service.
