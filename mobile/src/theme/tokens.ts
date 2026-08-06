@@ -106,6 +106,36 @@ export const categorical = [
 ] as const;
 
 /**
+ * The text colour to put ON each categorical fill, index-paired with
+ * `categorical` — needed wherever a label sits inside a coloured bar or
+ * slice rather than beside it on the page background.
+ *
+ * NOT a single fixed choice. `ink[900]` reads fine on six of these hues but
+ * fails outright on the dark green and the purple (1.9:1 and 3.3:1); white
+ * reads fine on those two but fails on the other six. Each entry here is
+ * WCAG's better of {white, ink[900]} against that specific fill, computed
+ * from the actual hex values, not eyeballed.
+ *
+ * Even the better choice does not clear 4.5:1 everywhere — blue lands at
+ * 4.42:1 and red at 4.17:1, both just under normal-text AA. Both clear
+ * large-text AA (3:1) with room to spare, which is the honest bar for a
+ * short, bold numeral rather than body copy. This does not relax the "text
+ * wears ink tokens, never the series colour" rule above — ordinary chart
+ * labels still must not use this. It exists only for text placed directly on
+ * top of a fill, where the alternative is no label at all.
+ */
+export const categoricalOnColor = [
+  "#ffffff",
+  ink[900],
+  ink[900],
+  ink[900],
+  ink[900],
+  "#ffffff",
+  "#ffffff",
+  ink[900],
+] as const;
+
+/**
  * Font families. Same three typefaces as web (Inter / IBM Plex Sans / IBM Plex
  * Mono), but delivered via @expo-google-fonts rather than @fontsource.
  *

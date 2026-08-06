@@ -111,6 +111,49 @@ export function MoreScreen({ navigation }: any) {
           />
         </Card>
 
+        {/*
+          Help and legal, in the app rather than on the website. Most owners
+          have a phone and no computer, so for them this is the only place
+          these will ever be read.
+        */}
+        <Card>
+          <Row
+            first
+            icon="help-circle-outline"
+            label="Questions & answers"
+            detail="What FinSight does, and what it does not"
+            onPress={() => navigation.navigate("Faqs")}
+          />
+          <Row
+            icon="school-outline"
+            label="Tutorials"
+            detail="Step by step, from setup to reading your dashboard"
+            onPress={() => navigation.navigate("Tutorials")}
+          />
+          <Row
+            icon="mail-outline"
+            label="Contact us"
+            detail="Something wrong? We would rather hear about it"
+            onPress={() => navigation.navigate("Contact")}
+          />
+        </Card>
+
+        <Card>
+          <Row
+            first
+            icon="lock-closed-outline"
+            label="Privacy"
+            detail="What is stored, and who can reach it"
+            onPress={() => navigation.navigate("Privacy")}
+          />
+          <Row
+            icon="document-text-outline"
+            label="Terms of use"
+            detail="What FinSight is for, and what it is not"
+            onPress={() => navigation.navigate("Terms")}
+          />
+        </Card>
+
         <Card>
           <Row
             first

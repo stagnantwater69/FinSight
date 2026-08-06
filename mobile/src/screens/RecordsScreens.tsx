@@ -219,7 +219,7 @@ function RecordCard({
 
 // ---------------------------------------------------------------- List
 
-export function RecordsScreen({ navigation }: any) {
+export function RecordsScreen({ navigation, route }: any) {
   const { selected, categories } = useBusinessProfiles();
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [keyword, setKeyword] = useState("");
@@ -298,6 +298,32 @@ export function RecordsScreen({ navigation }: any) {
   }
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  /*
+   * A filter handed in by another screen — today, "show me this category's
+   * records" from the categories list, which is what web's "View records"
+   * link does with a query string.
+   *
+   * Consumed ONCE and then cleared. React Navigation keeps params on the route
+   * until something replaces them, so without the clear this screen would
+   * silently re-apply the category filter every time the owner came back to
+   * it, including after they had deliberately cleared it — a list quietly
+   * hiding records with no visible cause.
+   *
+   * The filter panel is opened along with it, because a filtered list that
+   * looks exactly like an unfiltered one is how an owner concludes their
+   * records have gone missing.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      const incoming = route?.params?.categoryId;
+      if (incoming === undefined) return;
+      setCategoryId(incoming);
+      if (route?.params?.type) setType(route.params.type);
+      setShowFilters(true);
+      navigation.setParams({ categoryId: undefined, type: undefined });
+    }, [route?.params?.categoryId, route?.params?.type, navigation]),
+  );
 
   // Collected on focus rather than from a route param because the screens that
   // leave one all return here via goBack(), which carries nothing. Dropping the
@@ -412,6 +438,13 @@ export function RecordsScreen({ navigation }: any) {
           <Button title="+ Sales" variant="secondary" onPress={() => navigation.navigate("AddSales")} />
           <Button title="Scan receipt" variant="secondary" onPress={() => navigation.navigate("ScanReceipt")} />
           <Button title="Import CSV" variant="secondary" onPress={() => navigation.navigate("ImportCsv")} />
+          {/*
+            Last in the row on purpose: managing categories is a setup errand,
+            not one of the daily actions beside it. It sits here rather than
+            under More because every insight groups by categories, and this is
+            the screen an owner is on when they notice one is missing.
+          */}
+          <Button title="Categories" variant="secondary" onPress={() => navigation.navigate("Categories")} />
         </View>
 
         <Card style={{ marginBottom: space.md }}>
@@ -674,14 +707,16 @@ function CategoryPicker({
   value,
   onChange,
   onCreated,
-  businessProfileId,
 }: {
   categories: ExpenseCategory[];
   value: number | null;
   onChange: (id: number) => void;
   onCreated: () => void;
-  businessProfileId: number;
 }) {
+  // The business is read from context rather than passed in: the write itself
+  // moved to createCategory, which is already scoped to the selected business,
+  // so a prop naming it here would be a second source for the same fact.
+  const { createCategory } = useBusinessProfiles();
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   /** Raw TextInput, so the focus border `Field` gives every other input is
@@ -692,10 +727,7 @@ function CategoryPicker({
     if (!newName.trim()) return;
     setBusy(true);
     try {
-      const c = await api.post<ExpenseCategory>("/records/categories", {
-        businessProfileId,
-        name: newName.trim(),
-      });
+      const c = await createCategory({ name: newName.trim() });
       setNewName("");
       onCreated();
       onChange(c.id);
@@ -820,7 +852,6 @@ export function AddExpenseScreen({ navigation }: any) {
               value={categoryId}
               onChange={setCategoryId}
               onCreated={refreshCategories}
-              businessProfileId={selected.id}
             />
             <DateField label="Date" value={date} onChange={setDate} />
             {/*
@@ -1102,7 +1133,7 @@ interface CapturedPage {
 }
 
 export function ScanReceiptScreen({ navigation, route }: any) {
-  const { selected, categories, refreshCategories } = useBusinessProfiles();
+  const { selected, categories, refreshCategories, createCategory } = useBusinessProfiles();
   const [scan, setScan] = useState<ReceiptScanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1427,11 +1458,10 @@ export function ScanReceiptScreen({ navigation, route }: any) {
     setCreatingCategoryFor(name);
     setError(null);
     try {
-      const created = await api.post<ExpenseCategory>("/records/categories", {
-        businessProfileId: selected!.id,
-        name,
-      });
-      await refreshCategories();
+      // createCategory puts the new row into the shared list itself, so the
+      // refreshCategories() that used to follow this is gone — it was a second
+      // round trip to learn what the response already said.
+      const created = await createCategory({ name });
       setItemCategories((prev) => {
         const next = { ...prev };
         for (const id of rowsToApplySuggestionTo(items, name, prev, uncategorisedId)) {
@@ -1761,7 +1791,6 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                   value={categoryId}
                   onChange={setCategoryId}
                   onCreated={refreshCategories}
-                  businessProfileId={selected.id}
                 />
               ) : null}
               <DateField label="Date" value={date} onChange={setDate} />
@@ -2613,7 +2642,6 @@ export function EditRecordScreen({ route, navigation }: any) {
                   value={categoryId}
                   onChange={setCategoryId}
                   onCreated={refreshCategories}
-                  businessProfileId={selected.id}
                 />
               ) : null}
               <DateField label="Date" value={date} onChange={setDate} />

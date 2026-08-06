@@ -27,6 +27,21 @@ interface Value {
   selectProfile: (id: number) => void;
   refresh: () => Promise<void>;
   refreshCategories: () => Promise<void>;
+  /**
+   * Creates a category and puts it straight into `categories`.
+   *
+   * Three screens create categories — the picker on the add-expense form, the
+   * "accept this suggestion" button on the receipt review, and the categories
+   * screen itself — and each does something different afterwards, which is why
+   * the FOLLOW-UP stays at the call site while the write lives here. Before
+   * this, all three posted the request themselves and each was independently
+   * responsible for remembering to refresh the shared list.
+   *
+   * Appends rather than refetching: the created row is what the server just
+   * returned, so a second GET would be a round trip to learn something already
+   * known, and the new category would flicker in a moment late.
+   */
+  createCategory: (input: { name: string; description?: string }) => Promise<ExpenseCategory>;
   createProfile: (input: BusinessProfileInput) => Promise<BusinessProfile>;
   updateProfile: (id: number, input: Partial<BusinessProfileInput>) => Promise<BusinessProfile>;
   archiveProfile: (id: number) => Promise<void>;
@@ -118,6 +133,22 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
         selectProfile: setSelectedId,
         refresh,
         refreshCategories,
+        createCategory: async (input) => {
+          if (!selectedId) {
+            // Not reachable from the UI — every screen that can create a
+            // category is behind a selected business — but the alternative is
+            // posting `businessProfileId: null` and letting the server answer
+            // with a validation error that names a field the owner never saw.
+            throw new Error("Choose a business before adding a category.");
+          }
+          const created = await api.post<ExpenseCategory>("/records/categories", {
+            businessProfileId: selectedId,
+            name: input.name,
+            ...(input.description ? { description: input.description } : {}),
+          });
+          setCategories((prev) => [...prev, created]);
+          return created;
+        },
         createProfile: async (input) => {
           const created = await api.post<BusinessProfile>("/business-profiles", input);
           setProfiles((prev) => [...prev, created]);

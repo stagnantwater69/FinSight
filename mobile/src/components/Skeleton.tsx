@@ -100,10 +100,12 @@ export function SkeletonDashboard() {
   return (
     <View style={{ gap: space.lg }}>
       <SkeletonCard />
+      <SkeletonCard style={{ height: 80 }} />
       <View style={{ flexDirection: "row", gap: space.md }}>
         <SkeletonCard style={{ flex: 1 }} />
         <SkeletonCard style={{ flex: 1 }} />
       </View>
+      <SkeletonCard style={{ height: 150 }} />
       <SkeletonCard style={{ height: 180 }} />
       <SkeletonCard style={{ height: 140 }} />
     </View>

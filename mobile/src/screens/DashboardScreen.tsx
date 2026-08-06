@@ -1,64 +1,258 @@
-import { useCallback, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import { Dimensions, Modal, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { Alert, Button, Card, EmptyState, ErrorNote, Screen, ScreenHeader, SegmentedControl, SetupProgress, StatTile, T } from "../components/ui";
-import { RecoveryMeter } from "../components/RecoveryMeter";
-import { CategoryBreakdown, DonutChart } from "../components/charts";
-import { AtAGlance } from "../components/AtAGlance";
-import { SkeletonDashboard } from "../components/Skeleton";
-import { AskFinSight, AskFinSightButton } from "../components/AskFinSight";
+import { Ionicons } from "@expo/vector-icons";
+import { Button, Card, EmptyState, ErrorNote, Money, Screen, SetupProgress, StatTile, T } from "../components/ui";
+import { HomeHeader } from "../components/HomeHeader";
+import { QuickActions, type QuickAction } from "../components/QuickActions";
+import { CashflowChart } from "../components/charts";
+import { GreetingHero } from "../components/GreetingHero";
+import { AskFinSightFab, FAB_CLEARANCE } from "../components/AskFinSightFab";
+import { AskFinSight } from "../components/AskFinSight";
+import { SpendingBreakdownCard } from "../components/SpendingBreakdownCard";
+import { SkeletonBox, SkeletonDashboard } from "../components/Skeleton";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
-import { alertKindFromType } from "../lib/money";
-import { brand, space } from "../theme/tokens";
-import type { DashboardSummary } from "../lib/types";
+import { brand, ink, paper, radius, space, statusText, TAP } from "../theme/tokens";
+import type { CashflowGranularity, DashboardCashflow, DashboardSummary } from "../lib/types";
 
-const PERIODS = [
-  { label: "Today", value: 1 },
-  { label: "Week", value: 7 },
-  { label: "Month", value: 30 },
+/** The dashboard summary (available funds, sales, expenses) is always this month — the period selector was removed. */
+const SUMMARY_PERIOD_DAYS = 30;
+
+const GRANULARITY_OPTIONS: { label: string; value: CashflowGranularity }[] = [
+  { label: "Daily", value: "daily" },
+  { label: "Monthly", value: "monthly" },
 ];
 
+/**
+ * A money-in or money-out figure, sitting in the reference layout's twin-card
+ * slot. Colour carries the direction — brand tint for money coming in, a
+ * warm/rose tint for money going out — same tint vocabulary `Alert` already
+ * uses for its surfaces, so this isn't a new colour idea, just a new place it
+ * appears.
+ */
+function FlowCard({
+  label,
+  value,
+  sublabel,
+  direction,
+}: {
+  label: string;
+  value: number;
+  sublabel: string;
+  direction: "in" | "out";
+}) {
+  const isIn = direction === "in";
+  return (
+    <Card
+      style={{
+        flex: 1,
+        minWidth: 150,
+        backgroundColor: isIn ? brand[50] : "#fef2f2",
+        borderColor: isIn ? brand[200] : "#fecaca",
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <T
+          variant="label"
+          style={{ textTransform: "uppercase", letterSpacing: 0.4, color: isIn ? brand[700] : statusText.critical }}
+        >
+          {label}
+        </T>
+        <Ionicons
+          name={isIn ? "arrow-down-circle" : "arrow-up-circle"}
+          size={16}
+          color={isIn ? brand[600] : statusText.critical}
+        />
+      </View>
+      <Money value={value} size={20} weight="semibold" color={isIn ? brand[900] : statusText.critical} style={{ marginTop: 4 }} />
+      <T variant="caption" style={{ marginTop: 2 }}>
+        {sublabel}
+      </T>
+    </Card>
+  );
+}
+
+/**
+ * The cashflow chart's own range control — a small "Daily ⌄" chip that opens
+ * a two-option picker, rather than a full picker screen. Lives next to the
+ * chart's title (via `ChartFrame`'s `action` slot) rather than in the
+ * screen's own header, because it belongs to this one chart and nothing else
+ * on Home reads differently for it.
+ *
+ * Anchored, not centred: the menu is measured off the chip itself with
+ * `measureInWindow` and appears directly under it, and the backdrop carries
+ * no dim tint. `Modal` is used only for the layer it renders on and the
+ * outside-tap-to-close it gives for free — visually this reads as a regular
+ * dropdown attached to its trigger, not a dialog.
+ */
+function GranularityDropdown({
+  value,
+  onChange,
+}: {
+  value: CashflowGranularity;
+  onChange: (v: CashflowGranularity) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+  const anchorRef = useRef<View>(null);
+  const current = GRANULARITY_OPTIONS.find((o) => o.value === value)!;
+
+  return (
+    <View ref={anchorRef} collapsable={false}>
+      <Pressable
+        onPress={() => {
+          anchorRef.current?.measureInWindow((x, y, width, height) => {
+            setAnchor({ top: y + height + 4, right: Math.max(Dimensions.get("window").width - (x + width), 0) });
+            setOpen(true);
+          });
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`${current.label} view. Change cashflow range.`}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+          paddingHorizontal: space.sm,
+          paddingVertical: 6,
+          borderRadius: radius.full,
+          borderWidth: 1,
+          borderColor: ink[200],
+          opacity: pressed ? 0.7 : 1,
+        })}
+      >
+        <T style={{ fontSize: 12, color: ink[700] }}>{current.label}</T>
+        <Ionicons name="chevron-down" size={14} color={ink[500]} />
+      </Pressable>
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <View style={{ flex: 1 }}>
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={() => setOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          />
+          {anchor ? (
+            <View
+              style={{
+                position: "absolute",
+                top: anchor.top,
+                right: anchor.right,
+                backgroundColor: paper.DEFAULT,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: paper[200],
+                overflow: "hidden",
+                minWidth: 130,
+                shadowColor: ink[900],
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.12,
+                shadowRadius: 8,
+                elevation: 6,
+              }}
+            >
+              {GRANULARITY_OPTIONS.map((o) => (
+                <Pressable
+                  key={o.value}
+                  onPress={() => {
+                    onChange(o.value);
+                    setOpen(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: o.value === value }}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: space.md,
+                    paddingHorizontal: space.md,
+                    minHeight: TAP - 4,
+                    backgroundColor: pressed ? paper[100] : "transparent",
+                  })}
+                >
+                  <T style={{ fontSize: 14, color: ink[900] }}>{o.label}</T>
+                  {o.value === value ? <Ionicons name="checkmark" size={16} color={brand[600]} /> : null}
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
 export function DashboardScreen({ navigation }: any) {
-  const { selected, categories, error: profilesError, refresh: refreshProfiles } = useBusinessProfiles();
-  const [periodDays, setPeriodDays] = useState(30);
+  const { selected, profiles, categories, error: profilesError, refresh: refreshProfiles, selectProfile } =
+    useBusinessProfiles();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [cashflow, setCashflow] = useState<DashboardCashflow | null>(null);
+  const [cashflowGranularity, setCashflowGranularity] = useState<CashflowGranularity>("daily");
   const [loading, setLoading] = useState(true);
+  const [cashflowLoading, setCashflowLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [askOpen, setAskOpen] = useState(false);
 
-  const load = useCallback(
-    async (isRefresh = false) => {
-      if (!selected) return;
-      isRefresh ? setRefreshing(true) : setLoading(true);
-      setError(null);
-      try {
-        setSummary(await api.get<DashboardSummary>("/dashboard/summary", {
+  /*
+   * Split from the cashflow fetch on purpose. They used to be one
+   * Promise.all, which meant toggling the Daily/Monthly dropdown re-fetched
+   * the summary too and dropped the whole screen back to the full skeleton
+   * for a control that only the cashflow card owns.
+   */
+  const loadSummary = useCallback(async () => {
+    if (!selected) return;
+    setError(null);
+    try {
+      setSummary(
+        await api.get<DashboardSummary>("/dashboard/summary", {
           businessProfileId: selected.id,
-          periodDays,
-        }));
-      } catch (err) {
-        setError(errorMessage(err));
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [selected?.id, periodDays]
-  );
+          periodDays: SUMMARY_PERIOD_DAYS,
+        })
+      );
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [selected?.id]);
+
+  const loadCashflow = useCallback(async () => {
+    if (!selected) return;
+    setCashflowLoading(true);
+    try {
+      setCashflow(
+        await api.get<DashboardCashflow>("/dashboard/cashflow", {
+          businessProfileId: selected.id,
+          granularity: cashflowGranularity,
+        })
+      );
+    } catch {
+      // The cashflow card falls back to its own empty state below; a second
+      // error banner next to the page-level one for the summary would say
+      // the same thing twice for what is, from here, a minor degradation.
+    } finally {
+      setCashflowLoading(false);
+    }
+  }, [selected?.id, cashflowGranularity]);
 
   // Refetch on focus so a record added on another tab is reflected when the
-  // user comes back, rather than showing a stale figure.
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  // user comes back, rather than showing a stale figure. Two separate
+  // effects so a granularity change (which only recreates `loadCashflow`)
+  // reloads just the chart, not the whole screen.
+  useFocusEffect(useCallback(() => { loadSummary(); }, [loadSummary]));
+  useFocusEffect(useCallback(() => { loadCashflow(); }, [loadCashflow]));
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadSummary(), loadCashflow()]);
+    setRefreshing(false);
+  }, [loadSummary, loadCashflow]);
 
   if (!selected) {
     return (
-      <Screen>
+      <Screen safeTop>
         <View style={{ padding: space.lg }}>
           {/*
             An empty list means one of two very different things, and saying
@@ -90,45 +284,86 @@ export function DashboardScreen({ navigation }: any) {
 
   const hasRecords =
     !!summary && (summary.overview.totalExpenses > 0 || summary.overview.totalSalesReference > 0);
+  const unreadCount = summary ? summary.alerts.filter((a) => !a.readStatus).length : 0;
 
-  /*
-   * The review card's sentence, written once.
-   *
-   * It is both the visible line and the card's spoken label, and the two must
-   * say the same thing — a label that has drifted from what is on screen is
-   * worse than no label at all, because only one of the two audiences can see
-   * the disagreement.
-   */
-  const reviewLine = !summary
-    ? ""
-    : summary.recordsNeedingReview === 0
-      ? "No records need review right now"
-      : `${summary.recordsNeedingReview} record${summary.recordsNeedingReview === 1 ? "" : "s"} need${
-          summary.recordsNeedingReview === 1 ? "s" : ""
-        } review`;
+  const quickActions: QuickAction[] = [
+    {
+      key: "scan",
+      label: "Scan receipt",
+      icon: "scan-outline",
+      onPress: () => navigation.navigate("Records", { screen: "ScanReceipt", params: { autoLaunch: true } }),
+    },
+    {
+      key: "addExpense",
+      label: "Add expense",
+      icon: "wallet-outline",
+      onPress: () => navigation.navigate("Records", { screen: "AddExpense" }),
+    },
+    {
+      key: "addSale",
+      label: "Add sale",
+      icon: "cash-outline",
+      onPress: () => navigation.navigate("Records", { screen: "AddSales" }),
+    },
+    {
+      key: "categories",
+      label: "Categories",
+      icon: "pricetags-outline",
+      onPress: () => navigation.navigate("Records", { screen: "Categories" }),
+    },
+    {
+      key: "importCsv",
+      label: "Import CSV",
+      icon: "cloud-upload-outline",
+      onPress: () => navigation.navigate("Records", { screen: "ImportCsv" }),
+    },
+    {
+      key: "insights",
+      label: "Insights",
+      icon: "bar-chart-outline",
+      onPress: () => navigation.navigate("Insights"),
+    },
+    {
+      key: "alerts",
+      label: "Alerts",
+      icon: "notifications-outline",
+      onPress: () => navigation.navigate("Notifications"),
+    },
+    {
+      key: "businesses",
+      label: "Businesses",
+      icon: "storefront-outline",
+      onPress: () => navigation.navigate("More", { screen: "BusinessProfiles" }),
+    },
+  ];
 
   return (
-    <Screen>
+    <Screen safeTop>
       <ScrollView
-        contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2, gap: space.lg }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={brand[600]} />}
+        // The FAB floats over this list, so the scroll has to end far enough
+        // up that it can never cover the last card.
+        contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl + FAB_CLEARANCE, gap: space.lg }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={brand[600]} />}
       >
-        <View>
-          <ScreenHeader
-            eyebrow="Dashboard"
-            title={selected.name}
-            subtitle={`Last ${periodDays} day${periodDays === 1 ? "" : "s"}`}
-          />
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "center" }}>
-            <SegmentedControl
-              options={PERIODS}
-              value={periodDays}
-              onChange={setPeriodDays}
-              accessibilityLabel="Period"
-            />
-            <AskFinSightButton onPress={() => setAskOpen(true)} />
-          </View>
-        </View>
+        <HomeHeader
+          selected={selected}
+          profiles={profiles}
+          onSwitch={selectProfile}
+          unreadCount={unreadCount}
+          onBellPress={() => navigation.navigate("Notifications")}
+        />
+
+        {/*
+          Greets the person, not the business — so it sits under the business
+          switcher rather than above it, where it would look like a label for
+          whichever profile happens to be selected.
+
+          `summary` is passed even though the screen may still be loading: the
+          date, the greeting and Fin all render immediately either way, and only
+          Fin's one-line note waits on this — as a skeleton inside the panel, so
+          the card does not change height when the figures land.
+        */}
+        <GreetingHero summary={loading ? null : summary} />
 
         {!loading && summary ? (
           <SetupProgress
@@ -149,103 +384,48 @@ export function DashboardScreen({ navigation }: any) {
         ) : (
           <>
             {/*
-              Serial Position Effect — same order as web, and for the same
-              reasons. Available funds takes the primacy slot (the figure owners
-              check most), expenses/sales sit in the weak middle, and Recovery
-              target closes the screen because it is the actionable "so what".
+              Serial Position Effect — Fin's note in the greeting above already
+              answered "is anything wrong" before a single figure is read;
+              available funds takes the primacy slot here, the figure owners
+              check most.
             */}
-            <AtAGlance summary={summary} onAsk={() => setAskOpen(true)} />
-
             <StatTile label="Available business funds" value={summary.overview.availableFunds} emphasis />
+
             <View style={{ flexDirection: "row", gap: space.md }}>
-              <StatTile
-                label="Expenses"
-                value={summary.overview.totalExpenses}
-                sublabel={`Last ${summary.periodDays} day${summary.periodDays === 1 ? "" : "s"}`}
-              />
-              <StatTile
-                label="Sales reference"
-                value={summary.overview.totalSalesReference}
-                sublabel={`Last ${summary.periodDays} day${summary.periodDays === 1 ? "" : "s"}`}
-              />
+              <FlowCard label="Sales" value={summary.overview.totalSalesReference} sublabel="This month" direction="in" />
+              <FlowCard label="Expenses" value={summary.overview.totalExpenses} sublabel="This month" direction="out" />
             </View>
-            {/*
-              "Sales reference" reads like an invoice number until someone says
-              otherwise. Same clarification the Add sales screen carries, so the
-              term means one thing wherever it appears.
-            */}
-            <T variant="caption">
-              Sales reference is a sale you recorded for your own tracking, not a receipt given to a customer.
-            </T>
 
-            <Pressable
-              onPress={() => navigation.navigate("Records", { screen: "FlaggedRecords" })}
-              accessibilityRole="button"
-              // Announced as a plain card until now, so there was nothing to
-              // say it could be tapped. The label carries the count and where
-              // the tap goes, instead of ending on an arrow glyph.
-              accessibilityLabel={`${reviewLine}. Review flagged records.`}
-            >
-              <Card>
-                <T style={{ fontSize: 14 }}>{reviewLine}</T>
-                <T style={{ color: brand[700], fontSize: 14, marginTop: 2 }}>Review flagged records →</T>
-              </Card>
-            </Pressable>
+            <QuickActions actions={quickActions} />
 
             <Card>
-              <DonutChart
-                data={summary.expenseCategoryBreakdown}
-                subtitle={`Last ${summary.periodDays} day${summary.periodDays === 1 ? "" : "s"}`}
-              />
-            </Card>
-
-            <Card>
-              <CategoryBreakdown
-                data={summary.expenseCategoryBreakdown}
-                subtitle="Largest first"
-              />
-            </Card>
-
-            <Card>
-              <T variant="heading" accessibilityRole="header" style={{ marginBottom: space.md }}>
-                Alerts
-              </T>
-              {summary.alerts.length === 0 ? (
-                <T variant="caption">
-                  FinSight will flag possible duplicates and unusually large expenses here as you record them.
-                </T>
+              {cashflowLoading && !cashflow ? (
+                // Only on the very first load — a granularity toggle refetches
+                // in the background and swaps the chart in when it lands,
+                // rather than blanking a chart that is already on screen.
+                <SkeletonBox height={200} />
               ) : (
-                <View style={{ gap: space.sm }}>
-                  {summary.alerts.slice(0, 5).map((a) => (
-                    <Alert key={a.id} kind={alertKindFromType(a.type)} label={a.type}>
-                      {a.message}
-                    </Alert>
-                  ))}
-                </View>
+                <CashflowChart
+                  data={cashflow?.points ?? []}
+                  granularity={cashflowGranularity}
+                  subtitle={cashflowGranularity === "monthly" ? "Last 6 months" : "Last 7 days"}
+                  action={<GranularityDropdown value={cashflowGranularity} onChange={setCashflowGranularity} />}
+                />
               )}
-              {/*
-                The five shown here are read-only. Everything else — the rest
-                of the list, and any way to clear one — lives on the alerts
-                screen, which mobile previously had no route to at all.
-              */}
-              <Button
-                title={summary.alerts.length > 5 ? `See all ${summary.alerts.length} alerts` : "See all alerts"}
-                variant="ghost"
-                onPress={() => navigation.navigate("Notifications")}
-              />
             </Card>
 
-            {/* Recency slot. */}
-            <Card>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: space.md }}>
-                <T variant="heading" accessibilityRole="header">Recovery target</T>
-                <T variant="caption">This month</T>
-              </View>
-              <RecoveryMeter data={summary.recoveryStatus} />
-            </Card>
+            <SpendingBreakdownCard data={summary.expenseCategoryBreakdown} />
           </>
         )}
       </ScrollView>
+
+      {/*
+        Outside the ScrollView so it stays put while the page moves under it.
+        Bottom-right rather than centred: the raised Scan button in the tab bar
+        pokes up into this corner of the screen, and two round buttons stacked
+        on the same axis would read as one control.
+      */}
+      <AskFinSightFab onPress={() => setAskOpen(true)} />
 
       <AskFinSight
         visible={askOpen}

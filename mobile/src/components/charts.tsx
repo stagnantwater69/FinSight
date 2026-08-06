@@ -3,7 +3,7 @@ import { View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 import { Money, T } from "./ui";
 import { formatMoney } from "../lib/money";
-import { brand, categorical, ink, paper, space, status, statusText } from "../theme/tokens";
+import { brand, categorical, categoricalOnColor, font, ink, paper, space, status, statusText } from "../theme/tokens";
 
 /**
  * The chart kit.
@@ -74,6 +74,9 @@ function ChartFrame({ title, subtitle, children }: { title: string; subtitle?: s
 // accurately. A donut would make the top two hard to order and the small ones
 // unreadable.
 
+/** Tall enough to hold an 11px semibold percentage label without it overflowing the fill. */
+const BAR_HEIGHT = 20;
+
 export function CategoryBreakdown({
   data,
   title = "Where your money went",
@@ -104,6 +107,19 @@ export function CategoryBreakdown({
       >
         {rows.map((row, i) => {
           const share = grandTotal > 0 ? (row.total / grandTotal) * 100 : 0;
+          const fillPct = Math.max((row.total / max) * 100, 1.5);
+          const swatch = categorical[i % categorical.length];
+          const onSwatch = categoricalOnColor[i % categoricalOnColor.length];
+          /*
+           * Below this, the coloured fill itself is narrower than a "NN%"
+           * label needs to sit inside it without spilling onto the empty
+           * track behind it — three characters plus a percent sign, at the
+           * label's own font size, against a bar that can be as little as a
+           * sliver of the row's width. Short bars get their label just past
+           * the fill's end instead, on the plain track rather than crammed
+           * into colour that cannot hold it.
+           */
+          const fitsInsideFill = fillPct >= 16;
           return (
             <View key={row.categoryId} style={{ marginBottom: i === rows.length - 1 ? 0 : space.md }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm }}>
@@ -117,7 +133,7 @@ export function CategoryBreakdown({
                       width: 8,
                       height: 8,
                       borderRadius: 2,
-                      backgroundColor: categorical[i % categorical.length],
+                      backgroundColor: swatch,
                     }}
                   />
                   <T style={{ fontSize: 13, color: ink[800], flex: 1 }} numberOfLines={1}>
@@ -127,22 +143,74 @@ export function CategoryBreakdown({
                 <T style={{ fontSize: 13, color: ink[900] }}>{formatMoney(row.total)}</T>
               </View>
 
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: 4 }}>
+              {/*
+                Thicker than a plain track bar needs to be on its own — 8px
+                cannot hold even a small numeral without it overflowing top
+                and bottom. BAR_HEIGHT exists to hold the percentage this
+                board used to print in a separate column, now sitting inside
+                the fill itself (or just past it, on short bars).
+              */}
+              <View style={{ height: BAR_HEIGHT, marginTop: 4 }}>
                 {/*
                   A 0-100 viewBox stretched to the available width, so bar
                   lengths are a straight percentage and the track and the fill
                   share one coordinate system.
                 */}
-                <Svg width="100%" height={8} viewBox="0 0 100 8" preserveAspectRatio="none" style={{ flex: 1 }}>
-                  <Rect x={0} y={0} width={100} height={8} rx={4} fill={paper[200]} />
-                  <Path
-                    d={barPath(0, 0, Math.max((row.total / max) * 100, 1.5), 8, 4, true)}
-                    fill={categorical[i % categorical.length]}
-                  />
+                <Svg
+                  width="100%"
+                  height={BAR_HEIGHT}
+                  viewBox={`0 0 100 ${BAR_HEIGHT}`}
+                  preserveAspectRatio="none"
+                  style={{ position: "absolute", width: "100%", height: "100%" }}
+                >
+                  <Rect x={0} y={0} width={100} height={BAR_HEIGHT} rx={BAR_HEIGHT / 2} fill={paper[200]} />
+                  <Path d={barPath(0, 0, fillPct, BAR_HEIGHT, BAR_HEIGHT / 2, true)} fill={swatch} />
                 </Svg>
-                <T variant="caption" style={{ width: 34, textAlign: "right" }}>
-                  {share.toFixed(0)}%
-                </T>
+                {/*
+                  An RN Text overlay, not SVG <Text> inside the chart above:
+                  the viewBox's x and y units scale by different factors
+                  (100 units of width vs BAR_HEIGHT units of height stretched
+                  to the same physical box), so any font size specified in
+                  those units would render visibly warped. A plain View
+                  positioned by CSS percentage sits outside that distortion.
+                */}
+                <View
+                  pointerEvents="none"
+                  style={
+                    fitsInsideFill
+                      ? {
+                          position: "absolute",
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: `${fillPct}%`,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }
+                      : {
+                          position: "absolute",
+                          left: `${fillPct}%`,
+                          top: 0,
+                          bottom: 0,
+                          justifyContent: "center",
+                          paddingLeft: space.xs,
+                        }
+                  }
+                >
+                  <T
+                    style={{
+                      fontSize: 11,
+                      fontFamily: font.sansSemibold,
+                      // On the fill, this MUST be the paired on-colour, not an
+                      // ink token — see tokens.ts on why a single fixed choice
+                      // fails half the palette. Past the fill, it is back on
+                      // the plain track, so an ordinary ink tone is fine.
+                      color: fitsInsideFill ? onSwatch : ink[700],
+                    }}
+                  >
+                    {share.toFixed(0)}%
+                  </T>
+                </View>
               </View>
             </View>
           );
@@ -232,6 +300,196 @@ export function SpendTrend({
         </View>
       </View>
     </ChartFrame>
+  );
+}
+
+// ============================================================
+// Money in vs money out — two lines, one baseline
+// ============================================================
+// Same construction as SpendTrend, but two series sharing one scale rather
+// than one. Sales and expenses answer the single question owners open Home
+// to ask — "am I bringing in more than I'm spending" — which a single-series
+// chart can't show on its own.
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-08-15" -> "Aug 15" for a daily axis tick; "2026-08" -> "Aug" for a monthly one. No Intl — Hermes' coverage of it is not guaranteed. */
+function cashflowTick(date: string, granularity: "daily" | "monthly"): string {
+  const month = MONTH_ABBR[Number(date.slice(5, 7)) - 1] ?? date;
+  if (granularity === "monthly") return month;
+  return `${month} ${Number(date.slice(8, 10))}`;
+}
+
+/** Rounds up to a "nice" ceiling — 1/2/5 times a power of ten — so the axis reads 0/5K/10K/15K/20K instead of the raw data max. */
+function niceAxisMax(value: number): number {
+  if (value <= 0) return 4;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+  const residual = value / magnitude;
+  const niceResidual = residual <= 1 ? 1 : residual <= 2 ? 2 : residual <= 5 ? 5 : 10;
+  return niceResidual * magnitude;
+}
+
+/** "5000" -> "5K". Below 1000, the raw number — matches the reference axis, which carries no currency sign (that's on the legend totals instead). */
+function compactAxisLabel(value: number): string {
+  if (value === 0) return "0";
+  if (value < 1000) return String(Math.round(value));
+  const thousands = value / 1000;
+  return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)}K`;
+}
+
+/**
+ * Cashflow deliberately breaks the "grid and axes are recessive" house rule
+ * above: gridlines, a labelled Y axis and a tick under every point, at the
+ * owner's request, rather than the single trailing-edge label the other line
+ * chart (SpendTrend) uses. Kept local to this one chart rather than promoted
+ * into `ChartFrame` — nothing else here asked for it.
+ */
+export function CashflowChart({
+  data,
+  granularity = "daily",
+  title = "Cashflow",
+  subtitle,
+  action,
+  height = 200,
+}: {
+  data: { date: string; sales: number; expenses: number }[];
+  granularity?: "daily" | "monthly";
+  title?: string;
+  subtitle?: string;
+  action?: ReactNode;
+  height?: number;
+}) {
+  const header = (
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm }}>
+      <View style={{ flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", flex: 1, gap: 6 }}>
+        <T accessibilityRole="header" style={{ fontFamily: font.displayBold, fontSize: 17, color: ink[900] }}>
+          {title}
+        </T>
+        {subtitle ? <T style={{ fontSize: 13, color: ink[500] }}>({subtitle})</T> : null}
+      </View>
+      {action}
+    </View>
+  );
+
+  if (data.length < 2) {
+    return (
+      <View>
+        {header}
+        <T variant="caption" style={{ marginTop: space.sm }}>
+          {granularity === "monthly"
+            ? "A few more months of records and your cashflow trend will show here."
+            : "A few more days of records and your cashflow trend will show here."}
+        </T>
+      </View>
+    );
+  }
+
+  const W = 320;
+  const H = height;
+  const padY = 10;
+  const AXIS_WIDTH = 34;
+  const rawMax = Math.max(...data.flatMap((d) => [d.sales, d.expenses]));
+  const axisMax = niceAxisMax(rawMax);
+  const gridValues = [0, axisMax / 4, axisMax / 2, (axisMax * 3) / 4, axisMax];
+  const stepX = W / (data.length - 1);
+  const y = (v: number) => padY + (1 - v / axisMax) * (H - padY * 2);
+  const path = (pick: (d: (typeof data)[number]) => number) =>
+    data.map((d, i) => `${i === 0 ? "M" : "L"}${(i * stepX).toFixed(1)},${y(pick(d)).toFixed(1)}`).join(" ");
+
+  const totalSales = data.reduce((s, d) => s + d.sales, 0);
+  const totalExpenses = data.reduce((s, d) => s + d.expenses, 0);
+
+  return (
+    <View>
+      {header}
+      <View
+        style={{ marginTop: space.md }}
+        accessibilityLabel={`Cashflow over ${data.length} ${
+          granularity === "monthly" ? "months" : "days"
+        }. Total money in ${formatMoney(totalSales)}, total money out ${formatMoney(totalExpenses)}.`}
+      >
+        <View style={{ flexDirection: "row" }}>
+          <View style={{ width: AXIS_WIDTH, height: H }}>
+            {gridValues.map((v) => (
+              <T key={v} style={{ position: "absolute", top: y(v) - 6, right: 6, fontSize: 10, color: ink[400] }}>
+                {compactAxisLabel(v)}
+              </T>
+            ))}
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+              {gridValues.map((v) => (
+                <Path
+                  key={v}
+                  d={`M0,${y(v).toFixed(1)} H${W}`}
+                  stroke={ink[100]}
+                  strokeWidth={1}
+                  strokeDasharray="3 4"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+              {/* Expenses drawn first so the sales line, the one an owner wants to see win, sits on top. */}
+              <Path
+                d={path((d) => d.expenses)}
+                stroke={status.serious}
+                strokeWidth={2}
+                fill="none"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+              <Path
+                d={path((d) => d.sales)}
+                stroke={brand[600]}
+                strokeWidth={2}
+                fill="none"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </Svg>
+
+            {/* One tick per point, angled — the reference's diagonal date row. */}
+            <View style={{ height: 30, marginTop: 4 }}>
+              {data.map((d, i) => (
+                <View key={d.date} style={{ position: "absolute", left: `${(i / (data.length - 1)) * 100}%`, top: 0 }}>
+                  <T
+                    numberOfLines={1}
+                    style={{
+                      width: 48,
+                      fontSize: 10,
+                      color: ink[400],
+                      transform: [{ translateX: -12 }, { rotate: "-40deg" }],
+                    }}
+                  >
+                    {cashflowTick(d.date, granularity)}
+                  </T>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+
+        {/* Two series, so a legend carrying the totals is mandatory, not optional. */}
+        <View style={{ flexDirection: "row", justifyContent: "center", gap: space.xl, marginTop: space.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: brand[600] }} />
+            <View>
+              <T variant="caption">Total Money In</T>
+              <Money value={totalSales} size={17} weight="semibold" color={brand[600]} />
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: status.serious }} />
+            <View>
+              <T variant="caption">Total Money Out</T>
+              <Money value={totalExpenses} size={17} weight="semibold" color={status.serious} />
+            </View>
+          </View>
+        </View>
+      </View>
+    </View>
   );
 }
 

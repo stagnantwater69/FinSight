@@ -32,6 +32,14 @@ import {
   RecordsScreen,
   ScanReceiptScreen,
 } from "./src/screens/RecordsScreens";
+import { CategoriesScreen } from "./src/screens/CategoriesScreen";
+import {
+  ContactScreen,
+  FaqsScreen,
+  PrivacyScreen,
+  TermsScreen,
+  TutorialsScreen,
+} from "./src/screens/HelpScreens";
 import {
   ExpenseBehaviorScreen,
   RecoveryTargetScreen,
@@ -87,7 +95,13 @@ const screenOptions = {
 function DashboardStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="DashboardHome" component={DashboardScreen} options={{ title: "Dashboard" }} />
+      {/*
+        headerShown: false — DashboardScreen (now Home) builds its own header
+        with an avatar, a business switcher and a bell, which replaces both
+        this native title bar and the eyebrow/title ScreenHeader every other
+        screen uses. Same pattern MoreStack already uses for MoreHome.
+      */}
+      <Stack.Screen name="DashboardHome" component={DashboardScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: "Alerts" }} />
     </Stack.Navigator>
   );
@@ -108,6 +122,12 @@ function RecordsStack() {
       <Stack.Screen name="ScanReceipt" component={ScanReceiptScreen} options={{ title: "Scan receipt" }} />
       <Stack.Screen name="ImportCsv" component={ImportCsvScreen} options={{ title: "Import CSV" }} />
       <Stack.Screen name="FlaggedRecords" component={FlaggedRecordsScreen} options={{ title: "Review" }} />
+      {/*
+        In the Records stack rather than under More, because a category is a
+        records concept — the screen's own "view records" route goes straight
+        back to RecordsList, which only works without a stack hop from here.
+      */}
+      <Stack.Screen name="Categories" component={CategoriesScreen} options={{ title: "Categories" }} />
     </Stack.Navigator>
   );
 }
@@ -138,6 +158,17 @@ function MoreStack() {
       <Stack.Screen name="BusinessProfiles" component={BusinessProfilesScreen} options={{ title: "Businesses" }} />
       <Stack.Screen name="BusinessProfileForm" component={BusinessProfileFormScreen} options={{ title: "Business profile" }} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: "Alerts" }} />
+      {/*
+        Help and legal live IN the app, not behind a link to the website.
+        Most owners have a phone and no computer, so for them this is the only
+        place these documents will ever be read — and Privacy and Terms are
+        not optional reading to route someone off-device for.
+      */}
+      <Stack.Screen name="Faqs" component={FaqsScreen} options={{ title: "Questions" }} />
+      <Stack.Screen name="Tutorials" component={TutorialsScreen} options={{ title: "Tutorials" }} />
+      <Stack.Screen name="Contact" component={ContactScreen} options={{ title: "Contact us" }} />
+      <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ title: "Privacy" }} />
+      <Stack.Screen name="Terms" component={TermsScreen} options={{ title: "Terms of use" }} />
     </Stack.Navigator>
   );
 }
@@ -155,7 +186,7 @@ function MoreStack() {
  * cannot separate the two colours.
  */
 const TAB_ICONS: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap]> = {
-  Dashboard: ["grid-outline", "grid"],
+  Dashboard: ["home-outline", "home"],
   Records: ["receipt-outline", "receipt"],
   Insights: ["bar-chart-outline", "bar-chart"],
   More: ["ellipsis-horizontal-circle-outline", "ellipsis-horizontal-circle"],
@@ -237,7 +268,12 @@ function MainTabs() {
         },
       })}
     >
-      <Tab.Screen name="Dashboard" component={DashboardStack} />
+      {/*
+        Route name stays "Dashboard" — nothing navigates to it by name, and
+        renaming it would be pure churn — but the visible label is "Home",
+        which is what the tab actually is now.
+      */}
+      <Tab.Screen name="Dashboard" component={DashboardStack} options={{ tabBarLabel: "Home" }} />
       <Tab.Screen name="Records" component={RecordsStack} />
       {/*
         A tab in position only. The screen is never rendered: the press is

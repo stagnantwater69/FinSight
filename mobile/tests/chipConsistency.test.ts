@@ -103,10 +103,14 @@ describe("chip consistency", () => {
 
   it("actually uses the primitives at the call sites", () => {
     // The rule above is satisfiable by deleting every chip in the app, which
-    // would be a regression the offender check cannot see.
+    // would be a regression the offender check cannot see. Floor of 3, not a
+    // specific file list: Home's Today/Week/Month selector was removed by
+    // design (the dashboard redesign dropped period switching in favour of a
+    // fixed monthly view), which is what took this from 4 down to 3 — the
+    // remaining call sites are InsightsScreens, DateField and RecordsScreens.
     const usage = sourceFiles().filter(
       ({ name, src }) => !ALLOWED.has(name) && /<(SelectChip|SegmentedControl)\b/.test(src),
     );
-    expect(usage.length).toBeGreaterThanOrEqual(4);
+    expect(usage.length).toBeGreaterThanOrEqual(3);
   });
 });

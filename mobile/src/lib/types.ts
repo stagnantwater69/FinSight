@@ -164,6 +164,20 @@ export interface DashboardSummary {
   alerts: Notification[];
 }
 
+export type CashflowGranularity = "daily" | "monthly";
+
+/** One day's or one month's money in vs money out — a row of the cashflow chart. */
+export interface CashflowPoint {
+  date: string;
+  sales: number;
+  expenses: number;
+}
+
+export interface DashboardCashflow {
+  granularity: CashflowGranularity;
+  points: CashflowPoint[];
+}
+
 export type DayStatus = "above" | "at" | "below";
 
 // Month-to-date recovery tracker. Shared verbatim by the Dashboard summary
