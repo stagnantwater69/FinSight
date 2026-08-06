@@ -1,0 +1,385 @@
+# FinSight System Progress Report
+
+**Reporting date:** 6 August 2026
+
+**Branch reviewed:** `feat/mobile-ui-refine`
+
+**Baseline commit:** `53dca4d`
+**Scope:** Backend API, web application, mobile application, database, OCR/AI capabilities, automated tests, security, UAT, and deployment readiness.
+
+## Executive summary
+
+FinSight has progressed well beyond its original scaffold. It is now a working cross-platform financial monitoring system composed of:
+
+- an Express, Prisma, PostgreSQL, and TypeScript backend;
+- a React, Vite, and TypeScript web application;
+- a React Native and Expo mobile application;
+- Supabase-backed authentication, database, and object-storage integration;
+- OCR and vision-assisted receipt extraction;
+- financial dashboards, insights, anomaly detection, and AI-assisted questions.
+
+The system is best classified as **feature-complete for a controlled beta and ready to enter structured user acceptance testing (UAT)**. It is **not yet production-ready** because several operational and validation requirements remain unresolved, especially real-device testing, real-receipt accuracy evidence, production monitoring, backup restoration, durable background processing, and user-data deletion.
+
+Fresh verification conducted for this report produced **843 passing automated tests**:
+
+| Application | Result |
+|---|---:|
+| Backend | 657 tests passed across 31 files |
+| Web | 75 tests passed across 5 files |
+| Mobile | 111 tests passed across 15 files |
+| **Total** | **843 tests passed** |
+
+The root `README.md` and `docs/DEVELOPMENT-WORKFLOW.md` now reflect the implemented mobile application and the candidate's stabilization/UAT stage.
+
+## Overall status
+
+| Area | Status | Assessment |
+|---|---|---|
+| Backend/API | Green | Compiles, validates, and passes the complete automated suite |
+| Web application | Green | Main product flows are present; tests and production build pass |
+| Mobile application | Green/Amber | Broad feature parity and passing tests; physical-device validation remains |
+| Database | Green | Prisma schema is valid and 16 migrations apply successfully |
+| Receipt/OCR | Green/Amber | Multi-page capture and review are implemented; field accuracy needs more real-receipt evidence |
+| AI functionality | Amber | Provider integration and safe fallback behavior exist; live quality depends on external providers |
+| Security | Amber | Strong ownership controls; deployment hardening and hard deletion remain open |
+| UAT | Green/Amber | Environment, script, forms, and scoring tools exist; completed sessions are not evidenced |
+| Deployment | Amber/Red | Docker and runbooks exist; hosting, recovery, monitoring, and mobile distribution remain unresolved |
+
+## Progress against the development phases
+
+### Phase 0 — Foundation: complete
+
+- Backend and web projects compile successfully.
+- The mobile application is also implemented and type-safe.
+- Prisma schema validation succeeds.
+- The database model has evolved through 16 migrations.
+- Docker, nginx, testing, UAT, and deployment support files are present.
+
+### Phase 1 — Database: complete for development and testing
+
+- PostgreSQL is used through Prisma.
+- The complete migration history is exercised against a dedicated local test database.
+- Test safeguards refuse to run destructive integration tests against a remote or incorrectly named database.
+- Supabase configuration supports Auth, Storage, and PostgreSQL.
+
+Still required:
+
+- provision a separate UAT and production Supabase environment;
+- create the `receipts`, `csv-imports`, and `avatars` buckets;
+- apply migrations using both the pooled and direct database URLs;
+- test backup restoration before accepting real production data.
+
+### Phase 2 — Account management: substantially complete
+
+Implemented capabilities include:
+
+- registration and login;
+- authentication/session handling;
+- password recovery;
+- current-user retrieval and profile editing;
+- logout;
+- protected API routes;
+- business-scoped ownership checks.
+
+The main remaining account-management gap is a user-facing hard-delete capability. Business profiles can be archived, but full account and business-data erasure currently requires direct administrative/database action.
+
+### Phase 3 — Web application: substantially complete
+
+The web application contains the main product journeys:
+
+- landing, registration, login, password recovery, and profile;
+- business-profile creation, editing, listing, and switching;
+- manual sales and expense entry/editing;
+- receipt scanning and owner confirmation;
+- multi-page receipt uploads;
+- CSV import, validation, mapping, and category preview;
+- record filtering, search, and source provenance;
+- duplicate and flagged-record resolution;
+- dashboard, recovery, spending-impact, and expense insights;
+- categories, notifications, Ask FinSight, tutorials, FAQs, legal pages, and contact information.
+
+The production build succeeds. Route-level chunking is in place, although chart-related and shared application bundles remain candidates for later performance optimization.
+
+### Phase 4 — Mobile application: substantially complete
+
+The Expo mobile application includes:
+
+- authentication flows;
+- business management;
+- dashboard and financial summaries;
+- sales and expense records;
+- camera/photo receipt capture;
+- CSV import support;
+- categories and insights;
+- notifications, help, and settings/more screens;
+- Ask FinSight access;
+- accessibility and reduced-motion improvements.
+
+The current working tree includes a significant mobile home/dashboard refinement with new charts, quick actions, a greeting hero, spending breakdown, categories/help access, and an Ask FinSight floating action button.
+
+The primary remaining mobile gate is testing the complete capture-to-confirm flow on representative physical Android devices. No APK or store build has yet been documented as produced from this repository.
+
+### Phase 5 — OCR, AI, and financial analysis: substantially implemented
+
+Implemented capabilities include:
+
+- Tesseract OCR;
+- OCR confidence tracking;
+- deterministic receipt field and line-item parsing;
+- Gemini vision-assisted rescue when objective quality checks fail;
+- AI-assisted categorisation;
+- Ask FinSight contextual questions;
+- history-based vendor matching;
+- Z-score and IQR anomaly detection;
+- recovery-target calculations;
+- threshold and impact banding;
+- allocation and receipt-total reconciliation.
+
+Remaining considerations:
+
+- the large-expense threshold remains a business assumption requiring validation;
+- Isolation Forest analysis remains deferred;
+- live AI quality and availability depend on correctly configured external services;
+- known parsing limitations remain for difficult receipt layouts.
+
+### Phase 6 — Testing: strong automated foundation
+
+The project contains unit, integration, contract, web, mobile, OCR-quality, AI-quality, cross-platform parity, and UAT assets.
+
+Strengths include coverage for:
+
+- financial calculations and date boundaries;
+- anomaly detection and recovery targets;
+- authentication ownership boundaries;
+- record lifecycle and business isolation;
+- receipt scanning, polling, confirmation, and failure behavior;
+- multi-page receipts and duplicate-page detection;
+- CSV import and duplicate resolution;
+- source-file cleanup;
+- extraction feedback and calibration metrics;
+- client/backend payload compatibility;
+- mobile navigation, formatting, content, and consistency;
+- selected web receipt review and component behavior.
+
+Remaining gaps include:
+
+- real Supabase Auth and Storage are mocked in automated backend tests;
+- real OCR assessment is separate from the standard suite;
+- the receipt corpus is mainly synthetic;
+- live AI calls are excluded from deterministic tests;
+- a comprehensive browser end-to-end suite is not evident;
+- physical-device capture, load, soak, and poor-network tests remain;
+- production restoration has never been exercised.
+
+### Phase 7 — Deployment: partially complete
+
+Available deployment assets include:
+
+- a multi-stage backend Dockerfile;
+- nginx configuration;
+- Docker Compose configuration;
+- a web production build;
+- a detailed deployment runbook;
+- UAT environment instructions.
+
+The backend image and health endpoint have previously been documented as verified. However, deployment readiness is incomplete because:
+
+- no production provider/topology is selected;
+- TLS is not included in the supplied nginx setup;
+- no error-tracking service is configured;
+- logs are unstructured and lack request correlation;
+- the health endpoint does not test database connectivity;
+- no storage backup strategy is documented;
+- no database restore rehearsal has been completed;
+- no mobile release build is documented.
+
+## Delivered functional capabilities
+
+### Financial records
+
+- Manual sales and expense creation and editing.
+- Business-scoped access and ownership enforcement.
+- Search and filtering by relevant record attributes.
+- User-defined expense categories.
+- Source provenance for manual, CSV, and receipt-derived records.
+- Flagged-record handling and anomaly review.
+- Duplicate detection and grouped duplicate resolution.
+
+### Receipt processing
+
+- Single-page and multi-page receipt upload.
+- Ordered receipt pages stored against one scan.
+- Pollable background processing states.
+- OCR confidence measurement.
+- Vision rescue for low-confidence or unreconciled scans.
+- Receipt field and line-item extraction.
+- Item categorisation and category proposals.
+- Reconciliation between item totals and receipt totals.
+- Duplicate-page and multiple-receipt warnings.
+- Image-quality assessment.
+- Owner review before an expense is created.
+- Cleanup of orphaned receipt source files.
+
+### Extraction feedback
+
+The current work adds a feedback loop that records differences between extracted values and owner-confirmed values. Supporting tools can calculate accuracy, calibration, and recurring error clusters and recommend confidence-threshold changes.
+
+This process is intentionally review-driven:
+
+- thresholds do not change automatically;
+- real owner corrections require human review before becoming prompt examples;
+- proposed changes must be measured against the fixed corpus before release;
+- correction data remains subject to privacy restrictions.
+
+### CSV import
+
+- File parsing and row validation.
+- Column/header mapping.
+- Import preview.
+- Category-creation preview.
+- Source-file retention and signed retrieval.
+- Safe filename handling for storage object keys.
+
+### Dashboard and insights
+
+- Business totals and trends.
+- Period and category comparisons.
+- Spending breakdowns.
+- Recovery-target and spending-impact calculations.
+- Business-aware AI context.
+- Explicit outage/fallback messages when AI providers are unavailable.
+
+## Verification results
+
+The following checks were run against the current working tree:
+
+| Component | Command | Result |
+|---|---|---|
+| Backend | `npm run typecheck` | Passed |
+| Backend | `npm run build` | Passed |
+| Backend | `npx prisma validate` | Passed |
+| Backend | `npm test` | 657 tests passed |
+| Web | `npm test` | 75 tests passed |
+| Web | `npm run build` | Passed |
+| Mobile | `npm test` | 111 tests passed |
+| Mobile | `npm run typecheck` | Passed |
+
+The backend tests required the repository's dedicated PostgreSQL container. The container initially existed but was stopped; after it was started, all backend tests passed. Warning output from deliberately invalid mock image bytes and simulated provider failures was expected by the relevant tests and did not produce failures.
+
+## Current work in progress
+
+At the time of review, the repository had a large uncommitted workstream spanning backend, web, mobile, schema, tests, documentation, and assets.
+
+Tracked changes represented approximately:
+
+- 26 modified or deleted files;
+- 1,428 additions;
+- 515 deletions.
+
+Major themes include:
+
+- mobile home/dashboard redesign;
+- new charts and spending breakdowns;
+- quick actions and Ask FinSight entry points;
+- category and help screens;
+- dashboard API/service improvements;
+- receipt extraction feedback and reporting;
+- revised web help, legal, marketing, and contact content;
+- new automated tests and mobile assets.
+
+Although the current working tree passes the automated gates, it should not be treated as delivered until the changes are reviewed and committed in coherent units. The branch name `feat/mobile-ui-refine` also understates the backend, database, and web changes now included.
+
+## Key risks and blockers
+
+### Release-critical risks
+
+1. **UAT has not been evidenced as completed.** Preparation is strong, but participant results and acceptance decisions are still needed.
+2. **Production backup and recovery are untested.** A successful restore must be demonstrated, not merely assumed.
+3. **Storage files lack a recovery strategy.** Database backups alone do not protect receipt photographs and imported CSV files.
+4. **Receipt jobs are not durable.** Background work runs inside the API process and can be stranded during a restart.
+5. **Operational monitoring is absent.** There is no centralized error reporting, structured logging, or database-aware readiness check.
+6. **Hard deletion is missing.** Full data-erasure requests cannot currently be completed through the application.
+
+### Product-quality risks
+
+7. **Real-receipt evidence is limited.** Synthetic corpus results are valuable for regression tests but do not prove production accuracy on blurred, folded, faded, or badly lit receipts.
+8. **External AI behavior varies.** Categorisation, vision rescue, and Ask FinSight depend on provider configuration and availability.
+9. **Known outlier edge case.** At the minimum history size, ordinary extremes can produce false positives.
+10. **Known OCR layout issue.** Vendor text in a footer may be selected incorrectly.
+11. **Business threshold assumption.** The large-expense threshold still requires stakeholder and user validation.
+
+### Security and operational risks
+
+12. **Security headers are not configured.** Helmet or equivalent hardening remains pending.
+13. **Rate limiting is process-local.** Horizontal scaling would multiply the effective allowance.
+14. **A React Router advisory is accepted, not patched.** The documented vulnerable RSC path is not used by this client-side bearer-token application, but the finding should be revisited when an appropriate forward fix is available.
+15. **Expo build-tool advisories remain.** These should be reassessed during the next SDK upgrade.
+16. **Migration configuration is sensitive.** Both `DATABASE_URL` and `DIRECT_URL` must be set when migrating a target environment to avoid using the wrong database.
+
+### Project-control risks
+
+17. **The uncommitted change set is broad.** Mixed schema, API, UI, content, test, and binary-asset work increases review and omission risk.
+
+## Recommended next steps
+
+### Priority 0 — stabilize the current candidate
+
+1. Review the current working tree and intentionally include all required migrations, tests, assets, and documentation.
+2. Update the root README and development workflow to reflect the real system status.
+3. Run the complete 843-test/build gate.
+4. Split the working tree into coherent commits.
+5. Perform a manual clean-database smoke test covering registration through dashboard results.
+6. Re-run the complete automated gate against the committed state.
+
+### Priority 1 — conduct UAT
+
+1. Provision an isolated Supabase UAT project or branch.
+2. Create the required storage buckets and configure authentication redirects.
+3. Run the prepared facilitator script with representative users.
+4. Include at least one complete receipt-capture session on a physical phone.
+5. Score results with the existing UAT-results script.
+6. Apply predefined acceptance rules and record all release-blocking findings.
+7. Add consented real receipts to the private accuracy corpus.
+
+### Priority 2 — close production operations gaps
+
+1. Select the production host and secrets-management approach.
+2. Add centralized error tracking and structured request logs.
+3. Add a database-aware readiness endpoint.
+4. Test database restoration into a scratch environment and record actual recovery time.
+5. Define recovery for receipt and CSV storage objects.
+6. Implement a durable job queue or stale-scan recovery process.
+7. Implement ownership-safe account and business hard deletion.
+8. Add security headers and retain a single backend instance until rate limiting is centralized.
+
+### Priority 3 — release engineering
+
+1. Produce a signed Android test build.
+2. Verify installation, permissions, camera capture, upload, network loss, and app backgrounding.
+3. Add browser end-to-end tests for money-changing workflows.
+4. Establish web bundle and receipt-processing performance budgets.
+5. Perform web and mobile accessibility reviews.
+6. Address dependency upgrades separately from the stabilized release candidate.
+
+## Proposed production-pilot gates
+
+FinSight should enter a production pilot only when:
+
+- all automated build and test gates remain green;
+- structured UAT has passed and severe findings are resolved;
+- a representative Android device completes scan-to-confirm successfully;
+- real-receipt extraction accuracy has been measured;
+- production environment variables, storage buckets, migrations, and CORS are smoke-tested;
+- database restoration has been successfully rehearsed;
+- storage recovery has a documented owner and procedure;
+- centralized errors and actionable logs are available;
+- stale receipt scans have a recovery path;
+- user-data deletion can be honored reliably;
+- the current working changes are reviewed and committed;
+- primary project documentation accurately describes the system.
+
+## Conclusion
+
+FinSight is no longer an early-stage scaffold. It is a broad and well-tested product candidate with thoughtful safeguards around ownership, financial confirmation, receipt reconciliation, source provenance, and AI failure behavior.
+
+The next milestone should focus on **stabilization and evidence rather than additional broad features**: consolidate the active work, conduct UAT, validate physical-device and real-receipt behavior, and close the operational gaps required for a dependable financial service.

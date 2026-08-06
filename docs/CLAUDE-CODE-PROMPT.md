@@ -68,15 +68,22 @@ solid and tested.
 
 ---
 
-## 4. Current State of the Repo
+## 4. Current state of the repository
 
-The repo already has a working scaffold. **Read these files before writing
-new code, so you extend the existing structure instead of duplicating
-it:**
+> Historical note: this brief was written when FinSight was a scaffold. Its
+> product constraints and coding conventions still apply, but the status and
+> original build order below have been superseded by
+> [DEVELOPMENT-WORKFLOW.md](DEVELOPMENT-WORKFLOW.md) and
+> [PROGRESS-REPORT.md](PROGRESS-REPORT.md).
+
+The repository now contains working backend, web, and mobile applications.
+Read these areas before writing new code so existing services and flows are
+extended rather than duplicated:
 
 ```
-finsight/
-├── DEVELOPMENT-WORKFLOW.md      — the phased build plan this brief follows
+FinsightV1/
+├── docs/DEVELOPMENT-WORKFLOW.md — stabilization and release workflow
+├── docs/PROGRESS-REPORT.md      — evidence, risks, and production gates
 ├── backend/
 │   ├── prisma/schema.prisma     — full data model, already matches the ERD
 │   ├── src/
@@ -87,62 +94,31 @@ finsight/
 │   │   ├── services/             (storage, ocr, csvImport, duplicateDetection, analysis, ai)
 │   │   └── app.ts / server.ts
 │   └── .env.example
-└── web/
-    ├── package.json / vite.config.ts / tailwind.config.js  — configured
-    └── src/                      — NOT YET BUILT — this is the next work
+├── web/                          — implemented Vite + React client
+└── mobile/                       — implemented Expo + React Native client
 ```
 
-**Backend status:** all 6 modules have routes + controllers + services
-wired end-to-end and should already run against a real Supabase project.
-Several integration points are intentionally stubbed with `TODO` comments
-— do not silently "complete" these with guessed values; flag them and ask,
-or implement them clearly marked as an assumption:
-- `ai.service.ts` — Gemini/OpenRouter calls are placeholders
-- `ocr.service.ts` — Tesseract call is a placeholder
-- Large-expense threshold in `records.controller.ts` — placeholder rule
-  (25% of expected monthly expenses), not confirmed against the manuscript
-- Isolation Forest — not implemented at all, Z-score baseline only
-
-**Web frontend status:** configuration files exist; **no React source
-files exist yet** (no `main.tsx`, `App.tsx`, routing, pages, or
-components). This is very likely your first real task.
-
-**Mobile:** not started at all.
+The backend modules and both clients are substantially implemented. Supabase
+Auth and Storage, Tesseract OCR, provider-backed AI with fallbacks, receipt
+review, CSV import, dashboards, insights, and cross-platform product flows are
+present. The large-expense threshold remains a business assumption, and
+Isolation Forest remains deferred; do not present either as validated fact.
 
 ---
 
-## 5. Build Order — Follow This Sequence
+## 5. Current work order
 
-Don't jump ahead to later phases even if it seems faster. Each phase is
-only testable once the one before it works.
+The next milestone is stabilization and evidence, not another broad feature
+phase:
 
-1. **Database live** — Supabase project connected, `prisma migrate dev`
-   run successfully.
-2. **Backend running, Module 1 (Account Management) proven via direct API
-   calls** (Postman/curl) before any UI exists.
-3. **Web frontend, module by module, in this exact order:**
-   1. Login / Register / Profile (Account Management)
-   2. Business Profile creation & switching
-   3. Records Management — manual entry → receipt scan → CSV import →
-      flagged/duplicates → search/filter, in that order of complexity
-   4. Dashboard
-   5. Insights
-   6. Ask FinSight (AI chat) — build last, once there's real data to
-      ground it in
-4. **Mobile app**, reusing the backend, focused on camera-based OCR
-   capture as the one genuinely new piece of work.
-5. **Fill in deferred integrations** — real Gemini/OpenRouter calls, real
-   Tesseract OCR, Isolation Forest once there's enough transaction history
-   to justify it.
-6. **Testing** — unit (analysis math), integration (record → flag →
-   resolve → dashboard), OCR accuracy, AI response grounding, cross-platform
-   parity, user acceptance testing.
-7. **Deployment** — Docker/Nginx for backend, static build for web, APK
-   for Android.
+1. stabilize and verify the current candidate;
+2. conduct structured UAT in an isolated Supabase environment;
+3. validate the physical-device receipt flow and real-receipt accuracy;
+4. close recovery, monitoring, durable-job, and hard-deletion gaps;
+5. produce and validate a signed Android test build.
 
-Full detail on each phase, including "done when" checkpoints, is in
-`DEVELOPMENT-WORKFLOW.md` in the repo root — read it before starting a new
-phase.
+Full exit criteria and commands are in
+[DEVELOPMENT-WORKFLOW.md](DEVELOPMENT-WORKFLOW.md).
 
 ---
 
