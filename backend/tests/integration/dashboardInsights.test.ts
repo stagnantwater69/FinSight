@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import * as expenses from "../../src/services/expenseRecord.service";
 import * as sales from "../../src/services/salesRecord.service";
 import * as insights from "../../src/services/insights.service";
-import { getDashboardSummary } from "../../src/services/dashboard.service";
+import { getDashboardCashflow, getDashboardSummary } from "../../src/services/dashboard.service";
 import { Z_SCORE_THRESHOLD } from "../../src/services/analysis.service";
 import { disconnectDb, makeOwnerWithProfile, resetDb, utcDayString } from "../setup/testDb";
 
@@ -295,6 +295,74 @@ describe("spending impact against real rows", () => {
     const s = await getDashboardSummary(ctx.user.id, ctx.profile.id, 30);
     expect(s.overview.totalExpenses).toBe(0);
     expect(s.overview.availableFunds).toBe(48500);
+  });
+});
+
+describe("dashboard cashflow — daily", () => {
+  it("defaults to daily and returns one zero-filled row per day, even with no records", async () => {
+    const cf = await getDashboardCashflow(ctx.user.id, ctx.profile.id);
+    expect(cf.granularity).toBe("daily");
+    expect(cf.points).toHaveLength(7);
+    expect(cf.points.every((d) => d.sales === 0 && d.expenses === 0)).toBe(true);
+  });
+
+  it("buckets a sale and an expense dated today into today's row", async () => {
+    await addSale(4500, 0);
+    await addExpense("Inventory", "Today", 1200, 0);
+    const cf = await getDashboardCashflow(ctx.user.id, ctx.profile.id, "daily");
+    const today = cf.points[cf.points.length - 1]!;
+    expect(today.sales).toBe(4500);
+    expect(today.expenses).toBe(1200);
+  });
+
+  it("sums multiple records that land on the same day", async () => {
+    await addExpense("Inventory", "Morning", 500, -2);
+    await addExpense("Utilities", "Afternoon", 300, -2);
+    const cf = await getDashboardCashflow(ctx.user.id, ctx.profile.id, "daily");
+    const threeDaysAgoRow = cf.points[cf.points.length - 3]!;
+    expect(threeDaysAgoRow.expenses).toBe(800);
+  });
+
+  it("excludes records outside the 7-day window", async () => {
+    await addExpense("Inventory", "Ninety days ago", 800, -90);
+    const cf = await getDashboardCashflow(ctx.user.id, ctx.profile.id, "daily");
+    expect(cf.points.reduce((s, d) => s + d.expenses, 0)).toBe(0);
+  });
+
+  it("rows are in chronological order, oldest first", async () => {
+    const cf = await getDashboardCashflow(ctx.user.id, ctx.profile.id, "daily");
+    const dates = cf.points.map((d) => d.date);
+    expect(dates).toEqual([...dates].sort());
+  });
+});
+
+describe("dashboard cashflow — monthly", () => {
+  it("returns one zero-filled row per month, even with no records", async () => {
+    const cf = await getDashboardCashflow(ctx.user.id, ctx.profile.id, "monthly");
+    expect(cf.granularity).toBe("monthly");
+    expect(cf.points).toHaveLength(6);
+    expect(cf.points.every((d) => d.sales === 0 && d.expenses === 0)).toBe(true);
+  });
+
+  it("buckets a sale and an expense dated today into the current month's row", async () => {
+    await addSale(9000, 0);
+    await addExpense("Inventory", "This month", 3000, 0);
+    const cf = await getDashboardCashflow(ctx.user.id, ctx.profile.id, "monthly");
+    const currentMonth = cf.points[cf.points.length - 1]!;
+    expect(currentMonth.sales).toBe(9000);
+    expect(currentMonth.expenses).toBe(3000);
+  });
+
+  it("excludes a record from eight months ago", async () => {
+    await addExpense("Inventory", "Long ago", 5000, -240);
+    const cf = await getDashboardCashflow(ctx.user.id, ctx.profile.id, "monthly");
+    expect(cf.points.reduce((s, d) => s + d.expenses, 0)).toBe(0);
+  });
+
+  it("rows are in chronological order, oldest first", async () => {
+    const cf = await getDashboardCashflow(ctx.user.id, ctx.profile.id, "monthly");
+    const dates = cf.points.map((d) => d.date);
+    expect(dates).toEqual([...dates].sort());
   });
 });
 

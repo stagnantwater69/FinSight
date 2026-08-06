@@ -59,3 +59,8 @@ export function utcDayOfMonth(d: Date): number {
 export function utcDateKey(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+/** YYYY-MM key for grouping records by calendar month. */
+export function utcMonthKey(d: Date): string {
+  return d.toISOString().slice(0, 7);
+}

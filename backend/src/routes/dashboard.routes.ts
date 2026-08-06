@@ -8,3 +8,4 @@ export const dashboardRouter = Router();
 dashboardRouter.use(requireAuth);
 
 dashboardRouter.get("/summary", asyncHandler(dashboardController.summary));
+dashboardRouter.get("/cashflow", asyncHandler(dashboardController.cashflow));
