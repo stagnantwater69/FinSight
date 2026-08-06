@@ -1,48 +1,16 @@
 import { Link } from "react-router-dom";
 import { PublicLayout, PublicPageHead } from "../components/PublicLayout";
+import { TUTORIALS } from "../lib/marketingContent";
 
 /**
  * Tutorials — one card per walkthrough that is planned.
  *
- * The written steps ARE real: they describe what the product actually does
- * today, so this page is useful before a single video exists. Each card
- * carries a "video coming soon" marker rather than a play button that does
- * nothing — a control that looks live and isn't teaches a visitor something
- * worse about the product than an honest label.
+ * The steps live in lib/marketingContent so the Android app's Help section
+ * teaches the same six, in the same order. Each card carries a "video coming
+ * soon" marker rather than a play button that does nothing — a control that
+ * looks live and isn't teaches a visitor something worse about the product
+ * than an honest label.
  */
-
-const TUTORIALS = [
-  {
-    n: 1,
-    title: "Setting up your business",
-    body: "Create your account, add a business profile, and set the monthly expenses you expect. That figure is what the recovery target is measured against, so it is worth a moment's thought.",
-  },
-  {
-    n: 2,
-    title: "Recording expenses and sales",
-    body: "Add a purchase with its category, and record the day's sales as a single figure. This is the couple of minutes a day everything else is built on.",
-  },
-  {
-    n: 3,
-    title: "Scanning a receipt",
-    body: "Photograph a receipt and let FinSight read the date, store, total and item lines. Check what it read, fix anything wrong, then confirm — nothing is saved until you do.",
-  },
-  {
-    n: 4,
-    title: "Importing a spreadsheet",
-    body: "Bring in records you already keep as a CSV. Match your columns to FinSight's, preview every row, and confirm the ones you want.",
-  },
-  {
-    n: 5,
-    title: "Reading your dashboard",
-    body: "What the recovery target means, how to read the category breakdown, and what a flagged expense is telling you.",
-  },
-  {
-    n: 6,
-    title: "Asking FinSight a question",
-    body: "Ask about your own figures in plain language, and understand why it sometimes answers that your records don't cover the question.",
-  },
-];
 
 export function Tutorials() {
   return (

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { PublicLayout, PublicPageHead } from "../components/PublicLayout";
+import { SUPPORT_EMAIL } from "../lib/marketingContent";
 
 /**
  * Contact.
@@ -10,9 +11,9 @@ import { PublicLayout, PublicPageHead } from "../components/PublicLayout";
  * support address or an inbox exists, this becomes a form and the placeholder
  * below goes.
  *
- * The address is a single constant so there is one place to change it.
+ * The address lives in lib/marketingContent — one place to change it, and the
+ * Android app's Contact screen shows the same one.
  */
-const SUPPORT_EMAIL = "support@finsight.example";
 
 export function Contact() {
   return (
