@@ -112,10 +112,11 @@ The next milestone is stabilization and evidence, not another broad feature
 phase:
 
 1. stabilize and verify the current candidate;
-2. conduct structured UAT in an isolated Supabase environment;
-3. validate the physical-device receipt flow and real-receipt accuracy;
-4. close recovery, monitoring, durable-job, and hard-deletion gaps;
-5. produce and validate a signed Android test build.
+2. complete the team-only internal acceptance checklist with synthetic data;
+3. validate the physical-device receipt flow on the presentation phone;
+4. document recovery, monitoring, durable-job, and hard-deletion gaps as
+   future production work;
+5. produce and validate a signed Android test build if required for the demo.
 
 Full exit criteria and commands are in
 [DEVELOPMENT-WORKFLOW.md](DEVELOPMENT-WORKFLOW.md).

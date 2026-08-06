@@ -1,5 +1,12 @@
 # Setting up the environment for UAT
 
+> **Scope note (6 August 2026):** A separate Supabase UAT environment is not
+> required for the current team-only capstone acceptance pass. Use synthetic
+> data in the existing development project and follow
+> [internal-acceptance-checklist.md](internal-acceptance-checklist.md). The
+> isolation guidance below remains applicable if external participants or real
+> business data are introduced later.
+
 What to put in front of participants, and why it should not be the development
 database. Pairs with `docs/uat-script.md` (what to say and record) and
 `scripts/README.md` (how to score the forms afterwards).

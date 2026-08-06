@@ -6,9 +6,9 @@
 
 **Baseline commit:** `53dca4d`
 
-**Stabilization status:** completed in five coherent commits after the baseline; working tree clean
+**Stabilization status:** completed in six coherent commits after the baseline; working tree clean
 
-**Scope:** Backend API, web application, mobile application, database, OCR/AI capabilities, automated tests, security, UAT, and deployment readiness.
+**Scope:** Backend API, web application, mobile application, database, OCR/AI capabilities, automated tests, security, internal capstone acceptance, and demonstration readiness.
 
 ## Executive summary
 
@@ -21,7 +21,7 @@ FinSight has progressed well beyond its original scaffold. It is now a working c
 - OCR and vision-assisted receipt extraction;
 - financial dashboards, insights, anomaly detection, and AI-assisted questions.
 
-The system is best classified as **feature-complete for a controlled beta and ready to enter structured user acceptance testing (UAT)**. It is **not yet production-ready** because several operational and validation requirements remain unresolved, especially real-device testing, real-receipt accuracy evidence, production monitoring, backup restoration, durable background processing, and user-data deletion.
+The system is best classified as **feature-complete for its capstone demonstration and ready for structured internal acceptance testing**. The project team are the intended evaluators and no external participant cohort is planned. This work must therefore be described as developer/internal acceptance, not representative user acceptance testing. The system is still not production-ready.
 
 Fresh verification conducted for this report produced **843 passing automated tests**:
 
@@ -45,7 +45,7 @@ The root `README.md` and `docs/DEVELOPMENT-WORKFLOW.md` now reflect the implemen
 | Receipt/OCR | Green/Amber | Multi-page capture and review are implemented; field accuracy needs more real-receipt evidence |
 | AI functionality | Amber | Provider integration and safe fallback behavior exist; live quality depends on external providers |
 | Security | Amber | Strong ownership controls; deployment hardening and hard deletion remain open |
-| UAT | Green/Amber | Environment, script, forms, and scoring tools exist; completed sessions are not evidenced |
+| Internal acceptance | Amber | Team checklist exists; hosted security and physical-device checks remain |
 | Deployment | Amber/Red | Docker and runbooks exist; hosting, recovery, monitoring, and mobile distribution remain unresolved |
 
 ## Progress against the development phases
@@ -67,10 +67,12 @@ The root `README.md` and `docs/DEVELOPMENT-WORKFLOW.md` now reflect the implemen
 
 Still required:
 
-- provision a separate UAT and production Supabase environment;
-- create the `receipts`, `csv-imports`, and `avatars` buckets;
-- apply migrations using both the pooled and direct database URLs;
-- test backup restoration before accepting real production data.
+- resolve the hosted project's critical RLS/Data API exposure finding;
+- verify migration history consistency before the final demonstration;
+- test backup restoration only if the project advances beyond capstone use.
+
+The hosted project already contains the required `receipts`, `csv-imports`, and
+`avatars` buckets with the expected private/private/public visibility.
 
 ### Phase 2 — Account management: substantially complete
 
@@ -290,38 +292,45 @@ Major themes include:
 - revised web help, legal, marketing, and contact content;
 - new automated tests and mobile assets.
 
-That workstream has now been reviewed and split into five commits covering dashboard API work, receipt-extraction feedback, mobile UI, web content, and documentation. Required migrations, tests, generated frames, source artwork, and document moves are included intentionally, and the working tree is clean. The branch name `feat/mobile-ui-refine` still understates the backend, database, and web changes now included, but the commit boundaries make those concerns independently reviewable.
+That workstream has now been reviewed and split into six commits covering dashboard API work, receipt-extraction feedback, mobile UI, web content, and documentation. Required migrations, tests, generated frames, source artwork, and document moves are included intentionally, and the working tree is clean. The branch name `feat/mobile-ui-refine` still understates the backend, database, and web changes now included, but the commit boundaries make those concerns independently reviewable.
 
 The complete 843-test/typecheck/build gate passed before and after the commits. All 16 migrations were also applied to a new local scratch database. The resulting correction table was checked for its cascade foreign key, indexes, and enabled row-level security. A local data-to-dashboard smoke check returned the expected expense, sales, category, and cashflow totals.
 
-Real Supabase registration, Auth redirects, Storage uploads, receipt capture, and dashboard rendering remain UAT environment checks; the local smoke result does not claim to validate those external integrations.
+Real Supabase registration, Auth redirects, Storage uploads, receipt capture, and dashboard rendering remain internal acceptance checks; the local smoke result does not claim to validate those external integrations.
 
 ## Key risks and blockers
 
-### Release-critical risks
+### Capstone-critical risks
 
-1. **UAT has not been evidenced as completed.** Preparation is strong, but participant results and acceptance decisions are still needed.
-2. **Production backup and recovery are untested.** A successful restore must be demonstrated, not merely assumed.
-3. **Storage files lack a recovery strategy.** Database backups alone do not protect receipt photographs and imported CSV files.
-4. **Receipt jobs are not durable.** Background work runs inside the API process and can be stranded during a restart.
-5. **Operational monitoring is absent.** There is no centralized error reporting, structured logging, or database-aware readiness check.
-6. **Hard deletion is missing.** Full data-erasure requests cannot currently be completed through the application.
+1. **Internal acceptance has not been completed.** The checklist exists, but the presentation workflow and physical-device evidence remain outstanding.
+2. **Hosted Data API exposure is unresolved.** Do not add more hosted test data until the RLS/privilege design is fixed and verified.
+3. **The physical presentation-device flow is unverified.** Camera, network-loss, backgrounding, and scan-to-confirm still require hands-on evidence.
+
+### Future production risks
+
+4. **Production backup and recovery are untested.** A successful restore must be demonstrated before production use, not merely assumed.
+5. **Storage files lack a recovery strategy.** Database backups alone do not protect receipt photographs and imported CSV files.
+6. **Receipt jobs are not durable.** Background work runs inside the API process and can be stranded during a restart.
+7. **Operational monitoring is absent.** There is no centralized error reporting, structured logging, or database-aware readiness check.
+8. **Hard deletion is missing.** Full data-erasure requests cannot currently be completed through the application.
 
 ### Product-quality risks
 
-7. **Real-receipt evidence is limited.** Synthetic corpus results are valuable for regression tests but do not prove production accuracy on blurred, folded, faded, or badly lit receipts.
-8. **External AI behavior varies.** Categorisation, vision rescue, and Ask FinSight depend on provider configuration and availability.
-9. **Known outlier edge case.** At the minimum history size, ordinary extremes can produce false positives.
-10. **Known OCR layout issue.** Vendor text in a footer may be selected incorrectly.
-11. **Business threshold assumption.** The large-expense threshold still requires stakeholder and user validation.
+9. **Real-receipt evidence is limited.** Synthetic corpus results are valuable for regression tests but do not prove production accuracy on blurred, folded, faded, or badly lit receipts.
+10. **External AI behavior varies.** Categorisation, vision rescue, and Ask FinSight depend on provider configuration and availability.
+11. **Known outlier edge case.** At the minimum history size, ordinary extremes can produce false positives.
+12. **Known OCR layout issue.** Vendor text in a footer may be selected incorrectly.
+13. **Business threshold assumption.** The large-expense threshold still requires stakeholder and user validation.
 
 ### Security and operational risks
 
-12. **Security headers are not configured.** Helmet or equivalent hardening remains pending.
-13. **Rate limiting is process-local.** Horizontal scaling would multiply the effective allowance.
-14. **A React Router advisory is accepted, not patched.** The documented vulnerable RSC path is not used by this client-side bearer-token application, but the finding should be revisited when an appropriate forward fix is available.
-15. **Expo build-tool advisories remain.** These should be reassessed during the next SDK upgrade.
-16. **Migration configuration is sensitive.** Both `DATABASE_URL` and `DIRECT_URL` must be set when migrating a target environment to avoid using the wrong database.
+14. **Hosted public tables have RLS disabled.** Supabase reports all 13 public application tables as externally exposed through Data API roles. Resolve this before adding more hosted test data.
+15. **Leaked-password protection is disabled.** Enable it if the project will hold anything beyond synthetic capstone accounts.
+16. **Security headers are not configured.** Helmet or equivalent hardening remains pending.
+17. **Rate limiting is process-local.** Horizontal scaling would multiply the effective allowance.
+18. **A React Router advisory is accepted, not patched.** The documented vulnerable RSC path is not used by this client-side bearer-token application, but the finding should be revisited when an appropriate forward fix is available.
+19. **Expo build-tool advisories remain.** These should be reassessed during the next SDK upgrade.
+20. **Migration configuration is sensitive.** Both `DATABASE_URL` and `DIRECT_URL` must be set when migrating a target environment to avoid using the wrong database.
 
 ### Project-control note
 
@@ -333,23 +342,25 @@ The broad working tree and stale primary documentation identified during the ini
 
 Completed locally:
 
-1. Reviewed and split the working tree into five coherent commits.
+1. Reviewed and split the working tree into six coherent commits.
 2. Included the required migrations, tests, assets, and documentation intentionally.
 3. Re-ran the complete 843-test/typecheck/build gate against the committed state.
 4. Updated the root README and development workflow.
 5. Applied all migrations to a clean scratch database and smoke-tested seeded financial data through the dashboard services.
 
-Remaining external portion: perform the registration-through-dashboard and receipt-upload smoke flow against the isolated Supabase UAT environment. This requires real Auth, redirect, and Storage configuration and belongs to Priority 1 rather than the local automated gate.
+Remaining external portion: after the hosted RLS/Data API finding is resolved, perform the registration-through-dashboard and receipt-upload smoke flow against the existing development project using synthetic data.
 
-### Priority 1 — conduct UAT
+### Priority 1 — internal capstone acceptance
 
-1. Provision an isolated Supabase UAT project or branch.
-2. Create the required storage buckets and configure authentication redirects.
-3. Run the prepared facilitator script with representative users.
-4. Include at least one complete receipt-capture session on a physical phone.
-5. Score results with the existing UAT-results script.
-6. Apply predefined acceptance rules and record all release-blocking findings.
-7. Add consented real receipts to the private accuracy corpus.
+1. Resolve and verify the hosted project's RLS/Data API exposure.
+2. Create a clearly labeled synthetic demo account in the existing project.
+3. Run `docs/internal-acceptance-checklist.md` on web and mobile.
+4. Include at least one complete receipt-capture session on the presentation phone.
+5. Independently calculate and compare dashboard, category, recovery, and spending-impact totals.
+6. Record screenshots, defects, fixes, and retest results.
+7. Prepare a clean demo dataset and offline fallback evidence.
+
+The facilitator script, participant feedback form, and scoring utility are retained only for a future or adviser-required external study. Team responses must not be reported as representative UAT percentages.
 
 ### Priority 2 — close production operations gaps
 
@@ -371,20 +382,17 @@ Remaining external portion: perform the registration-through-dashboard and recei
 5. Perform web and mobile accessibility reviews.
 6. Address dependency upgrades separately from the stabilized release candidate.
 
-## Proposed production-pilot gates
+## Capstone demonstration gates
 
-FinSight should enter a production pilot only when:
+FinSight is ready for its capstone demonstration when:
 
 - all automated build and test gates remain green;
-- structured UAT has passed and severe findings are resolved;
-- a representative Android device completes scan-to-confirm successfully;
-- real-receipt extraction accuracy has been measured;
-- production environment variables, storage buckets, migrations, and CORS are smoke-tested;
-- database restoration has been successfully rehearsed;
-- storage recovery has a documented owner and procedure;
-- centralized errors and actionable logs are available;
-- stale receipt scans have a recovery path;
-- user-data deletion can be honored reliably;
+- the hosted RLS/Data API exposure is resolved and rechecked;
+- the internal acceptance checklist passes with no critical presentation-path defect;
+- the presentation Android device completes scan-to-confirm successfully;
+- synthetic expected-versus-actual financial totals match;
+- Auth, Storage, environment variables, migrations, and CORS are smoke-tested;
+- a clean synthetic demo account and fallback screenshots are prepared;
 - the current working changes remain reviewed and committed;
 - primary project documentation continues to describe the system accurately.
 
@@ -392,4 +400,4 @@ FinSight should enter a production pilot only when:
 
 FinSight is no longer an early-stage scaffold. It is a broad and well-tested product candidate with thoughtful safeguards around ownership, financial confirmation, receipt reconciliation, source provenance, and AI failure behavior.
 
-The local candidate is stabilized. The next milestone should focus on **external evidence rather than additional broad features**: provision the isolated Supabase UAT environment, conduct UAT, validate physical-device and real-receipt behavior, and close the operational gaps required for a dependable financial service.
+The local candidate is stabilized. The next milestone is **internal capstone evidence rather than additional broad features**: resolve the hosted data-exposure finding, complete the checklist on the presentation phone, verify financial outputs independently, and rehearse the final demonstration. Production-operation gaps should remain disclosed as future work rather than being presented as completed.

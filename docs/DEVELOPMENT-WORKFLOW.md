@@ -1,17 +1,17 @@
 # FinSight development workflow
 
-This document describes the current path from the working beta candidate to a
-production pilot. It replaces the original scaffold-era phase plan, whose
+This document describes the current path from the working candidate to a
+capstone demonstration, while preserving future production requirements. It replaces the original scaffold-era phase plan, whose
 functional phases have now been substantially implemented. Read the
 [progress report](PROGRESS-REPORT.md) for the supporting evidence and the
 [implementation brief](CLAUDE-CODE-PROMPT.md) for product constraints.
 
 ## Current status
 
-FinSight is feature-complete for a controlled beta and is entering
-stabilization and structured UAT. It is not production-ready yet. New broad
-feature work should wait until the candidate is reviewed, reproducible, and
-validated with users and representative devices.
+FinSight is feature-complete for its capstone demonstration and is entering
+internal acceptance and physical-device validation. The project team are the
+intended evaluators; there is no external participant cohort. New broad feature
+work should wait until the candidate is reproducible and demo-ready.
 
 ## Stage 0 — stabilize the candidate
 
@@ -33,32 +33,34 @@ Exit criteria:
 - the clean-database smoke flow completes or any external dependency blocker
   is recorded explicitly.
 
-## Stage 1 — conduct UAT
+## Stage 1 — internal capstone acceptance
 
-1. Provision an isolated Supabase branch or project; do not use development or
-   production data.
-2. Apply migrations with both the pooled `DATABASE_URL` and direct
-   `DIRECT_URL` set to that same UAT environment.
-3. Create the private `receipts` and `csv-imports` buckets and public `avatars`
-   bucket, then configure authentication redirects.
-4. Follow [the UAT environment guide](uat-environment.md), facilitator script,
-   and feedback forms with representative users.
-5. Include at least one complete scan-to-confirm session on a representative
-   physical Android phone.
-6. Score results using the repository's UAT script and record acceptance
-   decisions and release-blocking findings.
-7. Add only consented, appropriately protected real receipts to the private
-   accuracy corpus.
+1. Use the existing Supabase development project with a clearly labeled test
+   account and synthetic business data; a separate paid UAT project is not
+   required for the declared capstone scope.
+2. Resolve critical hosted-project security findings before adding more test
+   data, especially public tables without RLS or equivalent Data API isolation.
+3. Follow the [internal acceptance checklist](internal-acceptance-checklist.md)
+   on web and mobile.
+4. Include at least one complete scan-to-confirm session on the Android phone
+   that will be used for the presentation.
+5. Record screenshots, expected versus actual financial totals, defects, fixes,
+   and retest results.
+6. Use only synthetic transactions and non-sensitive sample receipts.
+7. Prepare and preserve a clean demonstration account and fallback screenshots.
 
 Exit criteria:
 
-- predefined UAT acceptance rules pass;
-- severe findings are resolved or explicitly accepted by the release owner;
-- real-device and real-receipt evidence is recorded.
+- every critical checklist item passes;
+- no unresolved defect prevents the presentation workflow;
+- real-device evidence and expected-versus-actual financial totals are recorded;
+- the work is described as internal/developer acceptance, not representative
+  end-user UAT.
 
 ## Stage 2 — close production-operation gaps
 
-Complete these before accepting real production data:
+These remain future production requirements and are not claimed as completed
+capstone deliverables:
 
 - choose the production topology and secrets-management approach;
 - add centralized error tracking, structured request logs, and correlation IDs;

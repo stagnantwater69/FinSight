@@ -2,6 +2,11 @@
 
 ## `uat-results.mjs` — score the UAT feedback forms
 
+This tool is retained for an adviser-required or future external participant
+study. Do not populate it with answers from the development team and report the
+percentages as representative user acceptance results. Team-only capstone
+verification is recorded with `docs/internal-acceptance-checklist.md` instead.
+
 Turns the rating questions from `docs/uat-feedback-form.md` into the figures
 that document's scoring guide asks for: a positive percentage per Part against
 its manuscript criterion, a mean and positive rate per question, and the

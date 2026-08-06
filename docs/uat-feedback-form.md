@@ -1,5 +1,11 @@
 # FinSight — User Acceptance Testing Feedback Form
 
+> **Scope note (6 August 2026):** This instrument is retained for a future or
+> adviser-required external participant study. Team members must not complete
+> it and report the resulting percentages as representative UAT. Current
+> capstone verification uses
+> [internal-acceptance-checklist.md](internal-acceptance-checklist.md).
+
 **To be completed by the participant after the hands-on session.**
 
 Thank you for testing FinSight. Please answer honestly — negative answers are more useful to us than positive ones. Your responses are anonymous and will only be used for this study.

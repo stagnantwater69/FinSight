@@ -41,10 +41,11 @@ the intended behaviour: that is a test that needs mocking, not real keys.
 
 ### Supabase branching
 
-A Supabase branch remains appropriate for UAT, but not for this destructive
-automated suite. The local container is free, fast, works offline, and can be
-discarded without risking hosted data. Nothing in the automated suite depends
-on MCP or a hosted Supabase project.
+A Supabase branch remains appropriate for a future external UAT study, but not
+for this destructive automated suite or the current team-only capstone check.
+The local container is free, fast, works offline, and can be discarded without
+risking hosted data. Nothing in the automated suite depends on MCP or a hosted
+Supabase project.
 
 ## Layout
 

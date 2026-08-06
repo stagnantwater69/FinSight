@@ -4,9 +4,9 @@ AI-assisted financial monitoring for small-business owners. FinSight is a
 single-role product with web and mobile clients backed by an Express API,
 Prisma/PostgreSQL, and Supabase Auth and Storage.
 
-The application is feature-complete for a controlled beta. Current release
-work is focused on stabilization, user acceptance testing (UAT), physical
-device validation, and production operations. See the
+The application is feature-complete for its capstone demonstration. Current
+work is focused on internal acceptance testing, physical-device validation,
+and presentation readiness. See the
 [progress report](docs/PROGRESS-REPORT.md) and
 [development workflow](docs/DEVELOPMENT-WORKFLOW.md) for the current status.
 Project conventions are documented in
@@ -18,8 +18,8 @@ Project conventions are documented in
 backend/   Express + Prisma + TypeScript API
 web/       Vite + React + TypeScript web client
 mobile/    React Native + Expo mobile client
-docs/      Architecture, security, UAT, and deployment documentation
-scripts/   UAT result scoring tools
+docs/      Architecture, security, acceptance, and deployment documentation
+scripts/   Optional external-UAT result scoring tools
 nginx/     Reverse-proxy configuration
 ```
 
@@ -48,7 +48,7 @@ The API listens on `http://localhost:4000`; its basic health endpoint is
 
 For a fresh target database, set both `DATABASE_URL` and `DIRECT_URL` before
 deploying migrations. See [the deployment runbook](docs/deployment-runbook.md)
-and [UAT environment guide](docs/uat-environment.md) before pointing at a
+and [internal acceptance checklist](docs/internal-acceptance-checklist.md) before pointing at a
 shared or hosted environment.
 
 ## Web
@@ -77,7 +77,7 @@ the phone can reach; `localhost` refers to the phone itself.
 
 ## Verification
 
-Run the complete release-candidate gate before UAT or deployment:
+Run the complete candidate gate before internal acceptance testing or a demo:
 
 ```bash
 cd backend
@@ -102,9 +102,8 @@ and safeguards are described in [backend/tests/README.md](backend/tests/README.m
 
 ## Release readiness
 
-Passing automated tests is necessary but not sufficient. A production pilot
-also requires completed UAT, a successful physical-device receipt flow,
-measured real-receipt accuracy, rehearsed database and storage recovery,
-operational monitoring, durable receipt-job recovery, and reliable user-data
-deletion. The authoritative checklist is in
-[docs/PROGRESS-REPORT.md](docs/PROGRESS-REPORT.md#proposed-production-pilot-gates).
+Passing automated tests is necessary but not sufficient for the capstone demo.
+The team must also complete the internal acceptance checklist, verify the
+receipt flow on a physical Android phone, and prepare a clean synthetic demo
+dataset. Production hardening remains documented but is not presented as a
+completed capstone requirement.

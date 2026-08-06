@@ -5,6 +5,34 @@ was fixed versus what was accepted. This exists so a later reader — or a later
 `npm audit` run that surfaces the same advisory again — does not have to
 re-derive the decision from scratch.
 
+## Hosted Supabase audit — 6 August 2026
+
+The Supabase security advisor reports that all 13 application tables in the
+exposed `public` schema currently have RLS disabled, including `User`,
+`BusinessProfile`, financial-record tables, receipt tables, and
+`_prisma_migrations`. This is a **critical unresolved finding**: roles exposed
+through the Data API may be able to read or modify rows directly, bypassing the
+ownership checks enforced by the Express API.
+
+Do not add more hosted acceptance-test data until one of these designs is
+implemented and verified:
+
+1. Enable RLS and add ownership policies for every Data API operation the
+   clients genuinely require; or
+2. if the clients never query application tables through the Data API, remove
+   `public` from the exposed schemas or revoke `anon`/`authenticated` table
+   privileges, then enable RLS as defense in depth.
+
+The current clients use Supabase for Auth and Storage while application data is
+served by Express/Prisma, so option 2 is likely the smaller and safer design.
+It still requires an explicit hosted configuration and regression check; it was
+not auto-applied during the audit. Supabase remediation reference:
+https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public
+
+The same audit confirmed that `receipts` and `csv-imports` are private and
+`avatars` is public. It also reported leaked-password protection as disabled
+and two low-priority missing duplicate-reference indexes.
+
 ---
 
 ## Accepted, with reasoning

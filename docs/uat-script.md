@@ -1,5 +1,12 @@
 # FinSight — User Acceptance Testing Script
 
+> **Scope note (6 August 2026):** FinSight is being completed as a team-used
+> capstone and currently has no external participant cohort. Do not claim that
+> the team running this script constitutes representative user acceptance
+> testing. For the current project scope, use
+> [internal-acceptance-checklist.md](internal-acceptance-checklist.md). Retain
+> this script only if the adviser later requires research participants.
+
 **For:** small business owners and operators, Sitio Plaza, Brgy. Apas, Cebu
 **Facilitator:** one team member per session
 **Duration:** about 45 minutes per participant
