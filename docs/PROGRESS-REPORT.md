@@ -294,13 +294,18 @@ That workstream has now been reviewed and split into six commits covering dashbo
 
 The complete 843-test/typecheck/build gate passed before and after the commits. All 17 migrations were also applied locally. The resulting correction table was checked for its cascade foreign key, indexes, and enabled row-level security. A local data-to-dashboard smoke check returned the expected expense, sales, category, and cashflow totals. The hosted security migration was then verified separately: all 13 public application tables have RLS enabled, client Data API roles have zero table grants, and backend database access remains operational.
 
-Real Supabase registration, Auth redirects, Storage uploads, receipt capture, and dashboard rendering remain internal acceptance checks; the local smoke result does not claim to validate those external integrations.
+Live internal acceptance now covers Supabase registration and password login,
+hosted Storage uploads and signed retrieval, a synthetic receipt scan and CSV
+import, duplicate resolution, dashboard/insight calculations, Ask FinSight,
+and the rendered web dashboard. Results are recorded in
+`docs/internal-acceptance-results-2026-08-06.md`. Physical Android camera,
+backgrounding, network-loss, and presentation-location evidence remain.
 
 ## Key risks and blockers
 
 ### Capstone-critical risks
 
-1. **Internal acceptance has not been completed.** The checklist exists, but the presentation workflow and physical-device evidence remain outstanding.
+1. **Internal acceptance is partially complete.** Hosted and automated web checks pass, but the presentation workflow and physical-device evidence remain outstanding.
 2. **The physical presentation-device flow is unverified.** Camera, network-loss, backgrounding, and scan-to-confirm still require hands-on evidence.
 
 ### Future production risks
@@ -344,16 +349,24 @@ Completed locally:
 4. Updated the root README and development workflow.
 5. Applied all migrations to a clean scratch database and smoke-tested seeded financial data through the dashboard services.
 
-Remaining external portion: perform the registration-through-dashboard and receipt-upload smoke flow against the existing development project using synthetic data. The hosted RLS/Data API finding is resolved and verified.
+The external smoke portion is now complete against the existing development
+project using synthetic data: registration, login, hosted receipt/CSV Storage,
+receipt confirmation, financial calculations, Ask FinSight, and the rendered
+web dashboard passed. The hosted RLS/Data API finding is also resolved and
+verified.
 
 ### Priority 1 — internal capstone acceptance
 
-1. Create a clearly labeled synthetic demo account in the existing project.
-2. Run `docs/internal-acceptance-checklist.md` on web and mobile.
-3. Include at least one complete receipt-capture session on the presentation phone.
-4. Independently calculate and compare dashboard, category, recovery, and spending-impact totals.
-5. Record screenshots, defects, fixes, and retest results.
-6. Prepare a clean demo dataset and offline fallback evidence.
+Completed: the labeled synthetic demo account, hosted workflow, web acceptance
+automation, independent financial calculations, and clean demo dataset.
+
+Remaining:
+
+1. Run the physical Android portions of `docs/internal-acceptance-checklist.md`.
+2. Include at least one complete receipt-capture session on the presentation phone.
+3. Test backgrounding, network loss, permissions, and the presentation network.
+4. Record screenshots or video and prepare offline fallback evidence.
+5. Restart the presentation stack and repeat the shortest critical path.
 
 The facilitator script, participant feedback form, and scoring utility are retained only for a future or adviser-required external study. Team responses must not be reported as representative UAT percentages.
 

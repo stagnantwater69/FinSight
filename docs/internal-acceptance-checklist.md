@@ -8,13 +8,13 @@ study. Use synthetic transactions and non-sensitive sample receipts only.
 
 | Field | Value |
 |---|---|
-| Date | |
-| Tester | |
-| Commit | |
+| Date | 2026-08-06 |
+| Tester | Codex live automation; team physical tester pending |
+| Commit | `233ce55` |
 | Backend environment | Existing Supabase development project |
-| Web device/browser | |
-| Mobile device/Android version | |
-| App build or Expo version | |
+| Web device/browser | Google Chrome 150 headless; physical browser pending |
+| Mobile device/Android version | Android bundle passed; physical device pending |
+| App build or Expo version | FinSight 1.0.0 / Expo `~57.0.8` |
 
 For each check, record **Pass**, **Fail**, or **Blocked**, plus a screenshot or
 short note. A failed critical check blocks the capstone demonstration until it
@@ -25,87 +25,88 @@ is fixed and retested.
 - [x] Hosted-project security advisors contain no unaccepted critical finding
   (verified 2026-08-06; RLS enabled on 13/13 application tables and client
   table grants revoked).
-- [ ] The account and business are clearly labeled as capstone/demo data.
-- [ ] Transactions, CSV files, and receipts contain no real personal or
+- [x] The account and business are clearly labeled as capstone/demo data.
+- [x] Transactions, CSV files, and receipts contain no real personal or
   business information.
-- [ ] Backend, web, and mobile point to the intended Supabase project and API.
+- [x] Backend, web, and mobile point to the intended Supabase project and API.
 - [x] `receipts` and `csv-imports` are private; `avatars` is public (verified
   2026-08-06).
-- [ ] The complete automated gate passes on the commit being demonstrated.
+- [x] The complete automated gate passes on the commit being demonstrated (843
+  tests plus build/typecheck checks).
 
 ## 1. Account and business setup — critical
 
-- [ ] Register a new synthetic test account.
-- [ ] Log out and log back in.
-- [ ] Recover or change the password if the presentation includes that flow.
-- [ ] Create `Capstone Demo Store` with documented starting values.
-- [ ] Edit the profile and confirm the changes persist after refresh/relaunch.
+- [x] Register a new synthetic test account.
+- [x] Log out and log back in.
+- [x] Recover or change the password if the presentation includes that flow.
+- [x] Create `Capstone Demo Store` with documented starting values.
+- [x] Edit the profile and confirm the changes persist after refresh/relaunch.
 
 Record the exact starting values:
 
 | Value | Expected |
 |---|---:|
-| Available funds | |
-| Expected monthly expenses | |
-| Operating days | |
-| Large-expense threshold | |
+| Available funds | PHP 150,000.00 |
+| Expected monthly expenses | PHP 60,000.00 |
+| Operating days | 26 |
+| Large-expense threshold | 20% |
 
 ## 2. Manual financial records — critical
 
-- [ ] Create at least five expenses across two or more categories.
-- [ ] Create at least three sales records.
-- [ ] Edit one expense and one sale.
-- [ ] Search and filter the records.
-- [ ] Confirm source labels identify manual entries correctly.
+- [x] Create at least five expenses across two or more categories.
+- [x] Create at least three sales records.
+- [x] Edit one expense and one sale.
+- [x] Search and filter the records.
+- [x] Confirm source labels identify manual entries correctly.
 
 Maintain an independent calculator or spreadsheet and record:
 
 | Metric | Expected | FinSight | Match? |
 |---|---:|---:|---|
-| Total expenses | | | |
-| Total sales reference | | | |
-| Largest category | | | |
-| Available funds shown | | | |
+| Total expenses | PHP 9,270.00 | PHP 9,270.00 | Yes |
+| Total sales reference | PHP 36,500.00 | PHP 36,500.00 | Yes |
+| Largest category | Supplies / PHP 4,270.00 | Supplies / PHP 4,270.00 | Yes |
+| Available funds shown | PHP 150,000.00 | PHP 150,000.00 | Yes |
 
 ## 3. Receipt scan — critical
 
 - [ ] Capture a non-sensitive sample receipt on the presentation phone.
-- [ ] Verify upload reaches a terminal processing state.
-- [ ] Compare extracted date, vendor, amount, and line items with the receipt.
-- [ ] Correct at least one field before confirmation.
-- [ ] Confirm the resulting expense records reconcile to the receipt total.
-- [ ] Confirm the source image can be viewed through a signed URL.
+- [x] Verify upload reaches a terminal processing state.
+- [x] Compare extracted date, vendor, amount, and line items with the receipt.
+- [x] Correct at least one field before confirmation.
+- [x] Confirm the resulting expense records reconcile to the receipt total.
+- [x] Confirm the source image can be viewed through a signed URL.
 - [ ] Background and reopen the app during a second scan.
 - [ ] Disable the network during a test and record the recovery behavior.
 
 | Receipt field | Expected | Extracted | Final | Correct? |
 |---|---|---|---|---|
-| Date | | | | |
-| Vendor | | | | |
-| Total | | | | |
+| Date | 2026-07-20 | 2026-07-20 | 2026-07-20 | Yes |
+| Vendor | ALING NENA SARI-SARI STORE | Exact match | Exact match | Yes |
+| Total | PHP 1,220.00 | PHP 1,220.00 | PHP 1,220.00 | Yes |
 
 ## 4. CSV import — critical if demonstrated
 
-- [ ] Import the prepared synthetic CSV.
-- [ ] Verify column mapping and invalid-row messages.
-- [ ] Confirm category-creation preview before accepting it.
-- [ ] Confirm imported totals against an independent calculation.
-- [ ] Confirm the retained source file can be retrieved.
+- [x] Import the prepared synthetic CSV.
+- [x] Verify column mapping and invalid-row messages.
+- [x] Confirm category-creation preview before accepting it.
+- [x] Confirm imported totals against an independent calculation.
+- [x] Confirm the retained source file can be retrieved.
 
 ## 5. Review and duplicate handling
 
-- [ ] Trigger and resolve a possible duplicate.
-- [ ] Trigger or identify a record needing review.
+- [x] Trigger and resolve a possible duplicate.
+- [x] Trigger or identify a record needing review.
 - [ ] Verify the explanation and available resolution actions.
 - [ ] Confirm resolving one business's record does not affect another business.
 
 ## 6. Dashboard and insights — critical
 
-- [ ] Dashboard totals match the independent calculation.
-- [ ] Category percentages total approximately 100%.
-- [ ] Daily and monthly cashflow points use the correct dates and values.
-- [ ] Recovery and spending-impact calculations match manual calculations.
-- [ ] Ask FinSight uses the selected business's figures.
+- [x] Dashboard totals match the independent calculation.
+- [x] Category percentages total approximately 100%.
+- [x] Daily and monthly cashflow points use the correct dates and values.
+- [x] Recovery and spending-impact calculations match manual calculations.
+- [x] Ask FinSight uses the selected business's figures.
 - [ ] Provider failure produces a clear fallback rather than invented figures.
 
 ## 7. Cross-platform and presentation readiness — critical
@@ -136,10 +137,11 @@ Severity definitions:
 
 - [ ] All critical checks passed.
 - [ ] No unresolved Critical or High defect remains on the presentation path.
-- [ ] Expected-versus-actual totals were independently checked.
+- [x] Expected-versus-actual totals were independently checked.
 - [ ] Physical Android evidence was recorded.
-- [ ] Limitations are disclosed honestly in the capstone report.
+- [x] Limitations are disclosed honestly in the capstone report and the dated
+  acceptance-results document.
 
-Decision: **Accepted / Accepted with documented limitations / Not accepted**
+Decision: **Pending physical Android validation**
 
 Signed by: ____________________  Date: ____________________
