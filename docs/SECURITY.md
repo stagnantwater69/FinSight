@@ -7,31 +7,31 @@ re-derive the decision from scratch.
 
 ## Hosted Supabase audit — 6 August 2026
 
-The Supabase security advisor reports that all 13 application tables in the
-exposed `public` schema currently have RLS disabled, including `User`,
-`BusinessProfile`, financial-record tables, receipt tables, and
-`_prisma_migrations`. This is a **critical unresolved finding**: roles exposed
-through the Data API may be able to read or modify rows directly, bypassing the
-ownership checks enforced by the Express API.
+The initial audit found RLS disabled on all 13 application tables in the
+exposed `public` schema. This was resolved on 6 August by migration
+`20260806153854_secure_application_tables_from_data_api`.
 
-Do not add more hosted acceptance-test data until one of these designs is
-implemented and verified:
+The web and mobile clients use Supabase for Auth and Storage, while all
+application-table access goes through Express/Prisma. The migration therefore:
 
-1. Enable RLS and add ownership policies for every Data API operation the
-   clients genuinely require; or
-2. if the clients never query application tables through the Data API, remove
-   `public` from the exposed schemas or revoke `anon`/`authenticated` table
-   privileges, then enable RLS as defense in depth.
+- enables RLS on every application table, including `_prisma_migrations`;
+- revokes all table and sequence privileges from `anon` and `authenticated`;
+- removes the default table and sequence privileges those roles would
+  otherwise receive from future migrations.
 
-The current clients use Supabase for Auth and Storage while application data is
-served by Express/Prisma, so option 2 is likely the smaller and safer design.
-It still requires an explicit hosted configuration and regression check; it was
-not auto-applied during the audit. Supabase remediation reference:
-https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public
+Hosted verification found RLS enabled on 13 of 13 tables, zero table grants for
+the two Data API roles, and no effective `SELECT` privilege on `User` for either
+role. The backend's `postgres` connection retained access and successfully read
+the hosted application tables. The advisor now reports only informational
+"RLS enabled with no policy" notices for this deliberate deny-all design; it no
+longer reports the critical disabled-RLS findings. Supabase remediation
+reference: https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public
 
 The same audit confirmed that `receipts` and `csv-imports` are private and
-`avatars` is public. It also reported leaked-password protection as disabled
-and two low-priority missing duplicate-reference indexes.
+`avatars` is public. It still reports leaked-password protection as disabled
+and two low-priority missing duplicate-reference indexes. Leaked-password
+protection is accepted for synthetic capstone-only accounts, but must be
+enabled before the project stores real user credentials.
 
 ---
 

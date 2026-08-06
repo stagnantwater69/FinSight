@@ -22,12 +22,15 @@ is fixed and retested.
 
 ## 0. Safety and setup
 
-- [ ] Hosted-project security advisors contain no unaccepted critical finding.
+- [x] Hosted-project security advisors contain no unaccepted critical finding
+  (verified 2026-08-06; RLS enabled on 13/13 application tables and client
+  table grants revoked).
 - [ ] The account and business are clearly labeled as capstone/demo data.
 - [ ] Transactions, CSV files, and receipts contain no real personal or
   business information.
 - [ ] Backend, web, and mobile point to the intended Supabase project and API.
-- [ ] `receipts` and `csv-imports` are private; `avatars` is public.
+- [x] `receipts` and `csv-imports` are private; `avatars` is public (verified
+  2026-08-06).
 - [ ] The complete automated gate passes on the commit being demonstrated.
 
 ## 1. Account and business setup — critical

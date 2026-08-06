@@ -41,11 +41,11 @@ The root `README.md` and `docs/DEVELOPMENT-WORKFLOW.md` now reflect the implemen
 | Backend/API | Green | Compiles, validates, and passes the complete automated suite |
 | Web application | Green | Main product flows are present; tests and production build pass |
 | Mobile application | Green/Amber | Broad feature parity and passing tests; physical-device validation remains |
-| Database | Green | Prisma schema is valid and 16 migrations apply successfully |
+| Database | Green | Prisma schema is valid and all 17 migrations apply successfully |
 | Receipt/OCR | Green/Amber | Multi-page capture and review are implemented; field accuracy needs more real-receipt evidence |
 | AI functionality | Amber | Provider integration and safe fallback behavior exist; live quality depends on external providers |
 | Security | Amber | Strong ownership controls; deployment hardening and hard deletion remain open |
-| Internal acceptance | Amber | Team checklist exists; hosted security and physical-device checks remain |
+| Internal acceptance | Amber | Hosted security is verified; team workflow and physical-device checks remain |
 | Deployment | Amber/Red | Docker and runbooks exist; hosting, recovery, monitoring, and mobile distribution remain unresolved |
 
 ## Progress against the development phases
@@ -55,7 +55,7 @@ The root `README.md` and `docs/DEVELOPMENT-WORKFLOW.md` now reflect the implemen
 - Backend and web projects compile successfully.
 - The mobile application is also implemented and type-safe.
 - Prisma schema validation succeeds.
-- The database model has evolved through 16 migrations.
+- The database model has evolved through 17 migrations.
 - Docker, nginx, testing, UAT, and deployment support files are present.
 
 ### Phase 1 — Database: complete for development and testing
@@ -65,11 +65,9 @@ The root `README.md` and `docs/DEVELOPMENT-WORKFLOW.md` now reflect the implemen
 - Test safeguards refuse to run destructive integration tests against a remote or incorrectly named database.
 - Supabase configuration supports Auth, Storage, and PostgreSQL.
 
-Still required:
-
-- resolve the hosted project's critical RLS/Data API exposure finding;
-- verify migration history consistency before the final demonstration;
-- test backup restoration only if the project advances beyond capstone use.
+The complete migration chain has been verified locally, and the hosted project
+has the current security migration. Backup restoration only needs testing if
+the project advances beyond capstone use.
 
 The hosted project already contains the required `receipts`, `csv-imports`, and
 `avatars` buckets with the expected private/private/public visibility.
@@ -294,7 +292,7 @@ Major themes include:
 
 That workstream has now been reviewed and split into six commits covering dashboard API work, receipt-extraction feedback, mobile UI, web content, and documentation. Required migrations, tests, generated frames, source artwork, and document moves are included intentionally, and the working tree is clean. The branch name `feat/mobile-ui-refine` still understates the backend, database, and web changes now included, but the commit boundaries make those concerns independently reviewable.
 
-The complete 843-test/typecheck/build gate passed before and after the commits. All 16 migrations were also applied to a new local scratch database. The resulting correction table was checked for its cascade foreign key, indexes, and enabled row-level security. A local data-to-dashboard smoke check returned the expected expense, sales, category, and cashflow totals.
+The complete 843-test/typecheck/build gate passed before and after the commits. All 17 migrations were also applied locally. The resulting correction table was checked for its cascade foreign key, indexes, and enabled row-level security. A local data-to-dashboard smoke check returned the expected expense, sales, category, and cashflow totals. The hosted security migration was then verified separately: all 13 public application tables have RLS enabled, client Data API roles have zero table grants, and backend database access remains operational.
 
 Real Supabase registration, Auth redirects, Storage uploads, receipt capture, and dashboard rendering remain internal acceptance checks; the local smoke result does not claim to validate those external integrations.
 
@@ -303,8 +301,7 @@ Real Supabase registration, Auth redirects, Storage uploads, receipt capture, an
 ### Capstone-critical risks
 
 1. **Internal acceptance has not been completed.** The checklist exists, but the presentation workflow and physical-device evidence remain outstanding.
-2. **Hosted Data API exposure is unresolved.** Do not add more hosted test data until the RLS/privilege design is fixed and verified.
-3. **The physical presentation-device flow is unverified.** Camera, network-loss, backgrounding, and scan-to-confirm still require hands-on evidence.
+2. **The physical presentation-device flow is unverified.** Camera, network-loss, backgrounding, and scan-to-confirm still require hands-on evidence.
 
 ### Future production risks
 
@@ -324,13 +321,12 @@ Real Supabase registration, Auth redirects, Storage uploads, receipt capture, an
 
 ### Security and operational risks
 
-14. **Hosted public tables have RLS disabled.** Supabase reports all 13 public application tables as externally exposed through Data API roles. Resolve this before adding more hosted test data.
-15. **Leaked-password protection is disabled.** Enable it if the project will hold anything beyond synthetic capstone accounts.
-16. **Security headers are not configured.** Helmet or equivalent hardening remains pending.
-17. **Rate limiting is process-local.** Horizontal scaling would multiply the effective allowance.
-18. **A React Router advisory is accepted, not patched.** The documented vulnerable RSC path is not used by this client-side bearer-token application, but the finding should be revisited when an appropriate forward fix is available.
-19. **Expo build-tool advisories remain.** These should be reassessed during the next SDK upgrade.
-20. **Migration configuration is sensitive.** Both `DATABASE_URL` and `DIRECT_URL` must be set when migrating a target environment to avoid using the wrong database.
+14. **Leaked-password protection is disabled.** Accepted for synthetic capstone accounts; enable it before storing real user credentials.
+15. **Security headers are not configured.** Helmet or equivalent hardening remains pending.
+16. **Rate limiting is process-local.** Horizontal scaling would multiply the effective allowance.
+17. **A React Router advisory is accepted, not patched.** The documented vulnerable RSC path is not used by this client-side bearer-token application, but the finding should be revisited when an appropriate forward fix is available.
+18. **Expo build-tool advisories remain.** These should be reassessed during the next SDK upgrade.
+19. **Migration configuration is sensitive.** Both `DATABASE_URL` and `DIRECT_URL` must be set when migrating a target environment to avoid using the wrong database.
 
 ### Project-control note
 
@@ -348,17 +344,16 @@ Completed locally:
 4. Updated the root README and development workflow.
 5. Applied all migrations to a clean scratch database and smoke-tested seeded financial data through the dashboard services.
 
-Remaining external portion: after the hosted RLS/Data API finding is resolved, perform the registration-through-dashboard and receipt-upload smoke flow against the existing development project using synthetic data.
+Remaining external portion: perform the registration-through-dashboard and receipt-upload smoke flow against the existing development project using synthetic data. The hosted RLS/Data API finding is resolved and verified.
 
 ### Priority 1 — internal capstone acceptance
 
-1. Resolve and verify the hosted project's RLS/Data API exposure.
-2. Create a clearly labeled synthetic demo account in the existing project.
-3. Run `docs/internal-acceptance-checklist.md` on web and mobile.
-4. Include at least one complete receipt-capture session on the presentation phone.
-5. Independently calculate and compare dashboard, category, recovery, and spending-impact totals.
-6. Record screenshots, defects, fixes, and retest results.
-7. Prepare a clean demo dataset and offline fallback evidence.
+1. Create a clearly labeled synthetic demo account in the existing project.
+2. Run `docs/internal-acceptance-checklist.md` on web and mobile.
+3. Include at least one complete receipt-capture session on the presentation phone.
+4. Independently calculate and compare dashboard, category, recovery, and spending-impact totals.
+5. Record screenshots, defects, fixes, and retest results.
+6. Prepare a clean demo dataset and offline fallback evidence.
 
 The facilitator script, participant feedback form, and scoring utility are retained only for a future or adviser-required external study. Team responses must not be reported as representative UAT percentages.
 
