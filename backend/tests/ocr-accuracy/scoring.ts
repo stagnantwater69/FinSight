@@ -9,7 +9,19 @@
  *
  * Moved here verbatim from run-assessment.ts — no rule was changed in the
  * move, and the corpus results are identical before and after it.
+ *
+ * The MATCHERS underneath (is this vendor the same vendor, is this the same
+ * amount) have since moved again, to src/lib/fieldComparison, because
+ * extractionFeedback.service now asks the same question of live scans. What
+ * stays here is everything corpus-specific: the `n/a`/`missed` verdicts, which
+ * only mean something when there is a ground-truth answer to be absent. Same
+ * rules, same corpus results — see that file's header for why the matchers
+ * could not be allowed to exist twice.
  */
+import { amountsMatch, itemNamesMatch, normalizeVendor, vendorsMatch } from "../../src/lib/fieldComparison";
+
+// Re-exported so this stays the one import the harness scripts need.
+export { itemNamesMatch, normalizeVendor };
 
 export interface ExpectedItem {
   name: string;
@@ -45,31 +57,13 @@ export interface ItemScore {
 
 export type Verdict = "correct" | "wrong" | "missed" | "n/a";
 
-/** Vendor matching is deliberately lenient about OCR character noise. */
-export function normalizeVendor(v: string | null): string {
-  return (v ?? "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export function scoreVendor(expected: string | null, actual: string | null): Verdict {
   // Some receipts genuinely contain no vendor name (e.g. the real photo whose
   // header is cropped). Scoring those as failures would be dishonest — the
   // information is not in the image.
   if (expected === null) return "n/a";
   if (actual === null) return "missed";
-
-  const e = normalizeVendor(expected);
-  const a = normalizeVendor(actual);
-  if (e === a) return "correct";
-
-  // Allow light OCR noise: accept if the words largely agree.
-  const ew = e.split(" ").filter(Boolean);
-  const aw = a.split(" ").filter(Boolean);
-  const hits = ew.filter((w) => aw.some((x) => x === w || (w.length > 3 && x.includes(w.slice(0, 4))))).length;
-  return hits / ew.length >= 0.7 ? "correct" : "wrong";
+  return vendorsMatch(expected, actual) ? "correct" : "wrong";
 }
 
 export function scoreDate(expected: string | null, actual: string | null): Verdict {
@@ -81,21 +75,7 @@ export function scoreDate(expected: string | null, actual: string | null): Verdi
 export function scoreAmount(expected: number | null, actual: number | null): Verdict {
   if (expected === null) return "n/a";
   if (actual === null) return "missed";
-  // Exact to the centavo. An amount that is "close" is still wrong money.
-  return Math.abs(actual - expected) < 0.005 ? "correct" : "wrong";
-}
-
-/** Same leniency as vendor matching: light OCR character noise, not a wrong line. */
-export function itemNamesMatch(expected: string, actual: string): boolean {
-  const norm = (x: string) => x.toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
-  const e = norm(expected);
-  const a = norm(actual);
-  if (e === a) return true;
-  const ew = e.split(" ").filter(Boolean);
-  const aw = a.split(" ").filter(Boolean);
-  if (ew.length === 0) return false;
-  const hits = ew.filter((w) => aw.some((x) => x === w || (w.length > 3 && x.includes(w.slice(0, 4))))).length;
-  return hits / ew.length >= 0.6;
+  return amountsMatch(expected, actual) ? "correct" : "wrong";
 }
 
 export function scoreItems(expected: ExpectedItem[], actual: ExtractedItem[]): ItemScore {
@@ -110,7 +90,7 @@ export function scoreItems(expected: ExpectedItem[], actual: ExtractedItem[]): I
   const unclaimed = [...expected];
 
   for (const got of actual) {
-    const i = unclaimed.findIndex((e) => Math.abs(e.amount - got.amount) < 0.005);
+    const i = unclaimed.findIndex((e) => amountsMatch(e.amount, got.amount));
     if (i === -1) {
       score.falsePositives++;
       continue;

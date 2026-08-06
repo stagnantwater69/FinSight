@@ -41,10 +41,10 @@ the intended behaviour: that is a test that needs mocking, not real keys.
 
 ### Supabase branching
 
-The alternative was a Supabase branch via MCP. Not used: branching requires paid
-cost confirmation, and a local container is free, faster, works offline, and can
-be destroyed and recreated at will. MCP is currently pointed at the correct
-project (`dgppgxtdzamxpufrcuqn`), but nothing in this suite depends on it.
+A Supabase branch remains appropriate for UAT, but not for this destructive
+automated suite. The local container is free, fast, works offline, and can be
+discarded without risking hosted data. Nothing in the automated suite depends
+on MCP or a hosted Supabase project.
 
 ## Layout
 
@@ -59,6 +59,23 @@ tests/
   ai-quality/        AI response-quality rubric (NOT part of npm test)
 ```
 
+### Measuring against real receipts
+
+`ocr-accuracy/` holds two scripts that read the **live database** rather than the image
+corpus, using owners' confirmations as the labels:
+
+```bash
+npx tsx tests/ocr-accuracy/live-feedback-report.ts --days 30
+npx tsx tests/ocr-accuracy/recalibrate-threshold.ts --days 90
+```
+
+They answer a different question from the corpus and do not replace it. The corpus is fixed,
+so a change in its numbers is caused by a change in the code; the live sample moves every week
+with whatever people photographed. **Judge a change with the corpus; find out what to change
+with these.** Both read-only — the recalibration script prints a recommendation and edits
+nothing. See [`docs/extraction-feedback.md`](../../docs/extraction-feedback.md) for what the
+figures do and do not prove.
+
 ## What is covered
 
 | Area | Where |
@@ -72,22 +89,27 @@ tests/
 | Record lifecycle: create → flag → resolve | `integration/recordLifecycle.test.ts` |
 | CSV import, valid and invalid rows | `integration/csvImport.test.ts` |
 | Receipt scan → confirm → expense record | `integration/receiptScan.test.ts` |
+| Recording what owners correct on the confirm screen | `integration/extractionFeedback.test.ts` |
+| Accuracy, calibration and error-cluster arithmetic | `unit/extractionMetrics.test.ts` |
 | Ownership isolation across every resource | `integration/ownershipIsolation.test.ts` |
 | Dashboard and insights against real rows | `integration/dashboardInsights.test.ts` |
 
 ## What is NOT covered, and why
 
-- **HTTP layer, middleware and Supabase Auth.** Auth needs real Supabase tokens,
-  so route wiring, zod validation and the auth middleware are exercised by the
-  scripted end-to-end regression pass instead. Ownership rules are asserted at
-  the service layer, which is where they are enforced.
-- **Supabase Storage.** Mocked. Real uploads are covered by the end-to-end pass.
+- **Most HTTP routes, middleware and Supabase Auth.** Auth needs real Supabase
+  tokens. Selected receipt HTTP behavior has integration coverage, while the
+  complete registration-through-dashboard flow remains a manual clean-environment
+  smoke test. Ownership rules are asserted at the service layer, where they are
+  enforced.
+- **Supabase Storage.** Mocked. Real uploads remain a manual UAT/deployment
+  smoke-test requirement.
 - **Real OCR on images.** Mocked in the integration tests so they stay
   deterministic; accuracy is measured separately in `ocr-accuracy/`.
 - **Live AI calls.** Never made from `npm test` — no keys, and model output is
   not a pass/fail assertion. See `ai-quality/`.
-- **The web frontend.** No component tests. Covered by typecheck, build and
-  manual verification.
+- **Comprehensive browser end-to-end behavior.** The web suite has selected
+  component tests, typechecking, and a production build, but not a complete
+  browser workflow suite.
 
 ## Tests that pin known defects
 

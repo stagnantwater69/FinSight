@@ -110,6 +110,34 @@
 //      since re-scanning is cheap and a durable job store is not warranted at
 //      this scale; see docs/multi-page-receipts-plan.md for where that line
 //      is drawn.
+//  16. ReceiptFieldCorrection [ADDED] — what FinSight read, against what the
+//      owner confirmed, one row per reviewed field. Not in the dictionary at
+//      all; it exists because the confirm screen is the only place in this
+//      app where a human tells us whether an extraction was right, and until
+//      now that answer was thrown away the instant it was given.
+//      A row is written for every reviewed field, NOT only for edited ones.
+//      Logging just the edits would record a numerator with no denominator:
+//      "vendor was corrected 40 times" cannot become an accuracy figure, and
+//      the low-confidence-but-correct case — the one that says a confidence
+//      score is miscalibrated rather than that OCR is bad — leaves no trace
+//      at all, because nothing was edited.
+//      Append-only. Nothing in the app updates or deletes these rows; they
+//      are an observation of what happened at one moment, and a correction
+//      that changed retroactively would make every figure computed from it
+//      irreproducible.
+//      onDelete: Cascade — a deleted scan takes its observations with it.
+//      The alternative, keeping them as anonymous rows to preserve the
+//      metrics, would mean an owner deleting a receipt does not actually
+//      delete what we recorded about it, which is not a promise this app
+//      should quietly break for a percentage point of accuracy data.
+//  17. ReceiptScan.vendorConfidence / amountConfidence [ADDED] — how sure OCR
+//      was about those two fields specifically. ocrConfidence (note: the
+//      whole-scan figure) cannot answer "is confidence well calibrated for
+//      VENDOR", because one number per scan says nothing about which field on
+//      it was doubtful. Both are computed by confidenceForValue, which the
+//      pipeline already ran; they were simply not persisted. Null on
+//      vision-assisted reads and on scans predating the columns, for the same
+//      reason ocrConfidence is.
 
 generator client {
   provider = "prisma-client-js"
@@ -289,12 +317,19 @@ model ReceiptScan {
   /// scans read before this was recorded, and on vision-assisted reads, where
   /// the figure would describe text tesseract could not read anyway.
   ocrConfidence        Int?      @map("ReceiptScan_OcrConfidence")
+  /// [ADDED] see schema header note 17. How sure OCR was about the VENDOR and
+  /// the TOTAL specifically, 0-100 — the per-field figures ocrConfidence
+  /// cannot give, and the ones calibration needs to say whether a confidence
+  /// score predicts a wrong answer for that particular field.
+  vendorConfidence     Int?      @map("ReceiptScan_VendorConfidence")
+  amountConfidence     Int?      @map("ReceiptScan_AmountConfidence")
   createdAt            DateTime  @default(now()) @map("ReceiptScan_CreatedAt")
 
-  businessProfile BusinessProfile?  @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+  businessProfile BusinessProfile?         @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
   expenseRecords  ExpenseRecord[]
   items           ReceiptScanItem[]
   pages           ReceiptScanPage[]
+  corrections     ReceiptFieldCorrection[]
 
   @@index([businessProfileId])
   @@map("ReceiptScan")
@@ -382,6 +417,73 @@ model ReceiptScanItem {
   @@index([expenseRecordId])
   @@index([categoryId])
   @@map("ReceiptScanItem")
+}
+
+/// [ADDED] see schema header note 16. One row per field the owner reviewed on
+/// the confirm screen, recording what FinSight read and what the owner settled
+/// on — whether or not those differ.
+///
+/// This is the only ground truth this app will ever get for free. Everything
+/// downstream (per-field accuracy, whether a confidence score predicts a wrong
+/// answer, which items the categoriser keeps misfiling) is an aggregation over
+/// these rows, so what is NOT captured here cannot be measured later.
+model ReceiptFieldCorrection {
+  id            Int  @id @default(autoincrement()) @map("ReceiptFieldCorrection_ID")
+  receiptScanId Int  @map("ReceiptScan_ID")
+  /// Which printed line this is about, for item-level fields; null for the
+  /// receipt-level ones. Stored as the NUMBER rather than a FK because the
+  /// row it refers to may not survive: a line the owner deleted as register
+  /// furniture is hard-deleted, and that deletion is precisely the
+  /// observation being recorded.
+  lineNumber    Int? @map("ReceiptFieldCorrection_LineNumber")
+
+  /// What was compared: "date" | "vendor" | "amount" | "itemCategory" |
+  /// "itemPresence". A string rather than an enum because this list will grow
+  /// as more of the confirm screen becomes reviewable, and a migration per
+  /// new field would be friction with nothing to show for it — nothing
+  /// branches on the value, it is only ever grouped by.
+  field         String  @map("ReceiptFieldCorrection_Field") @db.VarChar(30)
+  /// Who produced the original: "ocr" (tesseract + the deterministic parsers),
+  /// "vision" (a model read the photo), or "ai-category" (the categoriser).
+  /// Without this the figures would blame OCR for a vision model's guess and
+  /// average two unrelated error rates into one meaningless number.
+  source        String  @map("ReceiptFieldCorrection_Source") @db.VarChar(20)
+  /// What FinSight read, and what the owner confirmed, as displayed text.
+  ///
+  /// Text rather than typed columns because one table holds dates, pesos and
+  /// category names, and five nullable typed columns of which four are always
+  /// null is a worse trade than formatting on the way in. Nothing recomputes
+  /// money from these — they are evidence for a human reading a report, and
+  /// the authoritative values remain on ExpenseRecord.
+  ///
+  /// Null on either side means absence, and the two are different findings:
+  /// a null original is something FinSight failed to read, a null final is
+  /// something it read that was never there.
+  originalValue String? @map("ReceiptFieldCorrection_OriginalValue") @db.VarChar(255)
+  finalValue    String? @map("ReceiptFieldCorrection_FinalValue") @db.VarChar(255)
+  /// The item's name, for item-level fields. Denormalised on purpose: it is
+  /// what makes "the categoriser files pandesal under Supplies every time"
+  /// answerable by grouping, and for a deleted line it is the only surviving
+  /// record of what the line said.
+  itemName      String? @map("ReceiptFieldCorrection_ItemName") @db.VarChar(255)
+  /// How sure the engine was about this field, 0-100. Null where no
+  /// confidence was recorded — a vision-assisted read, a derived value, or a
+  /// scan from before the per-field columns existed. Rows with a null here
+  /// still count towards accuracy; they are only excluded from calibration.
+  confidence    Int?    @map("ReceiptFieldCorrection_Confidence")
+  /// The answer. False is the interesting case as often as true: a false row
+  /// on a low-confidence field is evidence the THRESHOLD is wrong, not the
+  /// extraction.
+  wasEdited     Boolean @map("ReceiptFieldCorrection_WasEdited")
+
+  createdAt DateTime @default(now()) @map("ReceiptFieldCorrection_CreatedAt")
+
+  receiptScan ReceiptScan @relation(fields: [receiptScanId], references: [id], onDelete: Cascade)
+
+  @@index([receiptScanId])
+  @@index([field])
+  @@index([createdAt])
+  @@map("ReceiptFieldCorrection")
 }
 
 model CSVImportBatch {

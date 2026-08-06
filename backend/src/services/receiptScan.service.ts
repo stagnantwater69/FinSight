@@ -21,6 +21,11 @@ import { categoriseReceiptItems, UNCATEGORISED } from "./ai.service";
 import { extractReceiptWithVision, type VisionPage } from "./visionOcr.service";
 import { createExpenseRecord } from "./expenseRecord.service";
 import { allocateProportionally, type ReconciliationMode } from "../lib/allocation";
+import {
+  recordConfirmationFeedback,
+  recordDeletedLine,
+  snapshotItemCategories,
+} from "./extractionFeedback.service";
 import type { ReceiptScan, ReceiptScanItem, ReceiptScanPage } from "@prisma/client";
 
 /** One photographed page of a receipt, as it arrives from the upload. */
@@ -503,6 +508,14 @@ async function processScan(scanId: number, input: UploadInput): Promise<void> {
         // Null on a vision-assisted read: the figure would describe text
         // tesseract could not make sense of, which is not what it looks like.
         ocrConfidence: rescued.visionAssisted ? null : worstPageConfidence,
+        // Per field, for calibration. The whole-scan figure above cannot say
+        // whether confidence predicts a wrong answer for the VENDOR
+        // specifically, because one number per scan says nothing about which
+        // field on it was doubtful. Same null rule, and for the same reason.
+        vendorConfidence: rescued.visionAssisted ? null : confidenceForValue(combinedLines, vendor),
+        amountConfidence: rescued.visionAssisted
+          ? null
+          : confidenceForValue(combinedLines, rescued.amount?.toFixed(2) ?? null),
       },
     });
 
@@ -962,11 +975,21 @@ export async function deleteScanItem(userId: number, receiptScanId: number, item
     throw new ApiError(400, "This receipt scan has already been confirmed");
   }
 
-  // Scoped to the scan, so an id from someone else's receipt cannot be
-  // deleted by guessing it.
+  // Read before the delete, because "OCR read a line that was not a purchase"
+  // is a fact about a row that is about to stop existing. Scoped to the scan
+  // for the same reason the delete is: an id from someone else's receipt must
+  // not be readable by guessing it.
+  const doomed = await prisma.receiptScanItem.findFirst({ where: { id: itemId, receiptScanId } });
+
   const deleted = await prisma.receiptScanItem.deleteMany({ where: { id: itemId, receiptScanId } });
   if (deleted.count === 0) {
     throw new ApiError(404, "Item not found on this receipt scan");
+  }
+
+  // After the delete has actually succeeded, so a failed removal cannot leave
+  // behind a record of a false positive that was never removed.
+  if (doomed) {
+    await recordDeletedLine(scan, doomed);
   }
 
   const [items, pages] = await Promise.all([
@@ -1054,13 +1077,26 @@ export async function confirmReceipt(userId: number, receiptScanId: number, inpu
   // amounts written and the item -> record links written come from the same
   // grouping and cannot drift apart.
   let splits: ReceiptSplit[];
+  let ownerAdded: { itemId: number; categoryId: number; name: string; lineNumber: number }[] = [];
   if (input.itemAssignments) {
-    const ownerAdded = await persistOwnerAddedItems(scan.id, input.additionalItems);
+    ownerAdded = await persistOwnerAddedItems(scan.id, input.additionalItems);
     splits = await groupItemsIntoSplits(scan.id, validCategories, [...input.itemAssignments, ...ownerAdded]);
     splits = reconcileSplits(splits, totalCentavos, input.reconciliation ?? { mode: "none" });
   } else {
     splits = input.splits ?? [];
   }
+
+  /*
+   * The categoriser's picks, read before the write below destroys them.
+   *
+   * Writing the expense records sets each item's categoryId to the owner's
+   * choice, so once that loop has run the AI's original answer is gone from
+   * the database entirely. Comparing afterwards would compare the owner's
+   * choice with itself and conclude the categoriser is never wrong. This is
+   * the one signal in the whole feedback loop that cannot be recovered later,
+   * which is why it is taken here rather than at the end.
+   */
+  const priorItems = await snapshotItemCategories(scan.id);
 
   if (splits.length === 0) {
     throw new ApiError(400, "Assign the receipt to at least one category");
@@ -1121,6 +1157,32 @@ export async function confirmReceipt(userId: number, receiptScanId: number, inpu
     data: { confirmationStatus: "Confirmed" },
   });
 
+  /*
+   * Last, and only once the confirmation has actually succeeded.
+   *
+   * Everything above can still refuse the request — an unassigned item, a
+   * split that does not reconcile — and a refused confirmation is not a
+   * judgement on the extraction. Recording feedback earlier would file
+   * accuracy data for reviews the owner never completed, and would count the
+   * same receipt again each time they corrected the problem and retried.
+   *
+   * The final category per item comes from `splits` rather than from
+   * `input.itemAssignments`: splits are what was actually written, after
+   * reconciliation, so the feedback cannot disagree with the records.
+   */
+  const finalCategoryByItemId = new Map<number, number>();
+  for (const split of splits) {
+    for (const itemId of split.itemIds ?? []) finalCategoryByItemId.set(itemId, split.categoryId);
+  }
+
+  await recordConfirmationFeedback({
+    scan,
+    confirmed: { date: input.date, vendor: input.vendor, amount: input.amount },
+    priorItems,
+    finalCategoryByItemId,
+    ownerAddedItems: ownerAdded.map((i) => ({ name: i.name, lineNumber: i.lineNumber })),
+  });
+
   return records;
 }
 
@@ -1140,7 +1202,7 @@ export async function confirmReceipt(userId: number, receiptScanId: number, inpu
 async function persistOwnerAddedItems(
   receiptScanId: number,
   additionalItems: { name: string; amount: number; categoryId: number }[] | undefined,
-): Promise<{ itemId: number; categoryId: number }[]> {
+): Promise<{ itemId: number; categoryId: number; name: string; lineNumber: number }[]> {
   if (!additionalItems || additionalItems.length === 0) return [];
 
   const existing = await prisma.receiptScanItem.findMany({
@@ -1149,7 +1211,11 @@ async function persistOwnerAddedItems(
   });
   let lineNumber = existing.reduce((max, i) => Math.max(max, i.lineNumber), 0);
 
-  const created: { itemId: number; categoryId: number }[] = [];
+  // Name and line number ride back out alongside the ids because each of these
+  // is also a line OCR failed to read, which extractionFeedback records as a
+  // miss. Returning them here avoids re-reading the rows that were just
+  // written just to learn what they say.
+  const created: { itemId: number; categoryId: number; name: string; lineNumber: number }[] = [];
   for (const item of additionalItems) {
     lineNumber += 1;
     const row = await prisma.receiptScanItem.create({
@@ -1168,7 +1234,7 @@ async function persistOwnerAddedItems(
         addedByOwner: true,
       },
     });
-    created.push({ itemId: row.id, categoryId: item.categoryId });
+    created.push({ itemId: row.id, categoryId: item.categoryId, name: row.name, lineNumber: row.lineNumber });
   }
   return created;
 }
