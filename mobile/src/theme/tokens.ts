@@ -136,19 +136,25 @@ export const categoricalOnColor = [
 ] as const;
 
 /**
- * Font families. Same three typefaces as web (Inter / IBM Plex Sans / IBM Plex
- * Mono), but delivered via @expo-google-fonts rather than @fontsource.
+ * Font families. Same three typefaces as web (Inter / Sora / IBM Plex Mono),
+ * but delivered via @expo-google-fonts rather than @fontsource.
  *
  * DEVIATION, flagged: @fontsource ships only .woff/.woff2 and expo-font needs
  * .ttf/.otf, so the web font FILES cannot be reused directly. Same typefaces,
- * different packages — visually identical, different delivery mechanism.
+ * different packages — visually identical, different delivery mechanism. Both
+ * Sora packages carry the same upstream (sora-xor/sora-font, OFL), so this is
+ * the same face web renders, not a lookalike.
+ *
+ * `display` was IBM Plex Sans until web replaced it with Sora and mobile did
+ * not follow; this closes that gap. Sora is only ever used at 18 and above —
+ * see TEXT_VARIANTS in components/ui.tsx for why.
  */
 export const font = {
   sans: "Inter_400Regular",
   sansMedium: "Inter_500Medium",
   sansSemibold: "Inter_600SemiBold",
-  display: "IBMPlexSans_600SemiBold",
-  displayBold: "IBMPlexSans_700Bold",
+  display: "Sora_600SemiBold",
+  displayBold: "Sora_700Bold",
   mono: "IBMPlexMono_400Regular",
   monoMedium: "IBMPlexMono_500Medium",
   monoSemibold: "IBMPlexMono_600SemiBold",

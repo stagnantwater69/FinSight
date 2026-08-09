@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  CommonActions,
+  DefaultTheme,
+  createNavigationContainerRef,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,7 +15,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as Font from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
-import { IBMPlexSans_600SemiBold, IBMPlexSans_700Bold } from "@expo-google-fonts/ibm-plex-sans";
+import { Sora_600SemiBold, Sora_700Bold } from "@expo-google-fonts/sora";
 import {
   IBMPlexMono_400Regular,
   IBMPlexMono_500Medium,
@@ -50,7 +55,18 @@ import {
   BusinessProfilesScreen,
   ProfileScreen,
 } from "./src/screens/BusinessScreens";
-import { brand, font, ink, paper } from "./src/theme/tokens";
+import { ACCENT, brand, categorical, categoricalOnColor, font, ink, paper } from "./src/theme/tokens";
+import { recordsTabPressAction, RECORDS_LIST_SCREEN } from "./src/lib/tabSelection";
+import { ReceiptCamera } from "./src/components/receipt-camera";
+import { QuickActionMenu, type RadialAction } from "./src/components/QuickActionMenu";
+import { handOffSections } from "./src/lib/receiptHandoff";
+
+/**
+ * Used to reach the navigator from the tab bar's camera modal, which sits
+ * outside every navigator and so has no `useNavigation` to call. The
+ * documented approach for exactly this.
+ */
+const navigationRef = createNavigationContainerRef();
 
 /*
  * Hold the native splash until the app actually has something to show.
@@ -110,7 +126,16 @@ function DashboardStack() {
 function RecordsStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="RecordsList" component={RecordsScreen} options={{ title: "Records" }} />
+      {/*
+        headerShown: false, like Home, Insights and More.
+
+        The native header printed "Records" directly above the screen's own
+        "Records" heading — the same word twice, one under the other, with
+        nothing between them. The list is the tab's root, so the header also
+        had no back arrow to justify itself. Every screen PUSHED from here
+        keeps its header, because those do have somewhere to go back to.
+      */}
+      <Stack.Screen name="RecordsList" component={RecordsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="AddExpense" component={AddExpenseScreen} options={{ title: "Add expense" }} />
       <Stack.Screen name="AddSales" component={AddSalesScreen} options={{ title: "Add sales" }} />
       {/*
@@ -134,10 +159,20 @@ function RecordsStack() {
 
 function InsightsStack() {
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="ExpenseBehavior" component={ExpenseBehaviorScreen} options={{ title: "Insights" }} />
-      <Stack.Screen name="SpendingImpact" component={SpendingImpactScreen} options={{ title: "Insights" }} />
-      <Stack.Screen name="RecoveryTarget" component={RecoveryTargetScreen} options={{ title: "Insights" }} />
+    /*
+      headerShown: false across the whole stack.
+
+      The three insight screens are not a stack an owner walks down — they
+      move between each other through the segmented control, and none of them
+      has a parent to go back to. The native header was therefore a back arrow
+      that returned to whichever insight was looked at last, under a title
+      ("Insights") that the tab bar was already showing. Each screen draws its
+      own heading instead, the same way Home and More do.
+    */
+    <Stack.Navigator screenOptions={{ ...screenOptions, headerShown: false }}>
+      <Stack.Screen name="ExpenseBehavior" component={ExpenseBehaviorScreen} />
+      <Stack.Screen name="SpendingImpact" component={SpendingImpactScreen} />
+      <Stack.Screen name="RecoveryTarget" component={RecoveryTargetScreen} />
     </Stack.Navigator>
   );
 }
@@ -193,23 +228,55 @@ const TAB_ICONS: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Io
 };
 
 /**
- * Scanning a receipt, given the middle of the bar.
+ * Adding something, given the middle of the bar.
  *
- * It is the thing this app is FOR and the reason someone opens it standing
- * at a counter, so it gets the easiest target on the screen rather than
- * being a button on a screen two taps away.
+ * Recording what was spent and earned is what this app is FOR and the reason
+ * someone opens it standing at a counter, so it gets the easiest target on
+ * the screen rather than being a button two taps away.
  *
- * Raised out of the bar and drawn as a filled circle, so it reads as an
- * action rather than a fifth destination — it does not navigate to a tab and
- * never shows a selected state.
+ * It used to be a camera, because it opened the camera. It now opens five
+ * actions (see QuickActionMenu), so the glyph is a plus — a camera on it
+ * would promise which of the five happens, to someone who has not pressed it
+ * yet. The plus turns into the X that closes the menu, which is why the
+ * selected state matters here and not merely as decoration.
+ *
+ * Raised out of the bar and drawn as a filled circle so it reads as an action
+ * rather than a fifth destination.
  */
-function ScanTabButton({ onPress }: { onPress: () => void }) {
+function ScanTabButton({ onPress, active }: { onPress: () => void; active: boolean }) {
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "flex-start" }}>
+      {/*
+        The selected halo, drawn BEHIND the button rather than as another
+        border on it. A third concentric ring on the button itself would fight
+        the white one that lifts it off the bar; a soft disc behind reads as
+        the same highlight the other tabs get, in the same brand family.
+      */}
+      {active ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: -26,
+            // Centred explicitly rather than relying on the parent's
+            // alignItems reaching an absolutely-positioned child — it does,
+            // but a halo that silently slides to one edge is not worth
+            // leaving to an implicit rule.
+            alignSelf: "center",
+            width: 66,
+            height: 66,
+            borderRadius: 33,
+            backgroundColor: brand[100],
+          }}
+        />
+      ) : null}
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel="Scan a receipt"
+        accessibilityLabel={active ? "Close the actions menu" : "Add a record"}
+        // Announced as selected, so a screen reader says the same thing the
+        // halo does rather than leaving the state visual-only.
+        accessibilityState={{ selected: active }}
         style={({ pressed }) => ({
           width: 54,
           height: 54,
@@ -217,7 +284,9 @@ function ScanTabButton({ onPress }: { onPress: () => void }) {
           marginTop: -20,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: pressed ? brand[800] : brand[700],
+          // Deeper while scanning, so the button reads as engaged even where
+          // the halo is hard to see — a dark phone in daylight, say.
+          backgroundColor: pressed || active ? brand[800] : brand[700],
           // A ring in the bar's own colour so the circle reads as sitting
           // above the bar rather than punched through it.
           borderWidth: 4,
@@ -229,11 +298,22 @@ function ScanTabButton({ onPress }: { onPress: () => void }) {
           elevation: 5,
         })}
       >
-        <Ionicons name="scan" size={24} color="#fff" />
+        {/*
+          A PLUS, not a camera.
+
+          The button opened the camera and nothing else when it was drawn as
+          one. It now offers five actions — a sale, an expense, a spreadsheet,
+          a category, and yes a scan — and a camera glyph on it is a promise
+          about which one happens, made to someone who has not pressed it yet.
+          A plus is the universal "add something", which is exactly the set
+          behind it, and it rotates into the X that closes the menu.
+        */}
+        <Ionicons name={active ? "close" : "add"} size={30} color="#fff" />
       </Pressable>
     </View>
   );
 }
+
 
 function MainTabs() {
   /*
@@ -248,8 +328,100 @@ function MainTabs() {
    */
   const insets = useSafeAreaInsets();
 
+  /**
+   * The receipt camera, owned by the tab bar rather than by a screen.
+   *
+   * This is what lets the Scan button be an ACTION instead of a destination.
+   * The camera opens over whatever the owner was already looking at, and
+   * closing it puts them back there with no navigation having happened at
+   * all — see receiptHandoff.ts for the full account of why the previous
+   * arrangement kept breaking the Records tab.
+   */
+  const [cameraOpen, setCameraOpen] = useState(false);
+  /**
+   * The five actions the raised button now offers instead of going straight
+   * to the camera. See components/QuickActionMenu for why it is an arc.
+   */
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  /*
+   * The nested-params form, because it is the only one that crosses tabs.
+   *
+   * A bare `dispatch(push(screen))` after switching tabs looks cleaner and
+   * does nothing: `useOnAction` forwards an action into a CHILD navigator
+   * only when it carries a `target`, so a targetless one bubbles up past the
+   * tab navigator and is dropped on the floor.
+   *
+   * The residue — `{ screen }` left on the Records tab route, which
+   * bottom-tabs replays on every later press — is handled once in
+   * `recordsTabPressAction` rather than here.
+   */
+  const openInRecords = (screen: string) => {
+    if (!navigationRef.isReady()) return;
+    navigationRef.dispatch(CommonActions.navigate("Records", { screen }));
+  };
+
+  const quickActions: RadialAction[] = [
+    {
+      key: "expense",
+      label: "Expense",
+      icon: "receipt-outline",
+      color: ACCENT.fill,
+      // Amber takes DARK ink, never white — measured, and the same rule the
+      // primary button follows.
+      onColor: ACCENT.onFill,
+      onPress: () => openInRecords("AddExpense"),
+    },
+    {
+      key: "sales",
+      label: "Sales",
+      icon: "cash-outline",
+      color: categorical[2],
+      onColor: categoricalOnColor[2],
+      onPress: () => openInRecords("AddSales"),
+    },
+    {
+      key: "scan",
+      label: "Scan receipt",
+      icon: "camera-outline",
+      // The middle of the arc, in FinSight's own green: still the action the
+      // button is for, just no longer the only one it can reach.
+      color: brand[700],
+      onColor: "#ffffff",
+      onPress: () => setCameraOpen(true),
+    },
+    {
+      key: "csv",
+      label: "Import CSV",
+      icon: "cloud-upload-outline",
+      color: categorical[0],
+      onColor: categoricalOnColor[0],
+      onPress: () => openInRecords("ImportCsv"),
+    },
+    {
+      key: "categories",
+      label: "Categories",
+      icon: "grid-outline",
+      color: categorical[6],
+      onColor: categoricalOnColor[6],
+      onPress: () => openInRecords("Categories"),
+    },
+  ];
+
   return (
+    <>
     <Tab.Navigator
+      /*
+       * No special-casing of the Records tab any more.
+       *
+       * It used to have to surrender its highlight while the scanner was
+       * open, because the scanner was a screen ON the Records stack and so
+       * lit up Records rather than the button the owner had pressed. The
+       * camera is a modal now and lights its own button, and `ScanReceipt`
+       * is what it always should have been — an ordinary Records screen where
+       * a scanned receipt gets reviewed. Records highlighting there is
+       * correct rather than something to work around.
+       */
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: brand[700],
@@ -274,12 +446,43 @@ function MainTabs() {
         which is what the tab actually is now.
       */}
       <Tab.Screen name="Dashboard" component={DashboardStack} options={{ tabBarLabel: "Home" }} />
-      <Tab.Screen name="Records" component={RecordsStack} />
       {/*
-        A tab in position only. The screen is never rendered: the press is
-        intercepted below and turned into a push onto the Records stack, so
-        Scan behaves like an action and leaves the owner somewhere they can
-        navigate back from.
+        Records intercepts its own tab press — see recordsTabPressAction for
+        the two ways the default handler gets this wrong once Scan starts
+        pushing the scanner onto this stack. Short version: pressing an
+        already-focused tab does nothing at all, and the nested-navigation
+        params Scan leaves behind get replayed on every later press.
+      */}
+      <Tab.Screen
+        name="Records"
+        component={RecordsStack}
+        listeners={({ navigation, route }) => ({
+          tabPress: (e) => {
+            const sticky = (route.params as { screen?: string } | undefined)?.screen;
+            if (recordsTabPressAction(navigation.isFocused(), sticky) === "default") return;
+
+            // preventDefault stops the stale-params navigate; this replaces it
+            // with the one thing pressing "Records" should always mean.
+            e.preventDefault();
+            navigation.navigate("Records", { screen: RECORDS_LIST_SCREEN });
+          },
+        })}
+      />
+      {/*
+        A tab in position only, and it navigates nowhere.
+
+        It used to push `ScanReceipt` onto the Records stack to get a camera
+        up, and every bug that followed came from that: Records lit up instead
+        of Scan, pressing Records did nothing because Records was already the
+        focused tab, the nested-navigation params stuck to the Records route
+        and replayed on later presses, and backing out of the camera stranded
+        the owner on a screen they never asked for.
+
+        Now the press opens a camera modal in place. Navigation state does not
+        move, so cancelling returns the owner to exactly where they were —
+        their dashboard, their records, wherever. Only FINISHING a capture
+        navigates, and it navigates to the review screen because that is where
+        the receipt actually gets read.
       */}
       <Tab.Screen
         name="Scan"
@@ -289,22 +492,62 @@ function MainTabs() {
           tabBarButton: (props) => (
             <ScanTabButton
               onPress={() => props.onPress?.({} as never)}
+              active={menuOpen || cameraOpen}
             />
           ),
         }}
-        listeners={({ navigation }) => ({
+        listeners={() => ({
           tabPress: (e) => {
             e.preventDefault();
-            // autoLaunch opens the camera immediately — the button IS the
-            // scan action, so landing on a screen that still needs a "Take a
-            // photo" tap would make it a shortcut to the shortcut.
-            navigation.navigate("Records", { screen: "ScanReceipt", params: { autoLaunch: true } });
+            setMenuOpen(true);
           },
         })}
       />
       <Tab.Screen name="Insights" component={InsightsStack} />
       <Tab.Screen name="More" component={MoreStack} />
     </Tab.Navigator>
+
+    <QuickActionMenu visible={menuOpen} actions={quickActions} onClose={() => setMenuOpen(false)} />
+
+    {/*
+      `statusBarTranslucent` so the preview runs edge to edge; the camera's
+      own SafeAreaView keeps its controls clear of the status bar.
+
+      `onRequestClose` is the Android back button and must be handled, or the
+      modal dismisses without telling this component and `cameraOpen` stays
+      true — after which the Scan button appears permanently lit and does
+      nothing.
+    */}
+    <Modal
+      visible={cameraOpen}
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={() => setCameraOpen(false)}
+    >
+      {/* Mounted only while visible, so the sensor and torch stop with it. */}
+      {cameraOpen ? (
+        <ReceiptCamera
+          onCancel={() => setCameraOpen(false)}
+          onDone={(sections) => {
+            setCameraOpen(false);
+            /*
+             * Handed over out of band, not as a route param — params persist
+             * on the route and get replayed by the tab handler, which is the
+             * exact fault this rearrangement removed. See receiptHandoff.ts.
+             *
+             * Navigating only on FINISH is the point: the owner is sent to
+             * the review screen because there is now a receipt to read, not
+             * because they pressed a button.
+             */
+            handOffSections(sections);
+            // Same route as every other action here — see openInRecords for
+            // why the nested-params form is the only one that arrives.
+            openInRecords("ScanReceipt");
+          }}
+        />
+      ) : null}
+    </Modal>
+    </>
   );
 }
 
@@ -367,8 +610,8 @@ export default function App() {
       Inter_400Regular,
       Inter_500Medium,
       Inter_600SemiBold,
-      IBMPlexSans_600SemiBold,
-      IBMPlexSans_700Bold,
+      Sora_600SemiBold,
+      Sora_700Bold,
       IBMPlexMono_400Regular,
       IBMPlexMono_500Medium,
       IBMPlexMono_600SemiBold,
@@ -395,7 +638,7 @@ export default function App() {
     // a gesture to be broken.
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer theme={navTheme}>
+        <NavigationContainer ref={navigationRef} theme={navTheme}>
           <AuthProvider>
             <Root fontsReady={fontsReady} />
           </AuthProvider>
