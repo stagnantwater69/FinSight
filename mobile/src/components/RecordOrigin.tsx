@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Image, Linking, Pressable, View } from "react-native";
 import { Callout, Money, T } from "./ui";
-import { brand, ink, paper, radius, space, statusText } from "../theme/tokens";
+import { brand, font, ink, paper, radius, space, statusText } from "../theme/tokens";
 
 /**
  * Where a saved record came from.
@@ -77,7 +77,7 @@ export function RecordOriginPanel({ origin, recordAmount }: { origin: RecordOrig
             accessibilityLabel="Open the file this record was imported from"
             style={{ marginTop: space.sm }}
           >
-            <T variant="caption" style={{ color: brand[700], fontWeight: "600" }}>
+            <T variant="caption" style={{ color: brand[700], fontFamily: font.sansSemibold }}>
               Open the file this came from
             </T>
           </Pressable>
@@ -217,7 +217,7 @@ function ReceiptPhoto({ url }: { url: string }) {
         accessibilityState={{ expanded: open }}
         accessibilityLabel={open ? "Hide the receipt photo" : "Show the receipt photo"}
       >
-        <T variant="caption" style={{ color: brand[700], fontWeight: "600" }}>
+        <T variant="caption" style={{ color: brand[700], fontFamily: font.sansSemibold }}>
           {open ? "Hide the receipt photo" : "Show the receipt photo"}
         </T>
       </Pressable>

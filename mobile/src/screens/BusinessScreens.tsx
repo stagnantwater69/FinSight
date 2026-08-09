@@ -4,9 +4,16 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Button, Card, EmptyState, ErrorNote, Field, Money, Screen, T } from "../components/ui";
 import { PhotoUpload } from "../components/PhotoUpload";
 import { useAuth } from "../context/AuthContext";
+import {
+  isValid,
+  validateChangePassword,
+  type ChangePasswordField,
+  type FieldErrors,
+} from "../lib/authValidation";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
-import { errorMessage } from "../lib/api";
-import { brand, ink, radius, space, TAP } from "../theme/tokens";
+import { api, errorMessage, getFieldErrors } from "../lib/api";
+import * as haptics from "../lib/haptics";
+import { brand, font, ink, radius, space, TAP } from "../theme/tokens";
 import type { BusinessProfile, Profile } from "../lib/types";
 
 // ---------------------------------------------------------------- List / switcher
@@ -137,7 +144,7 @@ export function BusinessProfilesScreen({ navigation }: any) {
                 <Card key={p.id} style={{ marginBottom: space.md, borderColor: isActive ? brand[500] : brand[100], borderWidth: isActive ? 2 : 1 }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm }}>
                     <View style={{ flex: 1 }}>
-                      <T style={{ fontFamily: "Inter_500Medium", fontSize: 15 }}>{p.name}</T>
+                      <T style={{ fontFamily: font.sansMedium, fontSize: 15 }}>{p.name}</T>
                       <T variant="caption">{p.type}</T>
                     </View>
                     {isActive ? (
@@ -371,6 +378,14 @@ export function ProfileScreen() {
     phoneNumber: profile?.phoneNumber ?? "",
   });
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
+  const [pwErrors, setPwErrors] = useState<FieldErrors<ChangePasswordField>>({});
+
+  /** Updates one password box and clears whatever was flagged on it. */
+  const setPwField = (key: "current" | "next" | "confirm", field: ChangePasswordField) => (v: string) => {
+    setPw((p) => ({ ...p, [key]: v }));
+    setPwErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+  };
+  const [deletePassword, setDeletePassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -408,17 +423,70 @@ export function ProfileScreen() {
   async function submitPassword() {
     setError(null);
     setMsg(null);
-    if (pw.next !== pw.confirm) return setError("New password and confirmation don't match.");
-    if (pw.next.length < 8) return setError("New password must be at least 8 characters.");
+
+    /*
+      Through `validateChangePassword` rather than the two `if`s that used to
+      sit here.
+
+      Those returned one sentence at the bottom of a three-box form, so "these
+      do not match" appeared nowhere near the box that did not match — and
+      they duplicated rules the server already owns, which is how the two end
+      up disagreeing. The shared validator is checked against the real server
+      schema in backend/tests/contract/authValidation.test.ts.
+    */
+    const invalid = validateChangePassword({
+      currentPassword: pw.current,
+      newPassword: pw.next,
+      confirmPassword: pw.confirm,
+    });
+    if (!isValid(invalid)) {
+      setPwErrors(invalid);
+      haptics.failed();
+      return;
+    }
+    setPwErrors({});
+
     setBusy(true);
     try {
       await changePassword(pw.current, pw.next);
       // changePassword signs out by design — the server invalidates sessions.
     } catch (err) {
-      setError(errorMessage(err));
+      // A wrong current password comes back as a message rather than a field
+      // error — the server does not say which box it meant, so neither does
+      // this.
+      const fromServer = getFieldErrors(err);
+      setPwErrors(fromServer);
+      setError(isValid(fromServer) ? errorMessage(err) : null);
     } finally {
       setBusy(false);
     }
+  }
+
+  function confirmAccountDeletion() {
+    if (!deletePassword) return setError("Enter your current password before deleting the account.");
+    RNAlert.alert(
+      "Permanently delete account?",
+      "Every business, record, receipt image, and import will be removed. This cannot be undone.",
+      [
+        { text: "Keep account", style: "cancel" },
+        {
+          text: "Delete everything",
+          style: "destructive",
+          onPress: async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await api.delete("/auth/me", { currentPassword: deletePassword });
+              await logout();
+            } catch (err) {
+              setError(errorMessage(err));
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -496,7 +564,8 @@ export function ProfileScreen() {
             <Field
               label="Current password"
               value={pw.current}
-              onChangeText={(v) => setPw((p) => ({ ...p, current: v }))}
+              onChangeText={setPwField("current", "currentPassword")}
+              error={pwErrors.currentPassword}
               secureTextEntry
               autoComplete="password"
               returnKeyType="next"
@@ -507,7 +576,8 @@ export function ProfileScreen() {
               ref={nextPwRef}
               label="New password"
               value={pw.next}
-              onChangeText={(v) => setPw((p) => ({ ...p, next: v }))}
+              onChangeText={setPwField("next", "newPassword")}
+              error={pwErrors.newPassword}
               secureTextEntry
               autoComplete="new-password"
               returnKeyType="next"
@@ -518,7 +588,8 @@ export function ProfileScreen() {
               ref={confirmPwRef}
               label="Confirm new password"
               value={pw.confirm}
-              onChangeText={(v) => setPw((p) => ({ ...p, confirm: v }))}
+              onChangeText={setPwField("confirm", "confirmPassword")}
+              error={pwErrors.confirmPassword}
               secureTextEntry
               autoComplete="new-password"
               returnKeyType="done"
@@ -528,6 +599,21 @@ export function ProfileScreen() {
             />
             {error ? <ErrorNote>{error}</ErrorNote> : null}
             <Button title="Change password" onPress={submitPassword} loading={busy} style={{ marginTop: space.sm }} />
+          </Card>
+
+          <Card>
+            <T variant="title" style={{ fontSize: 18, marginBottom: 4, color: "#b42318" }}>Delete account</T>
+            <T variant="caption" style={{ marginBottom: space.md }}>
+              Permanently removes every business, record, receipt image, import, and sign-in credential.
+            </T>
+            <Field
+              label="Current password"
+              value={deletePassword}
+              onChangeText={setDeletePassword}
+              secureTextEntry
+              autoComplete="password"
+            />
+            <Button title="Delete my account" variant="danger" onPress={confirmAccountDeletion} loading={busy} />
           </Card>
 
           <Button title="Log out" variant="danger" onPress={logout} />
