@@ -726,7 +726,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                   >
                     <Ionicons name="checkmark-circle-outline" size={40} color={statusText.good} />
                   </View>
-                  <T variant="title" accessibilityRole="header" style={{ fontSize: 17, textAlign: "center" }}>
+                  <T variant="title" accessibilityRole="header" style={{ textAlign: "center" }}>
                     Nothing needs a look
                   </T>
                   <T variant="caption" style={{ textAlign: "center", marginTop: 6, lineHeight: 18, maxWidth: 260 }}>
@@ -1112,7 +1112,7 @@ export function SpendingImpactScreen({ navigation }: any) {
               >
                 <Ionicons name="locate-outline" size={44} color={brand[600]} />
               </View>
-              <T variant="title" accessibilityRole="header" style={{ fontSize: 17, textAlign: "center" }}>
+              <T variant="title" accessibilityRole="header" style={{ textAlign: "center" }}>
                 Enter an amount to check
               </T>
               <T variant="caption" style={{ textAlign: "center", marginTop: 6, lineHeight: 18, maxWidth: 260 }}>

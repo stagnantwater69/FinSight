@@ -295,7 +295,7 @@ export function AskFinSight({
           </View>
 
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <T style={{ color: "#fff", fontFamily: font.display, fontSize: 16, flex: 1 }}>✦ {copy.title}</T>
+            <T style={{ color: "#fff", fontFamily: font.sansSemibold, fontSize: 16, flex: 1 }}>✦ {copy.title}</T>
             <Pressable
               onPress={close}
               accessibilityRole="button"
@@ -454,22 +454,12 @@ function Bubble({ from, children }: { from: "ai" | "user"; children: React.React
   );
 }
 
-/** The trigger, so all four call sites are one line. */
-export function AskFinSightButton({ onPress }: { onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={{
-        minHeight: TAP,
-        paddingHorizontal: space.md,
-        borderRadius: radius.md,
-        backgroundColor: brand[600],
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <T style={{ color: "#fff", fontFamily: font.sansSemibold, fontSize: 14 }}>✦ Ask FinSight</T>
-    </Pressable>
-  );
-}
+/*
+ * The rectangular "✦ Ask FinSight" trigger used to live here.
+ *
+ * Removed rather than left unused: every screen that had one — Home first,
+ * then the three insight screens — now uses the mascot FAB in
+ * components/AskFinSightFab, so this had no call sites left. A trigger that
+ * still exists is a trigger the next screen will reach for, and then the app
+ * has two ways to ask the same question that look nothing alike.
+ */

@@ -228,11 +228,47 @@ export function CategoryBreakdown({
 // precise value. Only the extremes are labelled — a number on every point is
 // noise, not information.
 
+/**
+ * An axis tick: "48250" -> "48K".
+ *
+ * NO "PHP" PREFIX. It used to carry one on every tick, which cost four
+ * characters on each of four labels in a gutter narrow enough that a
+ * seven-figure business overflowed it — "PHP 1.2M" simply ran past its column
+ * and collided with the plot. The currency is stated once, in the axis
+ * caption, where it is read once rather than four times.
+ *
+ * The compaction is what keeps the width bounded regardless of the figures:
+ * thousands and millions are folded, and a decimal appears only when dropping
+ * it would round two different ticks to the same label.
+ */
+function axisTick(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1)}K`;
+  return `${Math.round(value)}`;
+}
+
+/** The gutter the ticks are drawn in. Bounded because `axisTick` is. */
+const AXIS_GUTTER = 34;
+
+/**
+ * Spending across the period, as a running total.
+ *
+ * CUMULATIVE, NOT PER-DAY, and that is a deliberate change of meaning rather
+ * than a restyle. A per-day series answers "was Tuesday busy", which on a
+ * sari-sari restock pattern is mostly noise — most days are near zero and the
+ * two delivery days are spikes. A running total answers the question the
+ * screen is actually headed by: how fast the month is being spent, and
+ * whether the pace is steepening. It also ends exactly on the figure printed
+ * above it, so the chart and the headline are visibly the same fact.
+ *
+ * The daily figures are not lost — they are what the curve is built from, and
+ * the accessibility label still reports the busiest day.
+ */
 export function SpendTrend({
   data,
-  title = "Daily spending",
+  title = "Spending so far",
   subtitle,
-  height = 120,
+  height = 150,
 }: {
   data: { date: string; total: number }[];
   title?: string;
@@ -247,60 +283,156 @@ export function SpendTrend({
     );
   }
 
+  /*
+   * The plot area is inset on the left for the value ticks. The SVG scales to
+   * the card's width, so everything inside is expressed in this fixed
+   * viewBox and the labels are drawn as real text OUTSIDE it — SVG text
+   * inside a `preserveAspectRatio="none"` box would be stretched with it.
+   */
   const W = 320;
   const H = height;
-  const padY = 10;
-  const values = data.map((d) => d.total);
-  const max = Math.max(...values, 1);
-  const stepX = W / (data.length - 1);
-  const y = (v: number) => padY + (1 - v / max) * (H - padY * 2);
+  const padY = 12;
 
-  const points = data.map((d, i) => ({ x: i * stepX, y: y(d.total), ...d }));
+  let running = 0;
+  const series = data.map((d) => {
+    running += d.total;
+    return { date: d.date, daily: d.total, total: running };
+  });
+
+  const max = Math.max(...series.map((d) => d.total), 1);
+  /*
+   * Four gridlines at a rounded step, so the labels read as figures a person
+   * would say ("20K", "40K") rather than as exact fractions of the maximum.
+   */
+  const step = niceStep(max / 3);
+  const axisMax = Math.max(step * 3, max);
+  const ticks = [3, 2, 1, 0].map((i) => step * i);
+
+  const stepX = W / (series.length - 1);
+  const y = (v: number) => padY + (1 - v / axisMax) * (H - padY * 2);
+
+  const points = series.map((d, i) => ({ x: i * stepX, y: y(d.total), ...d }));
   const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
   const area = `${line} L${W},${H} L0,${H} Z`;
 
-  const peak = points.reduce((a, b) => (b.total > a.total ? b : a));
-  const total = values.reduce((s, v) => s + v, 0);
+  const peak = series.reduce((a, b) => (b.daily > a.daily ? b : a));
+  const last = points[points.length - 1]!;
 
   return (
     <ChartFrame title={title} subtitle={subtitle}>
       <View
-        accessibilityLabel={`Daily spending over ${data.length} days, totalling ${formatMoney(
-          total,
-        )}. Highest was ${formatMoney(peak.total)} on ${peak.date.slice(0, 10)}.`}
+        accessibilityLabel={`Running total over ${series.length} days, reaching ${formatMoney(
+          running,
+        )}. The busiest single day was ${formatMoney(peak.daily)} on ${peak.date.slice(0, 10)}.`}
       >
-        <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-          <Defs>
-            <LinearGradient id="spendFill" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={brand[500]} stopOpacity={0.22} />
-              <Stop offset="1" stopColor={brand[500]} stopOpacity={0.02} />
-            </LinearGradient>
-          </Defs>
-          {/* Recessive baseline. No gridlines — at this size they would be more ink than the data. */}
-          <Path d={`M0,${H - 0.5} H${W}`} stroke={ink[200]} strokeWidth={1} />
-          <Path d={area} fill="url(#spendFill)" />
-          <Path
-            d={line}
-            stroke={brand[600]}
-            strokeWidth={2}
-            fill="none"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        </Svg>
+        <View style={{ flexDirection: "row" }}>
+          {/*
+            Real text, laid out beside the chart rather than inside it. The
+            SVG stretches to the card width with `preserveAspectRatio="none"`,
+            which would squash any text drawn in the same coordinate space.
+          */}
+          <View
+            style={{
+              width: AXIS_GUTTER,
+              height: H,
+              justifyContent: "space-between",
+              paddingVertical: padY - 6,
+              paddingRight: 6,
+            }}
+          >
+            {ticks.map((t) => (
+              <T key={t} variant="caption" style={{ fontSize: 10, textAlign: "right" }} numberOfLines={1}>
+                {axisTick(t)}
+              </T>
+            ))}
+          </View>
 
-        {/* Only the extremes get labels. */}
-        <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
-          <T variant="caption">{data[0]!.date.slice(5, 10)}</T>
-          <T variant="caption" style={{ color: ink[600] }}>
-            peak {formatMoney(peak.total)}
-          </T>
-          <T variant="caption">{data[data.length - 1]!.date.slice(5, 10)}</T>
+          <View style={{ flex: 1 }}>
+            <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+              <Defs>
+                <LinearGradient id="spendFill" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={brand[500]} stopOpacity={0.20} />
+                  <Stop offset="1" stopColor={brand[500]} stopOpacity={0.02} />
+                </LinearGradient>
+              </Defs>
+
+              {/*
+                Dashed gridlines at the same values the ticks name. Hairline
+                and recessive: they exist so a point on the curve can be read
+                against a figure, not to be looked at.
+              */}
+              {ticks.map((t) => (
+                <Path
+                  key={t}
+                  d={`M0,${y(t).toFixed(1)} H${W}`}
+                  stroke={t === 0 ? ink[200] : ink[100]}
+                  strokeWidth={1}
+                  strokeDasharray={t === 0 ? undefined : "3 4"}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+
+              <Path d={area} fill="url(#spendFill)" />
+              <Path
+                d={line}
+                stroke={brand[600]}
+                strokeWidth={2}
+                fill="none"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </Svg>
+
+            {/*
+              The endpoint, drawn as a view rather than an SVG circle — the
+              non-uniform scale above would render a circle as an ellipse.
+              Positioned by percentage so it tracks the stretched geometry.
+            */}
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: "100%",
+                top: last.y,
+                marginLeft: -9,
+                marginTop: -5,
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: brand[600],
+                borderWidth: 2,
+                borderColor: paper.DEFAULT,
+              }}
+            />
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
+              <T variant="caption" style={{ fontSize: 10 }}>{series[0]!.date.slice(5, 10)}</T>
+              <T variant="caption" style={{ fontSize: 10 }}>
+                {series[Math.floor(series.length / 2)]!.date.slice(5, 10)}
+              </T>
+              <T variant="caption" style={{ fontSize: 10 }}>
+                {series[series.length - 1]!.date.slice(5, 10)}
+              </T>
+            </View>
+          </View>
         </View>
       </View>
     </ChartFrame>
   );
+}
+
+/**
+ * Rounds a raw step up to something a person would say out loud — 1, 2 or 5
+ * times a power of ten. Axis labels of "16.7K" are arithmetically correct and
+ * read as noise.
+ */
+function niceStep(raw: number): number {
+  if (raw <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const normalised = raw / magnitude;
+  const rounded = normalised <= 1 ? 1 : normalised <= 2 ? 2 : normalised <= 5 ? 5 : 10;
+  return rounded * magnitude;
 }
 
 // ============================================================
@@ -362,7 +494,7 @@ export function CashflowChart({
   const header = (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm }}>
       <View style={{ flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", flex: 1, gap: 6 }}>
-        <T accessibilityRole="header" style={{ fontFamily: font.displayBold, fontSize: 17, color: ink[900] }}>
+        <T accessibilityRole="header" style={{ fontFamily: font.displayBold, fontSize: 18, color: ink[900] }}>
           {title}
         </T>
         {subtitle ? <T style={{ fontSize: 13, color: ink[500] }}>({subtitle})</T> : null}
@@ -580,7 +712,7 @@ export function CoverageColumns({
   data,
   target,
   title = "Daily coverage",
-  subtitle,
+  subtitle = "In PHP",
   height = 110,
 }: {
   data: { date: string; amount: number }[];
@@ -605,19 +737,74 @@ export function CoverageColumns({
   const gap = 2; // the 2px surface gap that keeps adjacent columns countable
   const slot = W / rows.length;
   const barW = Math.max(slot - gap, 2);
-  const targetY = (1 - target / max) * H;
   const met = rows.filter((r) => r.amount >= target).length;
+
+  /*
+   * Four ticks at a rounded step, so the axis reads in figures a person would
+   * say. The target rarely lands on one of them, which is the point — the
+   * dashed line is what locates it, and the ticks are what make the columns
+   * either side of it readable as amounts rather than as relative heights.
+   */
+  const step = niceStep(max / 3);
+  /*
+    ONE SCALE for the columns, the target line and the gridlines. Rounding the
+    ticks up can push the top tick above the tallest column, and scaling the
+    bars to `max` while labelling to `step * 3` would put every gridline
+    slightly off the value it names — a chart that is wrong in the one way a
+    chart must not be.
+  */
+  const axisMax = Math.max(step * 3, max);
+  const axisTicks = [3, 2, 1, 0].map((i) => step * i);
+  const targetY = (1 - target / axisMax) * H;
 
   return (
     <ChartFrame title={title} subtitle={subtitle}>
+      {/*
+        The target named once, at the top, in the same dash the line is drawn
+        in. Without it the line is a mystery until the sentence under the
+        chart is reached — and that sentence is a summary, not a legend.
+      */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: space.sm }}>
+        <View style={{ flex: 1 }} />
+        <View style={{ width: 14, height: 0, borderTopWidth: 1.5, borderStyle: "dashed", borderTopColor: statusText.warning }} />
+        <T variant="caption" style={{ fontSize: 10 }}>Target: {formatMoney(target)}</T>
+      </View>
+
       <View
         accessibilityLabel={`Daily sales against a target of ${formatMoney(target)}. ${met} of ${
           rows.length
         } days met it.`}
+        style={{ flexDirection: "row" }}
       >
+        <View
+          style={{ width: AXIS_GUTTER, height: H, justifyContent: "space-between", paddingRight: 6 }}
+        >
+          {axisTicks.map((t) => (
+            <T
+              key={t}
+              variant="caption"
+              style={{ fontSize: 10, textAlign: "right", marginTop: -5 }}
+              numberOfLines={1}
+            >
+              {axisTick(t)}
+            </T>
+          ))}
+        </View>
+        <View style={{ flex: 1 }}>
         <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+          {/* Gridlines under the columns, hairline and recessive. */}
+          {axisTicks.map((t) => (
+            <Path
+              key={t}
+              d={`M0,${((1 - t / axisMax) * H).toFixed(1)} H${W}`}
+              stroke={t === 0 ? ink[200] : ink[100]}
+              strokeWidth={1}
+              strokeDasharray={t === 0 ? undefined : "3 4"}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
           {rows.map((row, i) => {
-            const h = Math.max((row.amount / max) * H, row.amount > 0 ? 2 : 0);
+            const h = Math.max((row.amount / axisMax) * H, row.amount > 0 ? 2 : 0);
             return (
               <Path
                 key={row.date}
@@ -638,11 +825,12 @@ export function CoverageColumns({
           />
         </Svg>
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
-          <T variant="caption">{rows[0]!.date.slice(5, 10)}</T>
-          <T variant="caption" style={{ color: ink[600] }}>
-            {met} of {rows.length} days met {formatMoney(target)}
+          <T variant="caption" style={{ fontSize: 10 }}>{rows[0]!.date.slice(5, 10)}</T>
+          <T variant="caption" style={{ fontSize: 10, color: ink[600] }}>
+            {met} of {rows.length} days met it
           </T>
-          <T variant="caption">{rows[rows.length - 1]!.date.slice(5, 10)}</T>
+          <T variant="caption" style={{ fontSize: 10 }}>{rows[rows.length - 1]!.date.slice(5, 10)}</T>
+        </View>
         </View>
       </View>
     </ChartFrame>

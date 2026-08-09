@@ -127,7 +127,7 @@ export function BusinessProfilesScreen({ navigation }: any) {
   return (
     <Screen>
       <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
-        <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>Your businesses</T>
+        <T variant="title" style={{ marginBottom: space.md }}>Your businesses</T>
         {error ? <ErrorNote>{error}</ErrorNote> : null}
 
         {loading ? null : profiles.length === 0 ? (
@@ -258,7 +258,7 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
           <Card>
-            <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>
+            <T variant="title" style={{ marginBottom: space.md }}>
               {existing ? "Edit business" : "Add a business"}
             </T>
             {/*
@@ -499,7 +499,7 @@ export function ProfileScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2, gap: space.lg }}>
           <Card>
-            <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>My profile</T>
+            <T variant="title" style={{ marginBottom: space.md }}>My profile</T>
             {/*
               The upload endpoint existed long before mobile had any way to
               reach it, so a phone could display a photo set on the web app but
@@ -557,7 +557,7 @@ export function ProfileScreen() {
           </Card>
 
           <Card>
-            <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Security</T>
+            <T variant="title" style={{ marginBottom: 4 }}>Security</T>
             <T variant="caption" style={{ marginBottom: space.md }}>
               Changing your password signs you out on every device, including this one.
             </T>
@@ -602,7 +602,7 @@ export function ProfileScreen() {
           </Card>
 
           <Card>
-            <T variant="title" style={{ fontSize: 18, marginBottom: 4, color: "#b42318" }}>Delete account</T>
+            <T variant="title" style={{ marginBottom: 4, color: "#b42318" }}>Delete account</T>
             <T variant="caption" style={{ marginBottom: space.md }}>
               Permanently removes every business, record, receipt image, import, and sign-in credential.
             </T>

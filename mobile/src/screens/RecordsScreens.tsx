@@ -1072,7 +1072,7 @@ export function AddExpenseScreen({ navigation }: any) {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
           <Card>
-            <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>Add expense</T>
+            <T variant="title" style={{ marginBottom: space.md }}>Add expense</T>
             <CategoryPicker
               categories={categories}
               value={categoryId}
@@ -1172,7 +1172,7 @@ export function AddSalesScreen({ navigation }: any) {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: space.lg }}>
           <Card>
-            <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Add sales reference</T>
+            <T variant="title" style={{ marginBottom: 4 }}>Add sales reference</T>
             <T variant="caption" style={{ marginBottom: space.md }}>
               A sales figure you record for monitoring — not a receipt for a customer.
             </T>
@@ -2104,7 +2104,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
         <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2, gap: space.lg }}>
           {!scan ? (
             <Card>
-              <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Scan a receipt</T>
+              <T variant="title" style={{ marginBottom: 4 }}>Scan a receipt</T>
               <T variant="caption" style={{ marginBottom: space.lg }}>
                 {pages.length === 0
                   ? "Photograph a receipt and FinSight will read the date, store and amount. You check them before anything is saved."
@@ -2269,7 +2269,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
               */}
               {pages.length > 0 ? (
                 <Card>
-                  <T variant="title" style={{ fontSize: 18, marginBottom: 2 }}>Check the details</T>
+                  <T variant="title" style={{ marginBottom: 2 }}>Check the details</T>
                   <T variant="caption" style={{ marginBottom: space.md }}>
                     {pages.length === 1
                       ? "Compare what FinSight read against the photo. Nothing is saved until you confirm."
@@ -2322,7 +2322,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                 </Card>
               ) : (
                 <Card>
-                  <T variant="title" style={{ fontSize: 18, marginBottom: 2 }}>Check the details</T>
+                  <T variant="title" style={{ marginBottom: 2 }}>Check the details</T>
                   <T variant="caption">
                     FinSight filled these in from the photo. Correct anything that's wrong — nothing is
                     saved until you confirm.
@@ -2915,7 +2915,7 @@ export function ImportCsvScreen({ navigation }: any) {
     <Screen>
       <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
         <Card>
-          <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>Import a spreadsheet</T>
+          <T variant="title" style={{ marginBottom: 4 }}>Import a spreadsheet</T>
           <T variant="caption" style={{ marginBottom: space.lg }}>
             Bring in expenses from a CSV you already keep.
           </T>
@@ -3221,7 +3221,7 @@ export function EditRecordScreen({ route, navigation }: any) {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
           <Card>
-            <T variant="title" style={{ fontSize: 18, marginBottom: 4 }}>
+            <T variant="title" style={{ marginBottom: 4 }}>
               {isExpense ? "Edit expense" : "Edit sales"}
             </T>
             <T variant="caption" style={{ marginBottom: space.md }}>
@@ -3540,7 +3540,7 @@ export function FlaggedRecordsScreen() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl * 2 }}>
-        <T variant="title" style={{ fontSize: 18, marginBottom: space.md }}>Records to review</T>
+        <T variant="title" style={{ marginBottom: space.md }}>Records to review</T>
         {error ? <ErrorNote>{error}</ErrorNote> : null}
         {loading ? (
           <ActivityIndicator color={brand[600]} />

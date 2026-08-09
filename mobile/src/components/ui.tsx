@@ -1,7 +1,9 @@
 import { forwardRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -10,8 +12,9 @@ import {
   View,
   ViewStyle,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ACCENT, brand, font, ink, paper, radius, space, statusText, TAP } from "../theme/tokens";
+import { ACCENT, brand, font, ink, paper, radius, space, status, statusText, TAP } from "../theme/tokens";
 import { formatMoney, type AlertKind } from "../lib/money";
 import * as haptics from "../lib/haptics";
 
@@ -26,10 +29,10 @@ import * as haptics from "../lib/haptics";
 
 // ---------------------------------------------------------------- Text
 
-type Variant = "title" | "heading" | "body" | "label" | "caption";
+type Variant = "titleLg" | "title" | "heading" | "body" | "label" | "caption";
 
 /*
- * These are type styles, not semantics. `heading` says "display face at 15px";
+ * These are type styles, not semantics. `heading` says "semibold sans at 15px";
  * it does not say "this is a section header". Hanging
  * accessibilityRole="header" off the variant would mean the next person who
  * reaches for `heading` because of how it looks quietly changes where a screen
@@ -37,9 +40,22 @@ type Variant = "title" | "heading" | "body" | "label" | "caption";
  * construction — ScreenHeader, EmptyState, and charts' ChartFrame — declare the
  * role themselves, where it describes the thing rather than its font.
  */
+/*
+ * `title` is 18, not 20. Before this scale existed, 16 of the 21 screens that
+ * used `variant="title"` overrode it to 18 and only two left 20 standing — so
+ * 18 was already the app's screen title in practice and 20 was a number nobody
+ * had gone back to fix. `titleLg` exists for the one genuine hero (the auth
+ * screens' headline), which is the only place 26 was ever wanted.
+ *
+ * `heading` is sans, not the display face. The display face is Sora, which is
+ * geometric and wide — it earns its keep at 18 and above and reads worse than
+ * Inter at 15, which is exactly the dense-list size `heading` is used at. So
+ * the display face stops at `title`.
+ */
 const TEXT_VARIANTS: Record<Variant, TextStyle> = {
-  title: { fontFamily: font.displayBold, fontSize: 20, color: brand[900] },
-  heading: { fontFamily: font.display, fontSize: 15, color: ink[700] },
+  titleLg: { fontFamily: font.displayBold, fontSize: 26, color: brand[900] },
+  title: { fontFamily: font.displayBold, fontSize: 18, color: brand[900] },
+  heading: { fontFamily: font.sansSemibold, fontSize: 15, color: ink[700] },
   body: { fontFamily: font.sans, fontSize: 15, color: ink[700], lineHeight: 22 },
   label: { fontFamily: font.sansMedium, fontSize: 13, color: ink[500] },
   caption: { fontFamily: font.sans, fontSize: 12, color: ink[500] },
@@ -160,6 +176,16 @@ type FieldProps = {
   label: string;
   value: string;
   onChangeText: (v: string) => void;
+  /**
+   * What is wrong with this field, shown under it.
+   *
+   * The forms had no way to say this at all: a rejected registration showed
+   * one sentence at the bottom of the screen and left the owner to work out
+   * which of six boxes it meant. Wiring it into `Field` rather than into each
+   * screen is what makes the border, the message and the announcement agree
+   * — the same argument the web app's own Field makes at the top of its file.
+   */
+  error?: string | null;
 } & React.ComponentProps<typeof TextInput>;
 
 /**
@@ -179,48 +205,305 @@ type FieldProps = {
  * needs to, compose it as an array here rather than at the call site.
  */
 export const Field = forwardRef<TextInput, FieldProps>(function Field(
-  { label, value, onChangeText, onFocus, onBlur, ...rest },
+  { label, value, onChangeText, onFocus, onBlur, secureTextEntry, error, ...rest },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
+
+  /*
+   * Whether a password is currently readable.
+   *
+   * DEFAULT OFF, and reset on every mount, so nothing is ever shown that the
+   * owner did not just ask to see. It exists because a password field is the
+   * one input in the app that gives no feedback at all, and it is also the
+   * one people most often get wrong — on a phone keyboard, with a capital
+   * letter they cannot see. The alternative to revealing it is a failed login
+   * nobody can diagnose, which on the login screen is indistinguishable from
+   * a wrong account.
+   *
+   * The state lives here rather than at the call site because `Field` is what
+   * knows how to lay the control out, and a toggle bolted on from outside is
+   * how the button ends up overlapping the text on the one screen nobody
+   * re-checked.
+   */
+  const [revealed, setRevealed] = useState(false);
+
+  /*
+   * The eye appears only once there is something to reveal.
+   *
+   * An empty password box has nothing to show, so a control sitting in it is
+   * a button that does nothing — and on the login screen it is the first
+   * thing the eye lands on, competing with the field it decorates. It arrives
+   * with the first character.
+   *
+   * Clearing the field also re-hides: someone who reveals a password, clears
+   * it and types a new one would otherwise have the new one on screen without
+   * ever asking, because the reveal state outlived the value it described.
+   */
+  const isPassword = secureTextEntry === true;
+  const hasText = value.length > 0;
+  const showing = revealed && hasText;
+
   return (
     <View style={{ marginBottom: space.md }}>
       <T variant="label" style={{ marginBottom: 4, color: ink[700] }}>
         {label}
       </T>
-      <TextInput
-        ref={ref}
-        value={value}
-        onChangeText={onChangeText}
-        placeholderTextColor={ink[400]}
-        onFocus={(e) => {
-          setFocused(true);
-          onFocus?.(e);
-        }}
-        onBlur={(e) => {
-          setFocused(false);
-          onBlur?.(e);
-        }}
-        style={{
-          minHeight: TAP,
-          // Width stays at 1 either way: a thicker focus border would reflow
-          // every field below it each time focus moves. Colour alone carries it.
-          borderWidth: 1,
-          borderColor: focused ? brand[600] : ink[200],
-          borderRadius: radius.md,
-          paddingHorizontal: space.md,
-          paddingVertical: space.sm,
-          fontSize: 15,
-          color: ink[900],
-          backgroundColor: paper.DEFAULT,
-        }}
-        {...rest}
-      />
+      <View style={{ justifyContent: "center" }}>
+        <TextInput
+          ref={ref}
+          value={value}
+          onChangeText={onChangeText}
+          placeholderTextColor={ink[400]}
+          secureTextEntry={isPassword && !showing}
+          onFocus={(e) => {
+            setFocused(true);
+            onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            onBlur?.(e);
+          }}
+          style={{
+            minHeight: TAP,
+            // Width stays at 1 either way: a thicker focus border would reflow
+            // every field below it each time focus moves. Colour alone carries it.
+            borderWidth: 1,
+            // An error outranks focus: the field an owner is fixing is the
+            // one they are in, and losing the red the moment they tap it
+            // takes the marker away exactly when it is being acted on.
+            borderColor: error ? statusText.critical : focused ? brand[600] : ink[200],
+            borderRadius: radius.md,
+            paddingHorizontal: space.md,
+            // Room for the reveal button, so a long password never runs
+            // underneath it.
+            paddingRight: isPassword && hasText ? 48 : space.md,
+            paddingVertical: space.sm,
+            fontSize: 15,
+            color: ink[900],
+            backgroundColor: paper.DEFAULT,
+          }}
+          {...rest}
+        />
+        {isPassword && hasText ? (
+          <Pressable
+            onPress={() => setRevealed((r) => !r)}
+            accessibilityRole="button"
+            /*
+             * The label states the ACTION, and accessibilityState carries the
+             * current state. A label describing the state instead would leave
+             * a screen-reader user unable to tell what pressing it would do —
+             * and an icon on its own says nothing at all.
+             */
+            accessibilityLabel={showing ? "Hide password" : "Show password"}
+            accessibilityState={{ selected: showing }}
+            hitSlop={10}
+            style={{
+              position: "absolute",
+              right: 4,
+              paddingHorizontal: space.sm,
+              paddingVertical: space.sm,
+            }}
+          >
+            <Ionicons
+              name={showing ? "eye-off-outline" : "eye-outline"}
+              size={20}
+              color={ink[500]}
+            />
+          </Pressable>
+        ) : null}
+      </View>
+      {/*
+        `accessibilityLiveRegion` so a message that appears after a failed
+        submit is spoken, rather than sitting silently under a field the
+        owner has already moved past. The glyph is there because severity is
+        never carried by colour alone — the same rule Alert and Callout follow.
+      */}
+      {error ? (
+        <View
+          accessibilityLiveRegion="polite"
+          style={{ flexDirection: "row", gap: 5, marginTop: 5, alignItems: "flex-start" }}
+        >
+          <T style={{ fontSize: 11, color: statusText.critical }}>⚠</T>
+          <T style={{ flex: 1, fontSize: 12, lineHeight: 17, color: statusText.critical }}>{error}</T>
+        </View>
+      ) : null}
     </View>
   );
 });
 
+/**
+ * A labelled checkbox.
+ *
+ * Its own component because a checkbox's label sits BESIDE the control rather
+ * than above it, which is the one shape `Field` cannot express — and
+ * hand-rolling it at the call site is how the hit area ends up being the 20px
+ * box instead of the whole row. The whole row is the target here, label
+ * included.
+ */
+export function Checkbox({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  /** Optional line under the label, for saying what the choice actually does. */
+  hint?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <Pressable
+      onPress={() => onChange(!checked)}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      accessibilityLabel={hint ? `${label}. ${hint}` : label}
+      style={{
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: space.sm,
+        minHeight: TAP,
+        paddingVertical: space.sm,
+        marginBottom: space.md,
+      }}
+    >
+      <View
+        style={{
+          width: 20,
+          height: 20,
+          marginTop: 1,
+          borderRadius: 5,
+          borderWidth: checked ? 0 : 1.5,
+          borderColor: ink[300],
+          backgroundColor: checked ? brand[600] : paper.DEFAULT,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {/* The tick is not the only signal — the fill carries it too. */}
+        {checked ? <Ionicons name="checkmark" size={14} color="#ffffff" /> : null}
+      </View>
+      <View style={{ flex: 1 }}>
+        <T style={{ fontSize: 14, color: ink[700] }}>{label}</T>
+        {hint ? (
+          <T variant="caption" style={{ marginTop: 2 }}>
+            {hint}
+          </T>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
 // ---------------------------------------------------------------- Selection
+
+/**
+ * One choice out of a list, behind a dropdown.
+ *
+ * WHY THIS EXISTS ALONGSIDE `SelectChip`. Chips are right when the options
+ * are few and the owner benefits from seeing them all at once — a period
+ * filter, a record type. They are wrong for categories on an itemised
+ * receipt, which is where they were being used: a business with a dozen
+ * categories renders a dozen chips wrapping over three or four lines, and
+ * then does it AGAIN for every line on the receipt. A nine-item receipt put
+ * roughly a hundred chips on one screen, which is most of why that screen was
+ * unreadable.
+ *
+ * A dropdown trades one tap for a constant, scannable row. The list itself
+ * gets a sheet with room to breathe, which is also where a long category list
+ * stops being a wall.
+ *
+ * Deliberately not a native picker: `@react-native-picker/picker` renders as
+ * a system control that takes no styling on Android, so it would be the one
+ * input in the app that ignores the design system entirely.
+ */
+export function CategorySelect<Option extends { id: number; name: string }>({
+  options,
+  value,
+  onChange,
+  placeholder = "Choose a category",
+  /** What this selects FOR — read out after the value, never shown. */
+  accessibilityContext,
+  sheetTitle = "Choose a category",
+  disabled,
+}: {
+  options: readonly Option[];
+  value: number | null;
+  onChange: (id: number) => void;
+  placeholder?: string;
+  accessibilityContext?: string;
+  sheetTitle?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const insets = useSafeAreaInsets();
+
+  const selected = options.find((o) => o.id === value) ?? null;
+
+  return (
+    <>
+      <Pressable
+        onPress={() => {
+          haptics.tapped();
+          setOpen(true);
+        }}
+        disabled={disabled}
+        accessibilityRole="button"
+        /*
+         * The value first, then what it is for. A screen reader moving down
+         * an itemised receipt hears "Inventory, category for Rice 25kg" —
+         * "Inventory" alone would not say which line it files.
+         */
+        accessibilityLabel={
+          `${selected ? selected.name : placeholder}` +
+          (accessibilityContext ? `, category for ${accessibilityContext}` : ", category")
+        }
+        accessibilityState={{ disabled: !!disabled, expanded: open }}
+        style={({ pressed }) => ({
+          minHeight: TAP,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: space.sm,
+          borderWidth: 1,
+          borderColor: selected ? ink[200] : status.warning,
+          borderRadius: radius.md,
+          backgroundColor: paper.DEFAULT,
+          paddingHorizontal: space.md,
+          paddingVertical: space.sm,
+          opacity: disabled ? 0.6 : pressed ? 0.85 : 1,
+        })}
+      >
+        <T
+          numberOfLines={1}
+          style={{
+            flex: 1,
+            fontSize: 14,
+            // An unset category is not a placeholder to be styled away — it is
+            // the thing standing between the owner and saving, so it is
+            // written in the colour the rest of the app uses for "needs you".
+            color: selected ? ink[900] : statusText.warning,
+          }}
+        >
+          {selected ? selected.name : placeholder}
+        </T>
+        <Ionicons name="chevron-down" size={16} color={ink[500]} />
+      </Pressable>
+
+      <OptionSheet
+        visible={open}
+        title={sheetTitle}
+        options={options}
+        value={value}
+        onChoose={(id) => onChange(id)}
+        onClose={() => setOpen(false)}
+        emptyText="No categories yet. Close this and add one first."
+      />
+    </>
+  );
+}
+
 
 /**
  * One option out of a set the owner can pick from — a filter, a category, a
@@ -308,7 +591,7 @@ export function SegmentedControl<Value extends string | number>({
   // readonly so a call-site can declare its options `as const` and have the
   // literal value types flow through to `onChange` — without that, `value`
   // widens to string and stops matching the state setter it feeds.
-  options: readonly { label: string; value: Value }[];
+  options: readonly { label: string; value: Value; icon?: keyof typeof Ionicons.glyphMap }[];
   value: Value;
   onChange: (v: Value) => void;
   accessibilityLabel?: string;
@@ -331,14 +614,330 @@ export function SegmentedControl<Value extends string | number>({
               {
                 backgroundColor: selected ? brand[600] : "transparent",
                 opacity: pressed ? 0.85 : 1,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
               },
             ]}
           >
+            {/*
+              Optional, and it stays optional. A period switcher
+              ("This week" / "This month") has nothing an icon would clarify,
+              whereas the three insight sections are destinations an owner
+              returns to and learns the shape of. Forcing every segmented
+              control to carry one would mean inventing glyphs for the
+              switchers that do not want them.
+            */}
+            {option.icon ? (
+              <Ionicons name={option.icon} size={14} color={selected ? "#fff" : ink[500]} />
+            ) : null}
             <T style={{ fontSize: 13, color: selected ? "#fff" : ink[600] }}>{option.label}</T>
           </Pressable>
         );
       })}
     </View>
+  );
+}
+
+
+/**
+ * The bottom sheet both dropdowns open.
+ *
+ * Extracted the moment there was a second one. This app already has a test
+ * (chipConsistency) that exists because eleven hand-rolled chips drifted into
+ * five visual treatments, and a modal is a far bigger surface to let drift —
+ * the backdrop, the swallow behaviour, the tick, the safe-area padding are
+ * each a detail the second copy would get slightly wrong.
+ *
+ * `transparent` with the sheet at the bottom rather than a full-screen modal:
+ * the row being changed stays visible above it, which is what lets someone
+ * check what they are choosing FOR while they choose.
+ */
+export function OptionSheet<Option extends { id: number | string; name: string }>({
+  visible,
+  title,
+  options,
+  value,
+  onChoose,
+  onClose,
+  emptyText,
+}: {
+  visible: boolean;
+  title: string;
+  options: readonly Option[];
+  value: Option["id"] | null;
+  onChoose: (id: Option["id"]) => void;
+  onClose: () => void;
+  emptyText: string;
+}) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="Close without choosing"
+        style={{ flex: 1, backgroundColor: "rgba(26,32,34,0.45)", justifyContent: "flex-end" }}
+      >
+        {/*
+          The sheet swallows touches so they never reach the backdrop behind —
+          without this, a tap anywhere on it would close it, and choosing the
+          last option in a scrolled list would dismiss instead of select.
+
+          A View claiming the responder, NOT a Pressable with an empty
+          onPress: it is not a control, and a button role here would put a
+          phantom stop between every real option for a screen reader.
+        */}
+        <View
+          onStartShouldSetResponder={() => true}
+          style={{
+            backgroundColor: paper.DEFAULT,
+            borderTopLeftRadius: radius.xl,
+            borderTopRightRadius: radius.xl,
+            paddingTop: space.md,
+            paddingBottom: insets.bottom + space.md,
+            maxHeight: "70%",
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingHorizontal: space.lg,
+              paddingBottom: space.sm,
+            }}
+          >
+            <T variant="heading" accessibilityRole="header" style={{ color: brand[900] }}>
+              {title}
+            </T>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              hitSlop={10}
+              style={{ padding: space.xs }}
+            >
+              <Ionicons name="close" size={20} color={ink[500]} />
+            </Pressable>
+          </View>
+
+          <ScrollView>
+            {options.map((option) => {
+              const isSelected = option.id === value;
+              return (
+                <Pressable
+                  key={String(option.id)}
+                  onPress={() => {
+                    haptics.tapped();
+                    onChoose(option.id);
+                    onClose();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: space.sm,
+                    minHeight: TAP,
+                    paddingHorizontal: space.lg,
+                    paddingVertical: space.sm,
+                    backgroundColor: pressed ? paper[100] : isSelected ? brand[50] : paper.DEFAULT,
+                  })}
+                >
+                  <T style={{ flex: 1, fontSize: 15, color: isSelected ? brand[900] : ink[800] }}>
+                    {option.name}
+                  </T>
+                  {/* A tick as well as the tint — never colour alone. */}
+                  {isSelected ? <Ionicons name="checkmark" size={18} color={brand[600]} /> : null}
+                </Pressable>
+              );
+            })}
+            {options.length === 0 ? (
+              <T variant="caption" style={{ paddingHorizontal: space.lg, paddingVertical: space.md }}>
+                {emptyText}
+              </T>
+            ) : null}
+          </ScrollView>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/**
+ * A compact dropdown, shaped as a pill.
+ *
+ * Distinct from CategorySelect on purpose. That one is a form FIELD — full
+ * width, sitting under a label, holding an answer the owner must give. This
+ * is a VIEW control: it changes what the screen shows, sits inline above the
+ * content it governs, and always has a value. A period switcher rendered as a
+ * full-width field would look like something waiting to be filled in.
+ */
+export function DropdownPill<Value extends string | number>({
+  options,
+  value,
+  onChange,
+  icon,
+  sheetTitle,
+  accessibilityLabel,
+}: {
+  options: readonly { label: string; value: Value }[];
+  value: Value;
+  onChange: (v: Value) => void;
+  icon?: keyof typeof Ionicons.glyphMap;
+  sheetTitle: string;
+  accessibilityLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.value === value);
+
+  return (
+    <>
+      <Pressable
+        onPress={() => {
+          haptics.tapped();
+          setOpen(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`${accessibilityLabel ?? sheetTitle}: ${current?.label ?? ""}`}
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => ({
+          alignSelf: "flex-start",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          minHeight: TAP - 6,
+          paddingHorizontal: space.md,
+          paddingVertical: space.sm,
+          borderRadius: radius.full,
+          borderWidth: 1,
+          borderColor: ink[200],
+          backgroundColor: paper.DEFAULT,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        {icon ? <Ionicons name={icon} size={15} color={ink[600]} /> : null}
+        <T style={{ fontSize: 13.5, color: ink[800], fontFamily: font.sansMedium }}>{current?.label}</T>
+        <Ionicons name="chevron-down" size={15} color={ink[500]} />
+      </Pressable>
+
+      <OptionSheet
+        visible={open}
+        title={sheetTitle}
+        options={options.map((o) => ({ id: o.value, name: o.label }))}
+        value={value}
+        onChoose={(id) => onChange(id as Value)}
+        onClose={() => setOpen(false)}
+        emptyText="Nothing to choose from."
+      />
+    </>
+  );
+}
+
+
+/**
+ * A yes/no question about something that cannot be undone with one tap.
+ *
+ * A SHEET RATHER THAN `Alert.alert`. The system dialog is the right tool when
+ * the answer is genuinely binary and the app has nothing to add — but it
+ * cannot be styled, so it arrives as a piece of Android in the middle of an
+ * app that has been careful about every other surface, and its buttons read
+ * in the system's words rather than in the app's. This says what will happen
+ * in FinSight's own voice and puts the destructive answer where the eye
+ * already goes.
+ *
+ * Cancel sits on the LEFT and is the plain one; the destructive action is on
+ * the right and filled. That is the wrong way round for iOS convention and
+ * the right way round for the phones this app is for, which are Android
+ * almost without exception.
+ */
+export function ConfirmSheet({
+  visible,
+  title,
+  body,
+  confirmLabel,
+  cancelLabel = "Cancel",
+  confirmVariant = "brand",
+  onConfirm,
+  onCancel,
+}: {
+  visible: boolean;
+  title: string;
+  body?: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  /**
+   * How the confirm button is painted. Named for what it IS rather than for
+   * what the action means, because the two do not line up: signing out is the
+   * most destructive thing on the More screen and still wants FinSight's
+   * green, not a red that would imply data is about to be lost.
+   */
+  confirmVariant?: "brand" | "primary" | "danger";
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onCancel}>
+      <Pressable
+        onPress={onCancel}
+        accessibilityRole="button"
+        accessibilityLabel="Dismiss without doing anything"
+        style={{ flex: 1, backgroundColor: "rgba(26,32,34,0.45)", justifyContent: "flex-end" }}
+      >
+        {/*
+          Swallows touches so a tap on the sheet cannot reach the backdrop.
+          A View claiming the responder, not a Pressable — it is not a control,
+          and a button role here would put a phantom stop between the two that
+          are.
+        */}
+        <View
+          onStartShouldSetResponder={() => true}
+          style={{
+            backgroundColor: paper.DEFAULT,
+            borderTopLeftRadius: radius.xl,
+            borderTopRightRadius: radius.xl,
+            paddingTop: space.md,
+            paddingHorizontal: space.lg,
+            paddingBottom: insets.bottom + space.lg,
+          }}
+        >
+          {/* The grabber. Says "this came from the bottom and goes back there". */}
+          <View
+            style={{
+              alignSelf: "center",
+              width: 36,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: ink[200],
+              marginBottom: space.lg,
+            }}
+          />
+
+          <T variant="title" accessibilityRole="header" style={{ textAlign: "center" }}>
+            {title}
+          </T>
+          {body ? (
+            <T style={{ fontSize: 14, color: ink[600], textAlign: "center", marginTop: 6, lineHeight: 20 }}>
+              {body}
+            </T>
+          ) : null}
+
+          <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.lg }}>
+            <View style={{ flex: 1 }}>
+              <Button title={cancelLabel} variant="secondary" onPress={onCancel} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button title={confirmLabel} variant={confirmVariant} onPress={onConfirm} />
+            </View>
+          </View>
+        </View>
+      </Pressable>
+    </Modal>
   );
 }
 
