@@ -98,10 +98,18 @@ export function Card({
   return <div className={classes}>{children}</div>;
 }
 
+/**
+ * `headingLevel` defaults to 2 because a Panel is normally a top-level section
+ * of a page whose only other heading is the PageHead <h1>. It used to render
+ * <h3> unconditionally, which meant no page in the app contained an <h2> at
+ * all and every screen reader outline skipped a level. Pass 3 for a Panel
+ * genuinely nested inside another Panel.
+ */
 export function Panel({
   eyebrow,
   title,
   action,
+  headingLevel = 2,
   className = "",
   bodyClassName = "",
   children,
@@ -109,17 +117,19 @@ export function Panel({
   eyebrow?: string;
   title?: ReactNode;
   action?: ReactNode;
+  headingLevel?: 2 | 3 | 4;
   className?: string;
   bodyClassName?: string;
   children: ReactNode;
 }) {
+  const Heading = `h${headingLevel}` as const;
   return (
     <Card className={className}>
       {title || action ? (
         <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
           <div className="min-w-0">
             {eyebrow ? <div className="eyebrow mb-0.5">{eyebrow}</div> : null}
-            {title ? <h3 className="text-base font-semibold text-ink-900">{title}</h3> : null}
+            {title ? <Heading className="text-base font-semibold text-ink-900">{title}</Heading> : null}
           </div>
           {action ? <div className="shrink-0">{action}</div> : null}
         </div>
@@ -341,7 +351,18 @@ export function FormPage({
   aside?: ReactNode;
   children: ReactNode;
 }) {
-  const card = <Card className={`${wide ? "max-w-3xl" : "max-w-xl"} p-6 sm:p-7`}>{children}</Card>;
+  /*
+   * `wide` is 4xl rather than 3xl because the only screens that ask for it —
+   * the two business-profile forms — lay their fields out in PAIRS. The
+   * max-width rule above is about how wide a single input should get, and at
+   * 4xl a two-column row is still only ~430px a column, comfortably inside it,
+   * while 3xl was leaving most of a laptop's width empty beside a form that had
+   * to wrap its every hint onto three lines to fit.
+   *
+   * A form with one field per row keeps the narrower default, which is the
+   * measure that reasoning was written for.
+   */
+  const card = <Card className={`${wide ? "max-w-4xl" : "max-w-xl"} p-6 sm:p-7`}>{children}</Card>;
 
   return (
     <div>

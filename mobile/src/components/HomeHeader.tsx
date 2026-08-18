@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Image, Modal, Pressable, ScrollView, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { T } from "./ui";
-import { brand, font, ink, paper, radius, space, statusText, TAP } from "../theme/tokens";
+import { brand, font, ink, paper, radius, space, statusText, TAP, typeScale } from "../theme/tokens";
 import type { BusinessProfile } from "../lib/types";
 import * as haptics from "../lib/haptics";
 
@@ -203,7 +203,7 @@ export function HomeHeader({
                   })}
                 >
                   <Avatar profile={p} size={32} />
-                  <T style={{ flex: 1, fontSize: 15, color: ink[900] }} numberOfLines={1}>
+                  <T style={{ flex: 1, fontSize: typeScale.body, color: ink[900] }} numberOfLines={1}>
                     {p.name}
                   </T>
                   {p.id === selected.id ? <Ionicons name="checkmark" size={18} color={brand[600]} /> : null}

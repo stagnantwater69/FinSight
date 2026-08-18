@@ -5,6 +5,7 @@ import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { buildModuleContext, type InteractionModule } from "./aiContext.service";
 import type { ExtractedScenario } from "../lib/scenario";
 import type { AIInteraction } from "@prisma/client";
+import { logger } from "../config/logger";
 
 // Keep the model names as named constants — Google and OpenRouter rename
 // or deprecate models often. If a call starts failing with a 404/"model
@@ -268,12 +269,12 @@ export async function askFinSight(input: AskInput): Promise<AskResult> {
     const answer = await callGemini(input);
     return { answer, provider: "gemini" };
   } catch (geminiError) {
-    console.error("Gemini call failed, falling back to OpenRouter:", geminiError);
+    logger.error({ err: geminiError }, "Gemini call failed, falling back to OpenRouter");
     try {
       const answer = await callOpenRouter(input);
       return { answer, provider: "openrouter" };
     } catch (openRouterError) {
-      console.error("OpenRouter fallback also failed:", openRouterError);
+      logger.error({ err: openRouterError }, "OpenRouter fallback also failed");
       return {
         answer: "FinSight can't reach its AI assistant right now. Please try again in a few minutes.",
         provider: "unavailable",
@@ -628,11 +629,11 @@ export async function categoriseReceiptItems(
   try {
     raw = await classifyItemsWithGemini(itemNames, categoryNames, context);
   } catch (geminiError) {
-    console.error("Gemini item categorisation failed, falling back to OpenRouter:", geminiError);
+    logger.error({ err: geminiError }, "Gemini item categorisation failed, falling back to OpenRouter");
     try {
       raw = await classifyItemsWithOpenRouter(itemNames, categoryNames, context);
     } catch (openRouterError) {
-      console.error("OpenRouter item categorisation also failed:", openRouterError);
+      logger.error({ err: openRouterError }, "OpenRouter item categorisation also failed");
       return [];
     }
   }
@@ -666,11 +667,11 @@ export async function suggestCategoryForDescription(
   try {
     raw = await classifyWithGemini(description, names);
   } catch (geminiError) {
-    console.error("Gemini category classification failed, falling back to OpenRouter:", geminiError);
+    logger.error({ err: geminiError }, "Gemini category classification failed, falling back to OpenRouter");
     try {
       raw = await classifyWithOpenRouter(description, names);
     } catch (openRouterError) {
-      console.error("OpenRouter category classification also failed:", openRouterError);
+      logger.error({ err: openRouterError }, "OpenRouter category classification also failed");
       return null;
     }
   }

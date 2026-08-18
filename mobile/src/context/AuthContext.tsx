@@ -14,8 +14,18 @@ interface AuthValue {
   profile: Profile | null;
   loading: boolean;
   login: (input: LoginInput) => Promise<void>;
-  register: (input: RegisterInput) => Promise<void>;
+  /**
+   * Returns what to tell the owner; it does NOT sign them in.
+   *
+   * Registration is now only a request: the account stays pending until its
+   * address is confirmed, so there is no session to store and the caller's job
+   * is to render a "check your email" state rather than to enter the app.
+   */
+  register: (input: RegisterInput) => Promise<{ message: string }>;
+  /** Signs out this phone only. */
   logout: () => Promise<void>;
+  /** Ends every session on every device, including this one. */
+  logoutEverywhere: () => Promise<void>;
   updateProfile: (input: UpdateProfileInput) => Promise<void>;
   /**
    * Replaces the cached profile with one the server just returned.
@@ -134,13 +144,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function register(input: RegisterInput) {
-    const data = await api.post<{ profile: Profile; session: { access_token: string; refresh_token: string } }>(
-      "/auth/register",
-      input
-    );
-    await applySession(data.session, data.profile);
+    return api.post<{ message: string }>("/auth/register", { ...input, platform: "mobile" });
   }
 
+  /**
+   * Signs out THIS PHONE. `logoutEverywhere` is the other one.
+   *
+   * These were a single action with global scope, so tapping "Log out" here
+   * also ended the session on the tablet behind the shop counter, silently and
+   * with nothing on either screen to explain it. Two actions, so the two
+   * intentions can be told apart and the destructive one has to be chosen.
+   */
   async function logout() {
     try {
       await api.post("/auth/logout");
@@ -148,6 +162,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // A failed server-side logout must not strand the user in a signed-in
       // shell — clear the local session regardless.
     }
+    await clearLocalSession();
+  }
+
+  async function logoutEverywhere() {
+    try {
+      await api.post("/auth/logout-all");
+    } catch {
+      // Same reasoning as logout(): the local session goes either way.
+    }
+    await clearLocalSession();
+  }
+
+  async function clearLocalSession() {
     await supabase.auth.signOut();
     // Nothing fetched under the old token may survive into the next session.
     bootstrapProfiles.current = null;
@@ -158,14 +185,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(await api.patch<Profile>("/auth/me", input));
   }
 
+  /**
+   * Changes the password and STAYS SIGNED IN. Other devices are signed out.
+   *
+   * This used to sign the phone out, on the stated belief that Supabase
+   * invalidates existing sessions when the password is rotated through the
+   * admin API. It does not — so the belief was inverted in practice: every
+   * other device stayed signed in, and the only session that ended was the one
+   * belonging to the person who had just proved they knew the current password.
+   *
+   * The backend now revokes the others explicitly and deliberately leaves this
+   * one alone, and web does exactly the same. The policy is stated in the
+   * server's response message, which the caller shows.
+   */
   async function changePassword(currentPassword: string, newPassword: string) {
     await api.post("/auth/change-password", { currentPassword, newPassword });
-    // The backend rotates the password via Supabase, which invalidates existing
-    // sessions — so the user is signed out and asked to log in again rather
-    // than left holding a token the server will start rejecting.
-    await supabase.auth.signOut();
-    bootstrapProfiles.current = null;
-    setProfile(null);
   }
 
   return (
@@ -176,6 +210,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         register,
         logout,
+        logoutEverywhere,
         updateProfile,
         changePassword,
         setProfileFromServer: setProfile,

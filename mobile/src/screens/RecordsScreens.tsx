@@ -26,6 +26,7 @@ import {
   type ReconciliationPlan,
 } from "../lib/receiptConfirm";
 import { rowsToApplySuggestionTo, suggestedNewCategory } from "../lib/categorySuggestion";
+import { classifyTypeValue, parseSignedAmount, type RowRecordType } from "../lib/recordTypeDetection";
 import { ReceiptCamera } from "../components/receipt-camera";
 import { takeHandedOffSections } from "../lib/receiptHandoff";
 import {
@@ -48,8 +49,9 @@ import {
   buildSalesUpdatePayload,
   recordUpdatePath,
 } from "../lib/recordUpdate";
-import { brand, font, ink, paper, radius, space, status, statusText, TAP } from "../theme/tokens";
+import { brand, font, ink, paper, radius, space, status, statusText, TAP, typeScale } from "../theme/tokens";
 import { RECORD_SOURCE_LABELS, type ExpenseCategory, type RecordItem, type RecordSource } from "../lib/types";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -127,7 +129,7 @@ function SwipeAction({
       }}
     >
       <Ionicons name={icon} size={20} color="#fff" />
-      <T style={{ color: "#fff", fontSize: 11, marginTop: 2 }}>{label}</T>
+      <T style={{ color: "#fff", fontSize: typeScale.micro, marginTop: 2 }}>{label}</T>
     </Pressable>
   );
 }
@@ -299,6 +301,17 @@ export function RecordsScreen({ navigation, route }: any) {
   // them, so a phone could only ever filter by type and keyword.
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [source, setSource] = useState<RecordSource | null>(null);
+  /**
+   * Which CSV import to narrow to, and the list to choose from.
+   *
+   * Only meaningful alongside source === "CSV_UPLOAD", the same rule the web
+   * filter follows — and the reason the batches are fetched only once that
+   * source is chosen rather than on every visit to Records. Without this a
+   * phone could see that a record came from a spreadsheet but never which one,
+   * which after a 30,000-row import is most of the question.
+   */
+  const [importBatchId, setImportBatchId] = useState<number | null>(null);
+  const [importBatches, setImportBatches] = useState<ImportBatchSummary[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -339,6 +352,9 @@ export function RecordsScreen({ navigation, route }: any) {
             keyword: searchTerm || undefined,
             categoryId: categoryId ?? undefined,
             source: source ?? undefined,
+            // Sent only alongside its source, so a batch chosen and then left
+            // behind by a source change cannot silently keep scoping results.
+            importBatchId: source === "CSV_UPLOAD" && importBatchId ? importBatchId : undefined,
             dateFrom: isCompleteDate(dateFrom) ? dateFrom : undefined,
             dateTo: isCompleteDate(dateTo) ? dateTo : undefined,
             limit: 50,
@@ -354,18 +370,53 @@ export function RecordsScreen({ navigation, route }: any) {
         setLoadingMore(false);
       }
     },
-    [selected?.id, type, searchTerm, categoryId, source, dateFrom, dateTo]
+    [selected?.id, type, searchTerm, categoryId, source, importBatchId, dateFrom, dateTo]
   );
+
+  /*
+   * Fetched only while CSV Upload is actually the chosen source.
+   *
+   * Loading every import on every visit to Records would be wasted work on the
+   * common case of never opening this filter at all — and on a phone that is a
+   * request an owner pays for. A failure is swallowed: the picker simply says
+   * there are none, which is a smaller problem than an error banner over a
+   * records list that loaded perfectly well.
+   */
+  useEffect(() => {
+    if (!selected || source !== "CSV_UPLOAD") {
+      setImportBatches([]);
+      return;
+    }
+    let active = true;
+    api
+      .get<ImportBatchSummary[]>("/records/csv-imports/batches", { businessProfileId: selected.id })
+      .then((list) => {
+        if (active) setImportBatches(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+    // Keyed by the id alone: the profile object is replaced on every refresh,
+    // and depending on it would refetch the same list for no reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, source]);
 
   const activeFilters =
     (categoryId !== null ? 1 : 0) +
     (source !== null ? 1 : 0) +
+    (importBatchId !== null ? 1 : 0) +
     (isCompleteDate(dateFrom) ? 1 : 0) +
     (isCompleteDate(dateTo) ? 1 : 0);
 
   function clearFilters() {
     setCategoryId(null);
     setSource(null);
+    // Cleared with the rest. Left behind it would keep scoping the list to one
+    // import while the sheet says no filters are active — and its own control
+    // is hidden the moment the source goes, so there would be nothing on screen
+    // to turn it off with.
+    setImportBatchId(null);
     setDateFrom("");
     setDateTo("");
     setRangeLabel(null);
@@ -545,7 +596,7 @@ export function RecordsScreen({ navigation, route }: any) {
               returnKeyType="search"
               onFocus={() => setKeywordFocused(true)}
               onBlur={() => setKeywordFocused(false)}
-              style={{ flex: 1, minHeight: TAP, fontSize: 15, color: ink[900] }}
+              style={{ flex: 1, minHeight: TAP, fontSize: typeScale.body, color: ink[900] }}
             />
             {/* Clearing a search should not mean fourteen taps on backspace. */}
             {keyword ? (
@@ -584,7 +635,7 @@ export function RecordsScreen({ navigation, route }: any) {
               style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: space.sm }}
             >
               <Ionicons name="options-outline" size={16} color={brand[700]} />
-              <T style={{ fontSize: 13, color: brand[700], fontFamily: font.sansMedium }}>
+              <T style={{ fontSize: typeScale.label, color: brand[700], fontFamily: font.sansMedium }}>
                 {showFilters ? "Hide filters" : "More filters"}
               </T>
             </Pressable>
@@ -636,11 +687,51 @@ export function RecordsScreen({ navigation, route }: any) {
                       key={s}
                       label={RECORD_SOURCE_LABELS[s]}
                       selected={source === s}
-                      onPress={() => setSource(source === s ? null : s)}
+                      onPress={() => {
+                        const next = source === s ? null : s;
+                        setSource(next);
+                        // Cleared with the source it belongs to — a batch left
+                        // selected under "Any" would scope the list by a filter
+                        // no longer on screen.
+                        if (next !== "CSV_UPLOAD") setImportBatchId(null);
+                      }}
                     />
                   ))}
                 </View>
               </View>
+
+              {/*
+                Only once CSV Upload is the chosen source. "Which import" is
+                meaningless for a typed record, and a control that is usually
+                empty is worse than one that appears when it has something to
+                say — the same progressive disclosure the web filter uses.
+              */}
+              {source === "CSV_UPLOAD" ? (
+                <View>
+                  <T variant="caption" style={{ marginBottom: 4 }}>Which import</T>
+                  {importBatches.length === 0 ? (
+                    <T variant="caption" style={{ color: ink[400] }}>
+                      No CSV imports for this business yet.
+                    </T>
+                  ) : (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
+                      <SelectChip
+                        label="All imports"
+                        selected={importBatchId === null}
+                        onPress={() => setImportBatchId(null)}
+                      />
+                      {importBatches.map((b) => (
+                        <SelectChip
+                          key={b.id}
+                          label={b.title}
+                          selected={importBatchId === b.id}
+                          onPress={() => setImportBatchId(importBatchId === b.id ? null : b.id)}
+                        />
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ) : null}
 
               <View>
                 <T variant="caption" style={{ marginBottom: 4 }}>When</T>
@@ -870,14 +961,14 @@ function ReviewNotices({ notices }: { notices: ReviewNotice[] }) {
           >
             <T
               style={{
-                fontSize: 13,
+                fontSize: typeScale.label,
                 fontFamily: font.sansSemibold,
                 color: notice.tone === "warn" ? statusText.warning : brand[700],
               }}
             >
               {notice.tone === "warn" ? "⚠" : "ⓘ"}
             </T>
-            <T style={{ flex: 1, fontSize: 13, lineHeight: 19, color: ink[700] }}>{notice.text}</T>
+            <T style={{ flex: 1, fontSize: typeScale.label, lineHeight: 19, color: ink[700] }}>{notice.text}</T>
           </View>
         ))}
       </View>
@@ -918,7 +1009,7 @@ function GapOption({
         marginBottom: space.sm,
       }}
     >
-      <T style={{ fontSize: 14, color: ink[900], fontFamily: font.sansMedium }}>{title}</T>
+      <T style={{ fontSize: typeScale.bodySm, color: ink[900], fontFamily: font.sansMedium }}>{title}</T>
       <T variant="caption" style={{ marginTop: 2 }}>{detail}</T>
       {children}
     </Pressable>
@@ -1003,7 +1094,7 @@ function CategoryPicker({
             borderColor: nameFocused ? brand[600] : ink[200],
             borderRadius: radius.md,
             paddingHorizontal: space.md,
-            fontSize: 15,
+            fontSize: typeScale.body,
             color: ink[900],
           }}
         />
@@ -1089,6 +1180,7 @@ export function AddExpenseScreen({ navigation }: any) {
             <Field
               label="Description"
               value={description}
+              maxLength={FIELD_LIMITS.recordDescription}
               onChangeText={setDescription}
               placeholder="e.g. Rice sacks"
               returnKeyType="next"
@@ -1180,6 +1272,7 @@ export function AddSalesScreen({ navigation }: any) {
             <Field
               label="Description"
               value={description}
+              maxLength={FIELD_LIMITS.recordDescription}
               onChangeText={setDescription}
               returnKeyType="next"
               submitBehavior="submit"
@@ -2158,7 +2251,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                                   paddingVertical: 1,
                                 }}
                               >
-                                <T style={{ fontSize: 11, fontFamily: font.sansSemibold, color: ink[700] }}>{i + 1}</T>
+                                <T style={{ fontSize: typeScale.micro, fontFamily: font.sansSemibold, color: ink[700] }}>{i + 1}</T>
                               </View>
                               <Pressable
                                 onPress={() => removePage(p.key)}
@@ -2191,7 +2284,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                               order matters.
                             */}
                             {p.quality?.tooBlurredToTrust ? (
-                              <T style={{ fontSize: 10, color: statusText.warning, marginTop: 2, textAlign: "center" }}>
+                              <T style={{ fontSize: typeScale.axis, color: statusText.warning, marginTop: 2, textAlign: "center" }}>
                                 ⚠ blurry
                               </T>
                             ) : null}
@@ -2312,7 +2405,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                                 paddingVertical: 1,
                               }}
                             >
-                              <T style={{ fontSize: 11, fontFamily: font.monoMedium, color: ink[700] }}>{i + 1}</T>
+                              <T style={{ fontSize: typeScale.micro, fontFamily: font.monoMedium, color: ink[700] }}>{i + 1}</T>
                             </View>
                           ) : null}
                         </View>
@@ -2352,6 +2445,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
               <Field
                 label="Description"
                 value={description}
+                maxLength={FIELD_LIMITS.recordDescription}
                 onChangeText={setDescription}
                 returnKeyType="next"
                 submitBehavior="submit"
@@ -2361,6 +2455,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                 ref={vendorRef}
                 label="Vendor"
                 value={vendor}
+                maxLength={FIELD_LIMITS.vendor}
                 onChangeText={setVendor}
                 returnKeyType="next"
                 submitBehavior="submit"
@@ -2407,7 +2502,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                       }}
                     >
                       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.sm }}>
-                        <T style={{ flex: 1, fontSize: 14, color: ink[900], lineHeight: 20 }} numberOfLines={2}>
+                        <T style={{ flex: 1, fontSize: typeScale.bodySm, color: ink[900], lineHeight: 20 }} numberOfLines={2}>
                           {item.name}
                           {item.quantity != null ? (
                             <T variant="caption"> × {item.quantity}</T>
@@ -2541,7 +2636,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                           accessibilityLabel={`Remove added item ${i + 1}`}
                           style={{ minWidth: TAP - 12, minHeight: TAP - 16, alignItems: "flex-end" }}
                         >
-                          <T style={{ fontSize: 16, color: ink[400] }}>×</T>
+                          <T style={{ fontSize: typeScale.bodyLg, color: ink[400] }}>×</T>
                         </Pressable>
                       </View>
                       <Field
@@ -2648,7 +2743,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                       >
                         <T
                           style={{
-                            fontSize: 11,
+                            fontSize: typeScale.micro,
                             color: gap === 0 ? statusText.good : statusText.warning,
                           }}
                         >
@@ -2663,7 +2758,7 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                         key={String(catId)}
                         style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm, marginTop: 2 }}
                       >
-                        <T style={{ flex: 1, fontSize: 13, color: catId == null ? statusText.warning : ink[700] }}>
+                        <T style={{ flex: 1, fontSize: typeScale.label, color: catId == null ? statusText.warning : ink[700] }}>
                           {catId == null
                             ? "Not categorised yet"
                             : (categories.find((c) => c.id === catId)?.name ?? "Category")}
@@ -2814,12 +2909,47 @@ export function ImportCsvScreen({ navigation }: any) {
    */
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
   const [totalRows, setTotalRows] = useState(0);
-  const [mapping, setMapping] = useState({ date: "", description: "", amount: "", category: "" });
+  const [mapping, setMapping] = useState({ date: "", description: "", amount: "", category: "", recordType: "" });
+  /**
+   * What the file is read as. Mobile could previously only import expenses —
+   * `recordType` was hardcoded — so a phone could not bring in sales history at
+   * all, and a combined sheet had to be split on a computer first.
+   */
+  const [recordType, setRecordType] = useState<"expense" | "sales" | "mixed">("expense");
+  const [mixedStrategy, setMixedStrategy] = useState<"column" | "sign">("column");
   const [result, setResult] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!selected) return null;
+
+  const isMixed = recordType === "mixed";
+  const usesCategory = recordType === "expense" || isMixed;
+
+  /**
+   * What each previewed row becomes, using the SAME readers the server will —
+   * so the label against a row and the record it turns into cannot disagree.
+   * `null` means the file does not say, and those rows are skipped rather than
+   * guessed.
+   */
+  const previewRowTypes: (RowRecordType | null)[] | null = !isMixed
+    ? null
+    : previewRows.map((row) => {
+        if (mixedStrategy === "sign") {
+          const amount = mapping.amount ? parseSignedAmount(row[mapping.amount]) : null;
+          if (amount === null || amount === 0) return null;
+          return amount < 0 ? "expense" : "sales";
+        }
+        return mapping.recordType ? classifyTypeValue(row[mapping.recordType]) : null;
+      });
+
+  const typeSplit = previewRowTypes
+    ? {
+        sales: previewRowTypes.filter((t) => t === "sales").length,
+        expenses: previewRowTypes.filter((t) => t === "expense").length,
+        unknown: previewRowTypes.filter((t) => t === null).length,
+      }
+    : null;
 
   /**
    * Category names in the file that this business does not have yet.
@@ -2874,18 +3004,42 @@ export function ImportCsvScreen({ navigation }: any) {
         headers: string[];
         previewRows: Record<string, string>[];
         totalRows: number;
+        detectedTypeColumn?: string | null;
+        columnsWithNegatives?: string[];
       }>("/records/csv-imports/preview", formFor(f));
       setHeaders(preview.headers);
       setPreviewRows(preview.previewRows ?? []);
       setTotalRows(preview.totalRows ?? 0);
       // Best-effort auto-match, so the common case needs no tapping at all.
       const guess = (want: RegExp) => preview.headers.find((h) => want.test(h)) ?? "";
+      const detectedType = preview.detectedTypeColumn ?? "";
+      const amountCol = guess(/amount|cash|total/i);
+      /*
+       * A detected type column takes itself back from `category`, whose guess
+       * matches /type/ — otherwise a Sale/Expense column would be imported as
+       * category names and quietly create categories called "Sale" and
+       * "Expense".
+       */
+      const categoryGuess = guess(/categ|class|type/i);
       setMapping({
         date: guess(/date/i),
         description: guess(/desc|particular|item/i),
-        amount: guess(/amount|cash|total/i),
-        category: guess(/categ|class|type/i),
+        amount: amountCol,
+        category: categoryGuess === detectedType ? "" : categoryGuess,
+        recordType: detectedType,
       });
+
+      // Offered, not applied silently: the owner still sees the choice, and
+      // every row is labelled below before anything is written.
+      if (detectedType) {
+        setRecordType("mixed");
+        setMixedStrategy("column");
+      } else if (amountCol && (preview.columnsWithNegatives ?? []).includes(amountCol)) {
+        setRecordType("mixed");
+        setMixedStrategy("sign");
+      } else {
+        setRecordType("expense");
+      }
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -2900,9 +3054,23 @@ export function ImportCsvScreen({ navigation }: any) {
     try {
       const form = formFor(file);
       form.append("businessProfileId", String(selected!.id));
-      form.append("recordType", "expense");
+      form.append("recordType", recordType);
+      if (isMixed) form.append("mixedStrategy", mixedStrategy);
       form.append("title", file.name);
-      form.append("columnMapping", JSON.stringify(mapping));
+      // Optional fields are omitted rather than sent empty — the server's
+      // schema takes them as absent, not as "".
+      form.append(
+        "columnMapping",
+        JSON.stringify({
+          date: mapping.date,
+          description: mapping.description,
+          amount: mapping.amount,
+          ...(usesCategory && mapping.category ? { category: mapping.category } : {}),
+          ...(isMixed && mixedStrategy === "column" && mapping.recordType
+            ? { recordType: mapping.recordType }
+            : {}),
+        }),
+      );
       setResult(await api.upload<any>("/records/csv-imports/confirm", form));
     } catch (err) {
       setError(errorMessage(err));
@@ -2917,14 +3085,24 @@ export function ImportCsvScreen({ navigation }: any) {
         <Card>
           <T variant="title" style={{ marginBottom: 4 }}>Import a spreadsheet</T>
           <T variant="caption" style={{ marginBottom: space.lg }}>
-            Bring in expenses from a CSV you already keep.
+            Bring in sales and expenses from a CSV you already keep — one file can hold both.
           </T>
 
           {result ? (
             <View style={{ gap: space.sm }}>
-              <T style={{ fontSize: 15 }}>
+              <T style={{ fontSize: typeScale.body }}>
                 Imported {result.imported} of {result.totalRows} rows.
+                {result.importedExpenses > 0 && result.importedSales > 0
+                  ? ` ${result.importedExpenses} as expenses, ${result.importedSales} as sales.`
+                  : ""}
               </T>
+              {result.uncategorised > 0 ? (
+                <Callout tone="info">
+                  {result.uncategorised} expense(s) had no category and went into "Uncategorised".
+                  They're imported and counted — sorting them is what makes them show up in your
+                  spending breakdown.
+                </Callout>
+              ) : null}
               {result.skipped?.length ? (
                 <AlertBanner kind="needs-review" label="Some rows were skipped">
                   {result.skipped.map((s: any) => `Row ${s.row}: ${s.reason}`).join("\n")}
@@ -2957,9 +3135,89 @@ export function ImportCsvScreen({ navigation }: any) {
               <T variant="caption" style={{ marginBottom: space.md }}>
                 Match your columns to FinSight's fields.
               </T>
-              {(["date", "description", "amount", "category"] as const).map((field) => (
+
+              <T variant="label" style={{ marginBottom: 4 }}>
+                Import as
+              </T>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md }}>
+                {(
+                  [
+                    ["expense", "Expenses"],
+                    ["sales", "Sales"],
+                    ["mixed", "Both in one file"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <SelectChip
+                    key={value}
+                    label={label}
+                    selected={recordType === value}
+                    onPress={() => setRecordType(value)}
+                  />
+                ))}
+              </View>
+
+              {/*
+                Asked as a question about the FILE, not about FinSight: an owner
+                knows whether their sheet has a "type" column or writes expenses
+                with a minus sign; they do not know what a "strategy" is.
+              */}
+              {isMixed ? (
+                <>
+                  <T variant="label" style={{ marginBottom: 4 }}>
+                    How does your file say which is which?
+                  </T>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md }}>
+                    <SelectChip
+                      label={'A column says "sale" or "expense"'}
+                      selected={mixedStrategy === "column"}
+                      onPress={() => setMixedStrategy("column")}
+                    />
+                    <SelectChip
+                      label="Expenses are negative (−)"
+                      selected={mixedStrategy === "sign"}
+                      onPress={() => setMixedStrategy("sign")}
+                    />
+                  </View>
+
+                  {/*
+                    The count is the check. A file the owner believes is half
+                    sales that reads as all sales is a mapping mistake they can
+                    see here in a second, rather than in their dashboard a week
+                    later.
+                  */}
+                  {typeSplit ? (
+                    <View style={{ marginBottom: space.md }}>
+                      <Callout tone={typeSplit.unknown > 0 ? "warn" : "info"}>
+                        {previewRows.length < totalRows
+                          ? `In the first ${previewRows.length} rows: `
+                          : "In this file: "}
+                        {typeSplit.sales} sales · {typeSplit.expenses} expenses
+                        {typeSplit.unknown > 0
+                          ? ` · ${typeSplit.unknown} unrecognised. Rows FinSight can't read a type from are skipped, never guessed.`
+                          : "."}
+                      </Callout>
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+
+              {(
+                [
+                  "date",
+                  "description",
+                  "amount",
+                  // Sales rows carry no category, and a mixed file's expense
+                  // rows fall back to "Uncategorised" when the column is absent.
+                  ...(usesCategory ? (["category"] as const) : []),
+                  ...(isMixed && mixedStrategy === "column" ? (["recordType"] as const) : []),
+                ] as const
+              ).map((field) => (
                 <View key={field} style={{ marginBottom: space.md }}>
-                  <T variant="label" style={{ marginBottom: 4, textTransform: "capitalize" }}>{field}</T>
+                  {/* Named for the owner, not for the payload key — "recordType"
+                      through `capitalize` reads "Recordtype". */}
+                  <T variant="label" style={{ marginBottom: 4, textTransform: "capitalize" }}>
+                    {field === "recordType" ? "Sale or expense column" : field}
+                  </T>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
                     {headers.map((h) => (
                       <SelectChip
@@ -3008,7 +3266,15 @@ export function ImportCsvScreen({ navigation }: any) {
                 variant="primary"
                 onPress={confirm}
                 loading={busy}
-                disabled={!mapping.date || !mapping.description || !mapping.amount || !mapping.category}
+                disabled={
+                  !mapping.date ||
+                  !mapping.description ||
+                  !mapping.amount ||
+                  // Required only for a pure expense import: a mixed file may
+                  // legitimately have no category column at all.
+                  (recordType === "expense" && !mapping.category) ||
+                  (isMixed && mixedStrategy === "column" && !mapping.recordType)
+                }
                 style={{ marginTop: space.sm }}
               />
               {/* The insert is a batch write over every row, not instant for
@@ -3259,6 +3525,7 @@ export function EditRecordScreen({ route, navigation }: any) {
               <Field
                 label="Description"
                 value={description}
+                maxLength={FIELD_LIMITS.recordDescription}
                 onChangeText={setDescription}
                 returnKeyType="next"
                 submitBehavior="submit"
@@ -3269,6 +3536,7 @@ export function EditRecordScreen({ route, navigation }: any) {
                   ref={vendorRef}
                   label="Vendor"
                   value={vendor}
+                  maxLength={FIELD_LIMITS.vendor}
                   onChangeText={setVendor}
                   returnKeyType="next"
                   submitBehavior="submit"

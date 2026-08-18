@@ -63,22 +63,21 @@ These remain future production requirements and are not claimed as completed
 capstone deliverables:
 
 - choose the production topology and secrets-management approach;
-- add centralized error tracking, structured request logs, and correlation IDs;
-- add a database-aware readiness check;
+- route the implemented structured, correlated logs to centralized retention and alerting;
+- configure platform probes for the implemented liveness and database-aware readiness endpoints;
 - rehearse database restoration into a scratch environment and record recovery
   time;
 - define and test recovery for receipt and CSV storage objects;
-- add a durable receipt-job queue or a reliable stale-scan recovery process;
-- implement ownership-safe account and business hard deletion;
-- add security headers;
-- keep a single backend instance until rate limiting uses a shared store.
+- load-test and monitor the implemented durable receipt-job leasing/retry process;
+- exercise the implemented account erasure flow against disposable hosted data;
+- monitor shared rate-limit cleanup and sustained quota exhaustion.
 
 ## Stage 3 — release engineering
 
 1. Produce and install a signed Android test build.
 2. Verify permissions, camera capture, upload, network loss, and app
    backgrounding on representative devices.
-3. Add browser end-to-end coverage for money-changing workflows.
+3. Extend the Playwright foundation with authenticated money-changing workflows.
 4. Establish performance budgets for web bundles and receipt processing.
 5. Complete web and mobile accessibility reviews.
 6. Handle dependency upgrades separately from candidate stabilization.

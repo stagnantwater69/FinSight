@@ -35,6 +35,7 @@ import type { Prisma, ReceiptScan, ReceiptScanItem } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { utcDateKey } from "../lib/dates";
 import { amountsMatch, datesMatch, vendorsMatch } from "../lib/fieldComparison";
+import { logger } from "../config/logger";
 
 /**
  * Which comparison a row records.
@@ -130,7 +131,7 @@ export async function recordConfirmationFeedback(input: ConfirmationFeedbackInpu
     // Swallowed on purpose — the owner's receipt is already confirmed and
     // must stay that way. This is the only place the failure is visible, so
     // it names the scan.
-    console.error(`[extraction-feedback] could not record feedback for scan=${input.scan.id}:`, err);
+    logger.error({ err }, `[extraction-feedback] could not record feedback for scan=${input.scan.id}`);
   }
 }
 
@@ -293,7 +294,7 @@ export async function recordDeletedLine(scan: ReceiptScan, item: ReceiptScanItem
       },
     });
   } catch (err) {
-    console.error(`[extraction-feedback] could not record deleted line item=${item.id}:`, err);
+    logger.error({ err }, `[extraction-feedback] could not record deleted line item=${item.id}`);
   }
 }
 

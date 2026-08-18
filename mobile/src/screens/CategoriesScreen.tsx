@@ -4,8 +4,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { errorMessage } from "../lib/api";
 import { Button, Card, EmptyState, ErrorNote, Field, Screen, ScreenHeader, T } from "../components/ui";
-import { brand, font, ink, paper, radius, space, TAP } from "../theme/tokens";
+import { brand, font, ink, paper, radius, space, TAP, typeScale } from "../theme/tokens";
 import type { ExpenseCategory } from "../lib/types";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 /**
  * Expense categories, on a phone.
@@ -94,7 +95,7 @@ export function CategoriesScreen({ navigation }: { navigation: { navigate: (scre
               label="Name"
               value={name}
               onChangeText={setName}
-              maxLength={100}
+              maxLength={FIELD_LIMITS.categoryName}
               autoFocus
               placeholder="e.g. Rent, Supplies, Utilities"
             />
@@ -102,7 +103,7 @@ export function CategoriesScreen({ navigation }: { navigation: { navigate: (scre
               label="Description (optional)"
               value={description}
               onChangeText={setDescription}
-              maxLength={255}
+              maxLength={FIELD_LIMITS.categoryDescription}
               placeholder="What belongs in here"
             />
 
@@ -156,7 +157,7 @@ export function CategoriesScreen({ navigation }: { navigation: { navigate: (scre
                 borderRadius: radius.md,
                 paddingHorizontal: space.md,
                 paddingVertical: space.sm,
-                fontSize: 15,
+                fontSize: typeScale.body,
                 color: ink[900],
                 backgroundColor: paper.DEFAULT,
               }}
@@ -234,7 +235,7 @@ function CategoryRow({
       })}
     >
       <View style={{ flex: 1 }}>
-        <T style={{ fontSize: 15, color: ink[900], fontFamily: font.sansMedium }}>{category.name}</T>
+        <T style={{ fontSize: typeScale.body, color: ink[900], fontFamily: font.sansMedium }}>{category.name}</T>
         {category.description ? (
           <T variant="caption" style={{ marginTop: 2 }}>
             {category.description}

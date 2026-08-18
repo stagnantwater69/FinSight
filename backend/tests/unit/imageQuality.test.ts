@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { assessImageQuality, SHARPNESS_FLOOR } from "../../src/lib/imageQuality";
+import { assessImageQuality, MIN_READABLE_EDGE, SHARPNESS_FLOOR } from "../../src/lib/imageQuality";
 
 /**
  * Built from generated images rather than corpus files, so the suite runs
@@ -81,5 +81,50 @@ describe("assessImageQuality", () => {
   it("keeps the floor inside the gap the corpus measured", () => {
     expect(SHARPNESS_FLOOR).toBeGreaterThan(637);
     expect(SHARPNESS_FLOOR).toBeLessThan(878);
+  });
+
+  /**
+   * The dimension check, which asks a different question from sharpness.
+   *
+   * A screenshot or a chat-app re-encode can be perfectly crisp at the size
+   * it arrives and still have had the thermal print resampled away. Sharpness
+   * measures how clean the transitions are; this measures whether there are
+   * enough of them to read.
+   */
+  describe("dimensions", () => {
+    it("reports the photograph's own size, not the analysis copy's", async () => {
+      const quality = await assessImageQuality(await printedPage());
+      // printedPage() is 600x800. The analysis pass downscales to 400 wide,
+      // and reporting THAT would call every camera photograph ever taken
+      // small.
+      expect(quality!.width).toBe(600);
+      expect(quality!.height).toBe(800);
+    });
+
+    it("flags an image whose short edge is below what OCR needs", async () => {
+      // 600 wide is well under MIN_READABLE_EDGE — a shrunk gallery image
+      // rather than anything a phone camera produces.
+      expect((await assessImageQuality(await printedPage()))!.tooSmallToRead).toBe(true);
+    });
+
+    it("does not flag a full-size camera photograph", async () => {
+      const big = await sharp(await printedPage()).resize({ width: 2400 }).png().toBuffer();
+      const quality = await assessImageQuality(big);
+      expect(Math.min(quality!.width, quality!.height)).toBeGreaterThanOrEqual(MIN_READABLE_EDGE);
+      expect(quality!.tooSmallToRead).toBe(false);
+    });
+
+    /**
+     * The SHORT edge, not the long one. A tall narrow crop of a receipt is a
+     * perfectly normal thing to upload — it is what cropping a thermal slip
+     * produces — and it is not unreadable for being tall.
+     */
+    it("judges the short edge, so a tall narrow crop is not called small", async () => {
+      const tall = await sharp(await printedPage())
+        .resize({ width: MIN_READABLE_EDGE + 200, height: 4000, fit: "fill" })
+        .png()
+        .toBuffer();
+      expect((await assessImageQuality(tall))!.tooSmallToRead).toBe(false);
+    });
   });
 });

@@ -25,6 +25,8 @@ import {
   utcStartOfMonth,
   utcToday,
 } from "../lib/dates";
+import { loadBoundedCategoryHistory } from "./anomalyDetection/categoryStatistics.service";
+import { DEFAULT_DETECTION_CONFIG } from "./anomalyDetection/config";
 
 // ============================================================
 // Recovery targets — the single fetch+compute path
@@ -61,15 +63,52 @@ export async function loadRecoveryTargets(profile: BusinessProfile, today: Date)
 // Expense Behavior Analysis
 // ============================================================
 
-export async function getExpenseBehavior(userId: number, businessProfileId: number, periodDays: number) {
+/**
+ * The most recent expense a business has, or null.
+ *
+ * WHAT IT IS FOR. Every window on this page is measured back from a point, and
+ * that point has always been today. For a business that is recording daily
+ * that is right. For one whose history was imported — the case CSV import now
+ * actively invites — today can be a year past the last record, and every window
+ * lands in a gap: the page loads, finds nothing, and says "no expenses
+ * recorded", which for someone who has just imported hundreds is simply false.
+ *
+ * Returning the date lets the client OFFER the window that has data, by name,
+ * instead of leaving the owner to guess that a control exists and which value
+ * to give it.
+ */
+async function latestExpenseDate(businessProfileId: number): Promise<Date | null> {
+  const row = await prisma.expenseRecord.findFirst({
+    where: { businessProfileId },
+    orderBy: { date: "desc" },
+    select: { date: true },
+  });
+  return row?.date ?? null;
+}
+
+export async function getExpenseBehavior(
+  userId: number,
+  businessProfileId: number,
+  periodDays: number,
+  /**
+   * The day the window ENDS on. Defaults to today, which is every existing
+   * caller's behaviour.
+   *
+   * Deliberately an end date rather than a start date: the period is described
+   * to the owner as "the last N days", so the anchor is the recent end and the
+   * length stays the thing they chose. It is also the primitive a custom date
+   * range would need, so this is not throwaway.
+   */
+  endDate?: Date,
+) {
   await requireOwnedBusinessProfile(userId, businessProfileId);
 
-  const today = utcToday();
+  const today = endDate ?? utcToday();
   const periodStart = utcAddDays(today, -(periodDays - 1));
   const previousPeriodEnd = utcAddDays(periodStart, -1);
   const previousPeriodStart = utcAddDays(previousPeriodEnd, -(periodDays - 1));
 
-  const [currentRecords, previousRecords, allCategoryRecords, categories] = await Promise.all([
+  const [currentRecords, previousRecords, categories] = await Promise.all([
     prisma.expenseRecord.findMany({
       where: { businessProfileId, date: { gte: periodStart, lte: utcEndOfDay(today) } },
     }),
@@ -77,12 +116,15 @@ export async function getExpenseBehavior(userId: number, businessProfileId: numb
       where: { businessProfileId, date: { gte: previousPeriodStart, lte: previousPeriodEnd } },
       select: { categoryId: true, amount: true },
     }),
-    prisma.expenseRecord.findMany({
-      where: { businessProfileId },
-      select: { id: true, categoryId: true, amount: true },
-    }),
     prisma.expenseCategory.findMany({ where: { businessProfileId } }),
   ]);
+
+  const boundedCategoryHistory = await loadBoundedCategoryHistory(
+    businessProfileId,
+    today,
+    DEFAULT_DETECTION_CONFIG.baselineDays,
+    DEFAULT_DETECTION_CONFIG.maximumCategoryRecords,
+  );
 
   const categoryName = new Map(categories.map((c) => [c.id, c.name]));
 
@@ -160,16 +202,26 @@ export async function getExpenseBehavior(userId: number, businessProfileId: numb
     count: v.count,
   }));
 
-  // Unusual-expense detection: leave-one-out Z-score against each
-  // category's full historical amount list (all-time, not period-scoped
-  // — more data makes a better baseline), evaluated only for records that
-  // fall in the current period.
-  const byCategory = new Map<number, { id: number; amount: number }[]>();
-  for (const r of allCategoryRecords) {
-    const list = byCategory.get(r.categoryId) ?? [];
-    list.push({ id: r.id, amount: Number(r.amount) });
-    byCategory.set(r.categoryId, list);
+  // Unusual-expense detection: leave-one-out Z-score/IQR against a bounded
+  // rolling baseline. Years-old prices no longer distort today's normal, and
+  // a high-volume category cannot make this request load unlimited history.
+  // Current-period candidates are merged even when they sit just outside the
+  // baseline (the API permits a 366-day view), so a visible row is never
+  // silently omitted from eligibility checks.
+  const recordsByCategory = new Map<number, Map<number, { id: number; amount: number }>>();
+  for (const r of boundedCategoryHistory) {
+    const records = recordsByCategory.get(r.categoryId) ?? new Map();
+    records.set(r.id, { id: r.id, amount: Number(r.amount) });
+    recordsByCategory.set(r.categoryId, records);
   }
+  for (const r of currentRecords) {
+    const records = recordsByCategory.get(r.categoryId) ?? new Map();
+    records.set(r.id, { id: r.id, amount: Number(r.amount) });
+    recordsByCategory.set(r.categoryId, records);
+  }
+  const byCategory = new Map(
+    [...recordsByCategory].map(([categoryId, records]) => [categoryId, [...records.values()]]),
+  );
   const currentRecordById = new Map(currentRecords.map((r) => [r.id, r]));
 
   const unusualExpenses: {
@@ -240,6 +292,13 @@ export async function getExpenseBehavior(userId: number, businessProfileId: numb
     categoryTrends,
     unusualExpenses,
     insufficientHistoryCategories,
+    /**
+     * Where this business's expenses actually are, independent of the window
+     * above — so an empty period can tell the owner the difference between
+     * "you have never recorded an expense" and "you have plenty, just none
+     * lately", which are opposite situations that looked identical.
+     */
+    latestExpenseDate: await latestExpenseDate(businessProfileId),
   };
 }
 
@@ -291,12 +350,35 @@ export async function getRecoveryInsight(userId: number, businessProfileId: numb
     });
   }
 
+  /*
+   * WHETHER THIS BUSINESS HAS TRADED AT ALL LATELY.
+   *
+   * Recovery is month-to-date by design and has no period to select, so for a
+   * business whose records were imported and stop a year ago it reports zero
+   * sales against the full monthly target — "you are catastrophically behind".
+   * That is worse than an empty screen: it is a confident, wrong claim about
+   * someone's business, and nothing on the page says the month simply has no
+   * records in it.
+   *
+   * These two let the client say so. Deliberately NOT a change to the targets
+   * themselves — the arithmetic is right, it is the framing that was missing.
+   */
+  const latestSale = await prisma.salesReferenceRecord.findFirst({
+    where: { businessProfileId },
+    orderBy: { date: "desc" },
+    select: { date: true },
+  });
+
   return {
     ...targets,
     monthStart,
     today,
     coverageDays: dailyCoverage.length,
     dailyCoverage,
+    /** True when not one sale is recorded in the month this page is reporting on. */
+    monthHasNoRecords: dailyCoverage.every((d) => d.sales === 0),
+    /** The most recent sale on file, so an empty month can point at where the data is. */
+    latestSaleDate: latestSale?.date ?? null,
   };
 }
 

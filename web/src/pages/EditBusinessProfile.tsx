@@ -27,17 +27,23 @@ export function EditBusinessProfile() {
   }
 
   return (
-    <FormPage eyebrow="Management" title={`Edit ${profile.name}`} wide>
-      <div className="mb-5">
-        <AvatarUpload
-          photoUrl={profile.logoUrl}
-          label={profile.name}
-          changeLabel="Change logo"
-          onUpload={(file) => uploadLogo(profile.id, file).then(() => undefined)}
-        />
-      </div>
+    <FormPage
+      eyebrow="Management"
+      title={`Edit ${profile.name}`}
+      subtitle="Changes apply to this business only. Your records aren't affected."
+      wide
+    >
       <BusinessProfileForm
         submitLabel="Save changes"
+        onCancel={() => navigate("/business-profiles")}
+        logo={
+          <AvatarUpload
+            photoUrl={profile.logoUrl}
+            label={profile.name}
+            changeLabel="Change logo"
+            onUpload={(file) => uploadLogo(profile.id, file).then(() => undefined)}
+          />
+        }
         initialValues={{
           name: profile.name,
           type: profile.type,

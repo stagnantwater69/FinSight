@@ -6,6 +6,11 @@ import { prisma } from "../../src/config/prisma";
 // RESTART IDENTITY resets both rows and the id sequences, so tests can assert
 // on predictable ids and never leak state into the next file.
 const TABLES = [
+  "ApiRateLimit",
+  "CategoryStatistics",
+  "RecurringPattern",
+  "AnalysisJob",
+  "AnomalyFinding",
   "AIInteraction",
   "Notification",
   "CSVImportBatch",

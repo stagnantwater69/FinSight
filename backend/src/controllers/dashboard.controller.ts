@@ -4,7 +4,13 @@ import * as dashboardService from "../services/dashboard.service";
 
 const summaryQuerySchema = z.object({
   businessProfileId: z.coerce.number().int().positive(),
-  periodDays: z.coerce.number().int().positive().max(366).default(30),
+  /*
+   * 0 is the "All time" setting — see ALL_TIME_PERIOD in dashboard.service.ts.
+   * Kept as part of this field rather than a separate `allTime` flag so there
+   * is one source of truth for what the dashboard is showing, and one value to
+   * echo back in the response.
+   */
+  periodDays: z.coerce.number().int().min(0).max(366).default(30),
 });
 
 export async function summary(req: Request, res: Response) {

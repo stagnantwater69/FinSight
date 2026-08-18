@@ -37,6 +37,20 @@ receiptRouter.post(
   asyncHandler(receiptScanController.checkQuality),
 );
 /*
+ * Where the receipt sits in a photograph — the crop editor's starting handles.
+ *
+ * Sits beside quality-check rather than inside the upload because it answers
+ * the same kind of question at the same moment (right after the shutter, with
+ * nothing written anywhere), and because the answer is only ever a proposal
+ * the owner adjusts. See the controller for why detection is server-side.
+ */
+receiptRouter.post(
+  "/detect-edges",
+  rateLimit(LIMITS.EDGE_DETECT_BURST),
+  uploadReceiptImage.single("file"),
+  asyncHandler(receiptScanController.detectEdges),
+);
+/*
  * Polled by both clients after an upload until the read finishes.
  *
  * Deliberately NOT rate-limited alongside the expensive endpoints above: this
@@ -45,5 +59,6 @@ receiptRouter.post(
  * scans would start rejecting the very polling that scanning now depends on.
  */
 receiptRouter.get("/:id", asyncHandler(receiptScanController.show));
+receiptRouter.post("/:id/retry", rateLimit(LIMITS.SCAN_RECEIPT_BURST), asyncHandler(receiptScanController.retry));
 receiptRouter.delete("/:id/items/:itemId", asyncHandler(receiptScanController.deleteItem));
 receiptRouter.post("/:id/confirm", asyncHandler(receiptScanController.confirm));

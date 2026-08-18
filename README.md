@@ -4,14 +4,6 @@ AI-assisted financial monitoring for small-business owners. FinSight is a
 single-role product with web and mobile clients backed by an Express API,
 Prisma/PostgreSQL, and Supabase Auth and Storage.
 
-The application is feature-complete for its capstone demonstration. Current
-work is focused on internal acceptance testing, physical-device validation,
-and presentation readiness. See the
-[progress report](docs/PROGRESS-REPORT.md) and
-[development workflow](docs/DEVELOPMENT-WORKFLOW.md) for the current status.
-Project conventions are documented in
-[the implementation brief](docs/CLAUDE-CODE-PROMPT.md).
-
 ## Repository layout
 
 ```text
@@ -23,15 +15,63 @@ scripts/   Optional external-UAT result scoring tools
 nginx/     Reverse-proxy configuration
 ```
 
+## Getting the code
+
+```bash
+git clone git@github.com:stagnantwater69/FinsightV1.git
+cd FinsightV1
+```
+
+Each of `backend/`, `web/`, and `mobile/` is its own npm project with its own
+`package.json` and `node_modules` — there's no root-level install step.
+
 ## Prerequisites
 
-- Node.js 22 or later
-- npm
-- PostgreSQL (the automated backend suite expects the dedicated test database)
-- A Supabase project for Auth, Storage, and hosted PostgreSQL integration
+Install on your machine before doing anything else:
+
+- **Node.js 22 or later** and **npm** — [nodejs.org](https://nodejs.org). Check
+  with `node -v` / `npm -v`.
+- **Git**
+- **Expo Go** app on your phone (iOS App Store / Google Play) if you want to
+  test the mobile client on a physical device without a native build.
+- Android Studio (Android emulator) and/or Xcode (iOS simulator, macOS only)
+  if you'd rather run mobile on an emulator/simulator than a physical phone.
+
+**Not required for everyday development:**
+
+- **Local PostgreSQL** — the app connects to a shared Supabase Postgres
+  instance instead.
+- **Docker Desktop** — only needed if you want to (a) run the backend's
+  destructive integration test suite locally (`npm run test:db:up`, which
+  starts a throwaway Postgres container), or (b) run the whole stack via
+  `docker-compose.yml` instead of `npm run dev` in each folder. Plain
+  `npm run dev` / `npm start` in `backend/`, `web/`, and `mobile/` needs
+  neither.
+
+Ask the project owner for:
+
+- A Supabase project invite (or the `SUPABASE_URL` / anon key / service-role
+  key for the shared dev project)
+- Any values needed to fill in `.env` files (see below) — these are never
+  committed to the repo
 
 Copy each application's example environment file before running it. Never
 commit Supabase service-role keys or other secrets.
+
+## IDE setup
+
+This project is developed in **VS Code**. Recommended extensions:
+
+- **ESLint** (`dbaeumer.vscode-eslint`) — backend/web/mobile use `oxlint`,
+  which reuses the ESLint UI conventions
+- **Prisma** (`Prisma.prisma`) — syntax highlighting/formatting for
+  `backend/prisma/schema.prisma`
+- **Tailwind CSS IntelliSense** (`bradlc.vscode-tailwindcss`) — for `web/`
+- **Expo Tools** (`expo.vscode-expo-tools`) — for `mobile/`
+
+After `npm ci` in each of `backend/`, `web/`, and `mobile/`, restart the
+TypeScript server (Command Palette → "TypeScript: Restart TS Server") so VS
+Code picks up installed types.
 
 ## Backend
 
@@ -43,8 +83,9 @@ npx prisma generate
 npm run dev
 ```
 
-The API listens on `http://localhost:4000`; its basic health endpoint is
-`GET /api/v1/health`.
+The API listens on `http://localhost:4000`. Use `GET /api/v1/health/live` for
+process liveness and `GET /api/v1/health/ready` (or the compatibility path
+`GET /api/v1/health`) for database-aware readiness and receipt-queue depth.
 
 For a fresh target database, set both `DATABASE_URL` and `DIRECT_URL` before
 deploying migrations. See [the deployment runbook](docs/deployment-runbook.md)
@@ -82,18 +123,34 @@ Run the complete candidate gate before internal acceptance testing or a demo:
 ```bash
 cd backend
 npm run typecheck
+npm run lint
 npm run build
 npx prisma validate
 npm test
 
 cd ../web
 npm run typecheck
+npm run lint
 npm test
 npm run build
+npx playwright test
 
 cd ../mobile
 npm run typecheck
+npm run lint
 npm test
+```
+
+CI additionally validates `docker compose config` and `nginx -t` against
+`nginx/nginx.conf` on every push — see `.github/workflows/ci.yml`. Run the
+same checks locally with:
+
+```bash
+cp backend/.env.example backend/.env   # only if backend/.env doesn't exist yet
+docker compose config
+docker run --rm --add-host backend:127.0.0.1 \
+  -v "$(pwd)/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+  nginx:1.27-alpine nginx -t
 ```
 
 Backend integration tests are destructive by design and refuse to run unless

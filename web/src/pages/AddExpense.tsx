@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { CategorySelect } from "../components/CategorySelect";
 import { Celebration } from "../components/Confirmation";
@@ -12,20 +12,32 @@ import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import type { RecordItem } from "../lib/types";
 import { FormPage } from "../components/ui";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+interface DuplicateExpenseState {
+  description: string;
+  vendor: string;
+  categoryId?: number;
+  amount: number;
 }
 
 export function AddExpense() {
   const { selected } = useBusinessProfiles();
   const navigate = useNavigate();
   const toast = useToast();
-  const [categoryId, setCategoryId] = useState<number | "">("");
+  // Prefilled by the "Duplicate" action on Records — the date is left at
+  // today() below rather than copied, since a duplicate is almost always
+  // "the same thing, today".
+  const duplicateFrom = (useLocation().state as { duplicateFrom?: DuplicateExpenseState } | null)?.duplicateFrom;
+  const [categoryId, setCategoryId] = useState<number | "">(duplicateFrom?.categoryId ?? "");
   const [date, setDate] = useState(today());
-  const [description, setDescription] = useState("");
-  const [vendor, setVendor] = useState("");
-  const [amount, setAmount] = useState<number | "">("");
+  const [description, setDescription] = useState(duplicateFrom?.description ?? "");
+  const [vendor, setVendor] = useState(duplicateFrom?.vendor ?? "");
+  const [amount, setAmount] = useState<number | "">(duplicateFrom?.amount ?? "");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // Peak-End: the first expense a business ever records is the moment the
@@ -58,10 +70,10 @@ export function AddExpense() {
       // history purely to answer a boolean that had already been decided.
       let isFirst = false;
       if (!hasCelebratedFirstRecord(selected!.id)) {
-        const existing = await api.get<RecordItem[]>("/records/search", {
-          params: { businessProfileId: selected!.id, type: "expense" },
+        const existing = await api.get<{ items: RecordItem[]; nextCursor: string | null }>("/records/search", {
+          params: { businessProfileId: selected!.id, type: "expense", limit: 2 },
         });
-        isFirst = existing.data.length <= 1;
+        isFirst = existing.data.items.length <= 1;
       }
 
       if (isFirst) {
@@ -126,10 +138,13 @@ export function AddExpense() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="e.g. Rice sacks"
+            maxLength={FIELD_LIMITS.recordDescription}
           />
         </Field>
         <Field label="Vendor" htmlFor="vendor" optional>
-          <TextInput value={vendor} onChange={(e) => setVendor(e.target.value)} />
+          <TextInput value={vendor} onChange={(e) => setVendor(e.target.value)}
+            maxLength={FIELD_LIMITS.vendor}
+          />
         </Field>
         <Field label="Amount" htmlFor="amount" required>
           <MoneyInput

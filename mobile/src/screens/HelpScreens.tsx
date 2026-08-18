@@ -14,7 +14,7 @@ import {
   type LegalSection,
 } from "../lib/helpContent";
 import { Button, Callout, Card, Screen, ScreenHeader, T } from "../components/ui";
-import { brand, font, ink, radius, space, TAP } from "../theme/tokens";
+import { brand, font, ink, radius, space, TAP, typeScale } from "../theme/tokens";
 
 /**
  * Help and legal, in the app.
@@ -94,7 +94,7 @@ export function FaqsScreen() {
                           minHeight: TAP,
                         }}
                       >
-                        <T style={{ flex: 1, fontSize: 15, color: ink[900], fontFamily: font.sansMedium }}>
+                        <T style={{ flex: 1, fontSize: typeScale.body, color: ink[900], fontFamily: font.sansMedium }}>
                           {faq.q}
                         </T>
                         <Ionicons
@@ -105,7 +105,7 @@ export function FaqsScreen() {
                       </Pressable>
 
                       {isOpen ? (
-                        <T style={{ fontSize: 14, lineHeight: 21, color: ink[600], marginTop: space.xs, marginBottom: space.sm }}>
+                        <T style={{ fontSize: typeScale.bodySm, lineHeight: 21, color: ink[600], marginTop: space.xs, marginBottom: space.sm }}>
                           {faq.a}
                         </T>
                       ) : null}
@@ -147,19 +147,19 @@ export function TutorialsScreen() {
                 }}
               >
                 {/* Decorative — the step number is already in the heading order. */}
-                <T style={{ color: "#fff", fontSize: 14, fontFamily: font.sansSemibold }} accessibilityElementsHidden>
+                <T style={{ color: "#fff", fontSize: typeScale.bodySm, fontFamily: font.sansSemibold }} accessibilityElementsHidden>
                   {t.n}
                 </T>
               </View>
               <T
                 accessibilityRole="header"
-                style={{ flex: 1, fontSize: 15, color: ink[900], fontFamily: font.sansSemibold }}
+                style={{ flex: 1, fontSize: typeScale.body, color: ink[900], fontFamily: font.sansSemibold }}
               >
                 {t.title}
               </T>
             </View>
 
-            <T style={{ fontSize: 14, lineHeight: 21, color: ink[600], marginTop: space.sm }}>{t.body}</T>
+            <T style={{ fontSize: typeScale.bodySm, lineHeight: 21, color: ink[600], marginTop: space.sm }}>{t.body}</T>
 
             {/*
               A written marker, not a play button. A control that looks live
@@ -196,10 +196,10 @@ export function ContactScreen({ navigation }: { navigation: { navigate: (screen:
         />
 
         <Card>
-          <T accessibilityRole="header" style={{ fontSize: 15, color: ink[900], fontFamily: font.sansSemibold }}>
+          <T accessibilityRole="header" style={{ fontSize: typeScale.body, color: ink[900], fontFamily: font.sansSemibold }}>
             Email us
           </T>
-          <T style={{ fontSize: 14, lineHeight: 21, color: ink[600], marginTop: space.xs }}>
+          <T style={{ fontSize: typeScale.bodySm, lineHeight: 21, color: ink[600], marginTop: space.xs }}>
             The most reliable way to reach us. If a receipt was read wrong, saying which shop it came from
             helps more than anything else.
           </T>
@@ -211,7 +211,7 @@ export function ContactScreen({ navigation }: { navigation: { navigate: (screen:
           */}
           <T
             selectable
-            style={{ fontSize: 15, color: brand[700], marginTop: space.md, fontFamily: font.sansMedium }}
+            style={{ fontSize: typeScale.body, color: brand[700], marginTop: space.md, fontFamily: font.sansMedium }}
           >
             {SUPPORT_EMAIL}
           </T>
@@ -231,10 +231,10 @@ export function ContactScreen({ navigation }: { navigation: { navigate: (screen:
         </Card>
 
         <Card style={{ marginTop: space.sm }}>
-          <T accessibilityRole="header" style={{ fontSize: 15, color: ink[900], fontFamily: font.sansSemibold }}>
+          <T accessibilityRole="header" style={{ fontSize: typeScale.body, color: ink[900], fontFamily: font.sansSemibold }}>
             Check the questions first
           </T>
-          <T style={{ fontSize: 14, lineHeight: 21, color: ink[600], marginTop: space.xs }}>
+          <T style={{ fontSize: typeScale.bodySm, lineHeight: 21, color: ink[600], marginTop: space.xs }}>
             Most questions — whether it works offline, what it costs, what happens to your receipt photos —
             are already answered there.
           </T>
@@ -283,14 +283,14 @@ function LegalScreen({
           <View key={section.heading} style={{ marginBottom: space.lg }}>
             <T
               accessibilityRole="header"
-              style={{ fontSize: 16, color: ink[900], fontFamily: font.sansSemibold }}
+              style={{ fontSize: typeScale.bodyLg, color: ink[900], fontFamily: font.sansSemibold }}
             >
               {section.heading}
             </T>
             {section.body.map((paragraph) => (
               <T
                 key={paragraph}
-                style={{ fontSize: 14, lineHeight: 21, color: ink[600], marginTop: space.sm }}
+                style={{ fontSize: typeScale.bodySm, lineHeight: 21, color: ink[600], marginTop: space.sm }}
               >
                 {paragraph}
               </T>
@@ -312,7 +312,7 @@ function LegalScreen({
             padding: space.lg,
           }}
         >
-          <T style={{ fontSize: 14, lineHeight: 21, color: brand[900] }}>
+          <T style={{ fontSize: typeScale.bodySm, lineHeight: 21, color: brand[900] }}>
             <T style={{ fontFamily: font.sansSemibold, color: brand[900] }}>{LEGAL_DISCLAIMER_HEADING}</T>{" "}
             {disclaimer}
           </T>

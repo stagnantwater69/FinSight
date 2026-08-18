@@ -1,7 +1,7 @@
 import { Pressable, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card, T } from "./ui";
-import { brand, ink, radius, space } from "../theme/tokens";
+import { brand, ink, radius, space, typeScale } from "../theme/tokens";
 import * as haptics from "../lib/haptics";
 
 export interface QuickAction {
@@ -53,7 +53,7 @@ export function QuickActions({ actions }: { actions: QuickAction[] }) {
             >
               <Ionicons name={a.icon} size={20} color={brand[700]} />
             </View>
-            <T style={{ fontSize: 11, color: ink[700], textAlign: "center" }} numberOfLines={2}>
+            <T style={{ fontSize: typeScale.micro, color: ink[700], textAlign: "center" }} numberOfLines={2}>
               {a.label}
             </T>
           </Pressable>

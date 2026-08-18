@@ -35,7 +35,24 @@ function webRoutes(): string[] {
 /** Every `<Stack.Screen name="...">` / `<Tab.Screen name="...">` in the app. */
 function mobileScreens(): Set<string> {
   const src = readFileSync(MOBILE_APP, "utf8");
-  return new Set([...src.matchAll(/<(?:Stack|Tab)\.Screen\s+name="([^"]+)"/g)].map((m) => m[1]!));
+  const registered = [...src.matchAll(/<(?:Stack|Tab)\.Screen\s+name="([^"]+)"/g)].map((m) => m[1]!);
+
+  /*
+   * Screens the app renders DIRECTLY rather than registering on a navigator.
+   *
+   * The two auth-deep-link screens are reached from a link in an email, not by
+   * navigating, and they have to win over whatever is currently on screen —
+   * including a signed-in session, because "reset my password" is exactly what
+   * someone does when they think another person has their account. So App.tsx
+   * renders them above the navigator instead of pushing them onto a stack, and
+   * a check that only looked for `<Stack.Screen>` would call them missing.
+   *
+   * The `Screen` suffix is dropped so the COVERED table can name them the same
+   * way it names every other one.
+   */
+  const rendered = [...src.matchAll(/<([A-Z][A-Za-z]*)Screen[\s/>]/g)].map((m) => m[1]!);
+
+  return new Set([...registered, ...rendered]);
 }
 
 /**
@@ -66,9 +83,28 @@ const COVERED: Record<string, string> = {
   "/insights/expense-behavior": "ExpenseBehavior",
   "/insights/recovery": "RecoveryTarget",
   "/insights/spending-impact": "SpendingImpact",
+  /*
+   * The three-step business setup. On mobile it is not only a stack screen:
+   * App.tsx renders it INSTEAD of the tabs when a signed-in owner has no
+   * business yet, which is the same automatic entry the web gets from
+   * RequireBusinessProfile. The registered screen is the deliberate way back in
+   * for someone who chose "Skip for now", matching the web's /onboarding being
+   * navigable at any time.
+   */
+  "/onboarding": "Onboarding",
   "/login": "Login",
   "/register": "Register",
   "/recover-password": "RecoverPassword",
+  /*
+   * These two are reached by a link in an email rather than by navigating, so
+   * on mobile they are not stack screens: App.tsx renders them ABOVE the
+   * navigator when a `finsight://` auth deep link arrives. The parity that
+   * matters is that the capability is reachable, and it is — from the same
+   * email, on the same phone. `mobileScreens()` picks them up from the JSX that
+   * renders them, which is what keeps this entry honest rather than decorative.
+   */
+  "/auth/reset-password": "ResetPassword",
+  "/auth/confirm": "ConfirmEmail",
   "/faqs": "Faqs",
   "/tutorials": "Tutorials",
   "/contact": "Contact",

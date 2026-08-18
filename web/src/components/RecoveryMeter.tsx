@@ -58,6 +58,9 @@ export function RecoveryMeter({
 
   return (
     <div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <span className="text-xs text-ink-500">This month</span>
+      </div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span
           aria-hidden

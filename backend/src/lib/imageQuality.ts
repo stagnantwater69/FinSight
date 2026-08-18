@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { logger } from "../config/logger";
 
 /**
  * How readable a receipt photograph is, measured before the owner starts
@@ -46,7 +47,43 @@ export interface ImageQuality {
   brightness: number;
   /** True when the photograph is too smeared to be worth trusting. */
   tooBlurredToTrust: boolean;
+  /** The photograph's own pixel width, after EXIF rotation. */
+  width: number;
+  /** The photograph's own pixel height, after EXIF rotation. */
+  height: number;
+  /**
+   * True when the image simply does not carry enough pixels for OCR to have
+   * a fair chance, whatever else is right about it.
+   *
+   * A SEPARATE QUESTION FROM SHARPNESS, and worth asking separately: a
+   * downscaled screenshot of a receipt, or a heavily-compressed image
+   * forwarded through a chat app, can be perfectly sharp at the size it
+   * arrives and still have had the thermal print resampled away. Sharpness
+   * measures how crisp the transitions are; this measures whether there are
+   * enough of them to read. Advisory like everything else here — a small
+   * photograph is sometimes the only photograph of that purchase.
+   */
+  tooSmallToRead: boolean;
 }
+
+/**
+ * The narrow edge below which a receipt photograph is called out as small.
+ *
+ * Tesseract wants roughly 20px of height per line of text to read it
+ * reliably. A receipt fills the frame's long axis with something like 40-60
+ * printed lines, which puts the useful floor for the SHORT edge — the one
+ * that carries line width, and therefore character width — at around a
+ * thousand pixels. Every phone camera this app will meet clears that by a
+ * wide margin; what does not clear it is a screenshot, a chat-app re-encode,
+ * or a gallery image someone already shrank. Those are exactly the cases
+ * worth a sentence before the owner waits on a bad read.
+ *
+ * Like SHARPNESS_FLOOR this rejects nothing. Unlike SHARPNESS_FLOOR it is
+ * reasoned from how OCR works rather than calibrated against the corpus,
+ * because every image in the corpus is a full-size camera photograph and none
+ * of them exercises this at all. Said plainly rather than implied.
+ */
+export const MIN_READABLE_EDGE = 1000;
 
 /**
  * Sharpness at or below which a photograph is called out to the owner.
@@ -117,13 +154,32 @@ export async function assessImageQuality(buffer: Buffer): Promise<ImageQuality |
     for (let i = 0; i < gray.length; i++) total += gray[i]!;
 
     const sharpness = laplacianVariance(gray, info.width, info.height);
+
+    /*
+     * Dimensions come from a SECOND read of the metadata, not from `info`
+     * above — `info` describes the 400px analysis copy, which would report
+     * every photograph ever taken as too small. `.rotate()` is applied the
+     * same way so a portrait photo carrying EXIF orientation reports the
+     * edges it will actually be read at rather than the ones it was stored
+     * at, which are swapped.
+     */
+    const meta = await sharp(buffer).rotate().metadata();
+    const width = meta.width ?? 0;
+    const height = meta.height ?? 0;
+
     return {
       sharpness,
       brightness: total / gray.length,
       tooBlurredToTrust: sharpness < SHARPNESS_FLOOR,
+      width,
+      height,
+      // The SHORT edge, because that is the one carrying character width. A
+      // long thin crop of a receipt is a normal thing to upload and is not
+      // unreadable for being tall.
+      tooSmallToRead: width > 0 && height > 0 && Math.min(width, height) < MIN_READABLE_EDGE,
     };
   } catch (err) {
-    console.error("Could not assess receipt image quality:", err);
+    logger.error({ err }, "Could not assess receipt image quality");
     return null;
   }
 }

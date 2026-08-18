@@ -123,7 +123,14 @@ export async function buildFinancialSnapshot(
 // ============================================================
 
 async function expenseInsightsLines(userId: number, profile: BusinessProfile): Promise<string[]> {
-  const behavior = await getExpenseBehavior(userId, profile.id, DEFAULT_PERIOD_DAYS);
+  const [behavior, findings] = await Promise.all([
+    getExpenseBehavior(userId, profile.id, DEFAULT_PERIOD_DAYS),
+    prisma.anomalyFinding.findMany({
+      where: { businessProfileId: profile.id, status: "OPEN" },
+      orderBy: [{ severity: "desc" }, { detectedAt: "desc" }],
+      take: 10,
+    }),
+  ]);
   const lines = ["", "=== EXPENSE BEHAVIOR DETAIL ==="];
 
   lines.push("Unusual expenses flagged this period (statistical outliers vs. that category's own history):");
@@ -146,6 +153,17 @@ async function expenseInsightsLines(userId: number, profile: BusinessProfile): P
           .map((c) => `${c.categoryName} (${c.historyCount} record(s))`)
           .join(", ")
     );
+  }
+
+  lines.push("", "Open explainable findings awaiting owner review:");
+  if (findings.length === 0) {
+    lines.push("- none.");
+  } else {
+    for (const finding of findings) {
+      const reasons = Array.isArray(finding.reasons) ? finding.reasons.filter((reason): reason is string => typeof reason === "string") : [];
+      lines.push(`- [${finding.severity}] ${finding.title}: ${reasons.join("; ") || "No additional reason recorded."}`);
+    }
+    lines.push("These findings mean unusual or worth reviewing, not confirmed fraud or wrongdoing.");
   }
 
   return lines;

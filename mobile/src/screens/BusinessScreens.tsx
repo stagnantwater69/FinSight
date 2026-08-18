@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Alert as RNAlert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { Button, Card, EmptyState, ErrorNote, Field, Money, Screen, T } from "../components/ui";
+import { Button, Callout, Card, EmptyState, ErrorNote, Field, Money, Screen, T } from "../components/ui";
 import { PhotoUpload } from "../components/PhotoUpload";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -13,8 +13,20 @@ import {
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage, getFieldErrors } from "../lib/api";
 import * as haptics from "../lib/haptics";
-import { brand, font, ink, radius, space, TAP } from "../theme/tokens";
+import { brand, font, ink, radius, space, TAP, typeScale } from "../theme/tokens";
 import type { BusinessProfile, Profile } from "../lib/types";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
+import {
+  EMPTY_DRAFT,
+  applyFieldUpdate,
+  draftFromProfile,
+  hasErrors,
+  thresholdDisplayValue,
+  toBusinessProfileInput,
+  validateDraft,
+  type BusinessProfileDraft,
+  type BusinessTextField,
+} from "../lib/businessProfileDraft";
 
 // ---------------------------------------------------------------- List / switcher
 
@@ -96,7 +108,7 @@ export function BusinessProfilesScreen({ navigation }: any) {
                 style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: space.sm, gap: space.sm }}
               >
                 <View style={{ flex: 1 }}>
-                  <T style={{ fontSize: 14 }}>{p.name}</T>
+                  <T style={{ fontSize: typeScale.bodySm }}>{p.name}</T>
                   <T variant="caption">{p.type}{p.archivedAt ? ` · archived ${p.archivedAt.slice(0, 10)}` : ""}</T>
                 </View>
                 <Button
@@ -144,12 +156,12 @@ export function BusinessProfilesScreen({ navigation }: any) {
                 <Card key={p.id} style={{ marginBottom: space.md, borderColor: isActive ? brand[500] : brand[100], borderWidth: isActive ? 2 : 1 }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm }}>
                     <View style={{ flex: 1 }}>
-                      <T style={{ fontFamily: font.sansMedium, fontSize: 15 }}>{p.name}</T>
+                      <T style={{ fontFamily: font.sansMedium, fontSize: typeScale.body }}>{p.name}</T>
                       <T variant="caption">{p.type}</T>
                     </View>
                     {isActive ? (
                       <View style={{ backgroundColor: brand[100], borderRadius: radius.full, paddingHorizontal: space.sm, height: 22, justifyContent: "center" }}>
-                        <T style={{ fontSize: 11, color: brand[700] }}>Active</T>
+                        <T style={{ fontSize: typeScale.micro, color: brand[700] }}>Active</T>
                       </View>
                     ) : null}
                   </View>
@@ -159,7 +171,7 @@ export function BusinessProfilesScreen({ navigation }: any) {
                     <RowLine label="Expected monthly expenses" value={p.expectedMonthlyExpenses} />
                     <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                       <T variant="caption">Operating days / month</T>
-                      <T style={{ fontSize: 13 }}>{p.operatingDays}</T>
+                      <T style={{ fontSize: typeScale.label }}>{p.operatingDays}</T>
                     </View>
                   </View>
 
@@ -195,20 +207,17 @@ function RowLine({ label, value }: { label: string; value: number }) {
 export function BusinessProfileFormScreen({ navigation, route }: any) {
   const existing: BusinessProfile | undefined = route.params?.profile;
   const { createProfile, updateProfile } = useBusinessProfiles();
-  const [form, setForm] = useState({
-    name: existing?.name ?? "",
-    type: existing?.type ?? "Sari-Sari Store",
-    availableFunds: String(existing?.availableFunds ?? ""),
-    expectedMonthlyExpenses: String(existing?.expectedMonthlyExpenses ?? ""),
-    operatingDays: String(existing?.operatingDays ?? "26"),
-    largeExpenseThresholdPercent: String(existing?.largeExpenseThresholdPercent ?? "20"),
-  });
+  const [form, setForm] = useState<BusinessProfileDraft>(() =>
+    existing ? draftFromProfile(existing) : { ...EMPTY_DRAFT, type: "Sari-sari store" },
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // The logo is uploaded on its own, immediately, rather than travelling with
   // the form — so it is held apart from the fields Save writes.
   const [logoUrl, setLogoUrl] = useState<string | null>(existing?.logoUrl ?? null);
-  const set = (k: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
+  // Through applyFieldUpdate rather than a bare spread: the threshold field
+  // carries a touched flag that has to be set with it. See businessProfileDraft.ts.
+  const set = (k: BusinessTextField) => (v: string) => setForm((f) => applyFieldUpdate(f, k, v));
   // One ref per field the return key hands off TO — the first field is never a
   // destination, so it needs none.
   const typeRef = useRef<TextInput>(null);
@@ -218,21 +227,17 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
   const thresholdRef = useRef<TextInput>(null);
 
   async function submit() {
-    const payload = {
-      name: form.name.trim(),
-      type: form.type.trim(),
-      availableFunds: Number(form.availableFunds),
-      expectedMonthlyExpenses: Number(form.expectedMonthlyExpenses),
-      operatingDays: Number(form.operatingDays),
-      largeExpenseThresholdPercent: Number(form.largeExpenseThresholdPercent),
-    };
-    if (!payload.name) return setError("Give your business a name.");
-    if (!Number.isFinite(payload.availableFunds) || payload.availableFunds < 0)
-      return setError("Enter the money you have on hand for the business.");
-    if (!Number.isFinite(payload.expectedMonthlyExpenses) || payload.expectedMonthlyExpenses < 0)
-      return setError("Enter roughly what a month costs you.");
-    if (!Number.isInteger(payload.operatingDays) || payload.operatingDays < 1 || payload.operatingDays > 31)
-      return setError("Operating days must be between 1 and 31.");
+    /*
+     * The rules live in lib/businessProfileDraft.ts so this screen, the setup
+     * wizard and the web's form all reject the same things for the same
+     * reasons — a rule enforced in one place and not the others is how the
+     * same figure comes to be accepted on a phone and refused on a laptop.
+     */
+    const errors = validateDraft(form);
+    if (hasErrors(errors)) {
+      return setError(Object.values(errors).find(Boolean) ?? "Please check the fields above.");
+    }
+    const payload = toBusinessProfileInput(form);
 
     setError(null);
     setBusy(true);
@@ -286,6 +291,7 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
             <Field
               label="Business name"
               value={form.name}
+              maxLength={FIELD_LIMITS.businessName}
               onChangeText={set("name")}
               placeholder="e.g. Aling Nena's Store"
               returnKeyType="next"
@@ -296,6 +302,7 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
               ref={typeRef}
               label="Type"
               value={form.type}
+              maxLength={FIELD_LIMITS.businessType}
               onChangeText={set("type")}
               returnKeyType="next"
               submitBehavior="submit"
@@ -337,11 +344,18 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
               submitBehavior="submit"
               onSubmitEditing={() => thresholdRef.current?.focus()}
             />
+            {/*
+              ASKED IN PESOS, STORED AS A PERCENT — see lib/largeExpenseThreshold.ts
+              for why the two representations differ. Asking "what share of your
+              expected monthly expenses counts as large?" made an owner do
+              arithmetic against a figure they had just estimated; "flag anything
+              over PHP X" is a question they can answer from experience.
+            */}
             <Field
               ref={thresholdRef}
-              label="Large-expense threshold (%)"
-              value={form.largeExpenseThresholdPercent}
-              onChangeText={set("largeExpenseThresholdPercent")}
+              label="Flag single expenses over (PHP) — optional"
+              value={thresholdDisplayValue(form)}
+              onChangeText={set("largeExpenseThresholdPesos")}
               keyboardType="decimal-pad"
               returnKeyType="done"
               // Mirrors the button's own `loading` guard: a second submit while
@@ -350,14 +364,9 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
                 if (!busy) submit();
               }}
             />
-            {/*
-              Stated as a share of expected monthly expenses because that is
-              literally the comparison the server makes — largeExpenseThresholdFor
-              multiplies the two. "Bigger than usual" would be a different rule
-              that nothing in the code implements.
-            */}
             <T variant="caption" style={{ marginTop: -space.sm, marginBottom: space.md }}>
-              An expense at or above this share of your expected monthly expenses gets flagged for review.
+              Expenses this big get set aside for you to review, so a large or mistaken one doesn't
+              slip past. Suggested from your monthly expenses — change it anytime.
             </T>
             {error ? <ErrorNote>{error}</ErrorNote> : null}
             <Button title={existing ? "Save changes" : "Create business"} variant="primary" onPress={submit} loading={busy} style={{ marginTop: space.md }} />
@@ -371,7 +380,8 @@ export function BusinessProfileFormScreen({ navigation, route }: any) {
 // ---------------------------------------------------------------- Profile / account
 
 export function ProfileScreen() {
-  const { profile, updateProfile, logout, changePassword, setProfileFromServer } = useAuth();
+  const { profile, updateProfile, logout, logoutEverywhere, changePassword, setProfileFromServer } = useAuth();
+  const [passwordChanged, setPasswordChanged] = useState(false);
   const [form, setForm] = useState({
     firstName: profile?.firstName ?? "",
     lastName: profile?.lastName ?? "",
@@ -449,7 +459,18 @@ export function ProfileScreen() {
     setBusy(true);
     try {
       await changePassword(pw.current, pw.next);
-      // changePassword signs out by design — the server invalidates sessions.
+      /*
+       * This phone STAYS SIGNED IN; every other device is signed out.
+       *
+       * It used to sign out here, on the belief that Supabase invalidates
+       * sessions when the password is rotated. It does not — so the effect was
+       * the reverse of the intention: the other devices stayed signed in and
+       * the only session ended was the one belonging to the person who had just
+       * proved they knew the current password. The server now revokes the
+       * others explicitly, and web says and does the same thing.
+       */
+      setPw({ current: "", next: "", confirm: "" });
+      setPasswordChanged(true);
     } catch (err) {
       // A wrong current password comes back as a message rather than a field
       // error — the server does not say which box it meant, so neither does
@@ -550,9 +571,9 @@ export function ProfileScreen() {
             />
             <View style={{ marginBottom: space.md }}>
               <T variant="label" style={{ marginBottom: 4 }}>Email</T>
-              <T style={{ fontSize: 14, color: ink[500] }}>{profile.email}</T>
+              <T style={{ fontSize: typeScale.bodySm, color: ink[500] }}>{profile.email}</T>
             </View>
-            {msg ? <T style={{ color: brand[700], fontSize: 14, marginBottom: space.sm }}>{msg}</T> : null}
+            {msg ? <T style={{ color: brand[700], fontSize: typeScale.bodySm, marginBottom: space.sm }}>{msg}</T> : null}
             <Button title="Save changes" variant="primary" onPress={saveProfile} loading={busy} />
           </Card>
 
@@ -598,7 +619,49 @@ export function ProfileScreen() {
               }}
             />
             {error ? <ErrorNote>{error}</ErrorNote> : null}
+            {/*
+              States the session policy, because the owner cannot otherwise tell
+              what just happened to their other devices — and the policy is the
+              same on web, so the wording is too.
+            */}
+            {passwordChanged ? (
+              <Callout>
+                Password changed. You're still signed in here, and any other devices have been signed out.
+              </Callout>
+            ) : null}
             <Button title="Change password" onPress={submitPassword} loading={busy} style={{ marginTop: space.sm }} />
+          </Card>
+
+          {/*
+            "Log out everywhere", as its own deliberate action.
+
+            It used to be the ONLY behaviour: every ordinary log-out was global,
+            so tapping "Log out" on this phone silently ended the session on the
+            shop's tablet too. Ordinary log-out is now local, and the sweeping
+            version lives here — where someone who has just realised a phone was
+            stolen can find it, and where there is room to say what it does.
+          */}
+          <Card>
+            <T variant="title" style={{ marginBottom: 4 }}>Devices</T>
+            <T variant="caption" style={{ marginBottom: space.md }}>
+              Logging out normally signs out this phone only. If you've lost a device, or used one you don't trust,
+              sign out everywhere instead.
+            </T>
+            <Button
+              title="Log out on all devices"
+              variant="secondary"
+              loading={busy}
+              onPress={() =>
+                RNAlert.alert(
+                  "Log out on all devices?",
+                  "Every device signed in to this account — including this one — will be signed out. You'll need your password to get back in.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Log out everywhere", style: "destructive", onPress: () => void logoutEverywhere() },
+                  ],
+                )
+              }
+            />
           </Card>
 
           <Card>

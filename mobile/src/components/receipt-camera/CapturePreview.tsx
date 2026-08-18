@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Image, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Button, T } from "../ui";
-import { ACCENT, brand, font, ink, radius, space } from "../../theme/tokens";
+import { ACCENT, brand, font, ink, radius, space, typeScale } from "../../theme/tokens";
 import { DetectedOutline } from "./DetectedOutline";
 import {
   canAddSection,
@@ -116,7 +116,7 @@ export function CapturePreview({
           style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
         >
           <Ionicons name={zoomed ? "contract-outline" : "expand-outline"} size={16} color={brand[400]} />
-          <T style={{ color: brand[400], fontSize: 12, fontFamily: font.sansSemibold }}>
+          <T style={{ color: brand[400], fontSize: typeScale.caption, fontFamily: font.sansSemibold }}>
             {zoomed ? "Fit" : "Zoom"}
           </T>
         </Pressable>

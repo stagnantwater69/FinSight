@@ -18,6 +18,8 @@ const searchQuerySchema = z.object({
   // a stale query param left over from switching sources should be ignored,
   // not turned into a 400 for the owner.
   importBatchId: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().max(500).optional(),
 });
 
 const flaggedQuerySchema = z.object({
@@ -28,9 +30,38 @@ function sortByDateDesc<T extends { date: Date }>(records: T[]): T[] {
   return [...records].sort((a, b) => b.date.getTime() - a.date.getTime());
 }
 
+const cursorSchema = z.object({
+  date: z.string().datetime(),
+  type: z.enum(["expense", "sales"]),
+  id: z.number().int().positive(),
+});
+
+type SearchCursor = z.infer<typeof cursorSchema>;
+
+function decodeCursor(value?: string): SearchCursor | undefined {
+  if (!value) return undefined;
+  try {
+    return cursorSchema.parse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
+  } catch {
+    throw new z.ZodError([{ code: "custom", path: ["cursor"], message: "Invalid pagination cursor" }]);
+  }
+}
+
+function compareRecords(
+  a: { date: Date; type: "expense" | "sales"; id: number },
+  b: { date: Date; type: "expense" | "sales"; id: number },
+): number {
+  const date = b.date.getTime() - a.date.getTime();
+  if (date) return date;
+  const type = (a.type === "expense" ? 0 : 1) - (b.type === "expense" ? 0 : 1);
+  return type || b.id - a.id;
+}
+
 export async function search(req: Request, res: Response) {
   const query = searchQuerySchema.parse(req.query);
   const userId = req.user!.id;
+  const cursor = decodeCursor(query.cursor);
+  const common = { take: query.limit + 1 };
 
   const [expenses, sales] = await Promise.all([
     query.type !== "sales"
@@ -42,6 +73,14 @@ export async function search(req: Request, res: Response) {
           keyword: query.keyword,
           source: query.source,
           importBatchId: query.importBatchId,
+          ...common,
+          cursor: cursor
+            ? {
+                date: new Date(cursor.date),
+                id: cursor.id,
+                mode: cursor.type === "expense" ? ("same-type" as const) : ("exclude-date" as const),
+              }
+            : undefined,
         })
       : Promise.resolve([]),
     // Sales reference records have no RECEIPT_SCAN source (receipts are
@@ -55,11 +94,27 @@ export async function search(req: Request, res: Response) {
           keyword: query.keyword,
           source: query.source,
           importBatchId: query.importBatchId,
+          ...common,
+          cursor: cursor
+            ? {
+                date: new Date(cursor.date),
+                id: cursor.id,
+                mode: cursor.type === "sales" ? ("same-type" as const) : ("include-date" as const),
+              }
+            : undefined,
         })
       : Promise.resolve([]),
   ]);
 
-  res.status(200).json(sortByDateDesc([...expenses, ...sales]));
+  const merged = [...expenses, ...sales].sort(compareRecords);
+  const items = merged.slice(0, query.limit);
+  const last = items.at(-1);
+  const hasMore = merged.length > query.limit;
+  const nextCursor =
+    hasMore && last
+      ? Buffer.from(JSON.stringify({ date: last.date.toISOString(), type: last.type, id: last.id })).toString("base64url")
+      : null;
+  res.status(200).json({ items, nextCursor });
 }
 
 /**

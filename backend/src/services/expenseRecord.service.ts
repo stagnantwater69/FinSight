@@ -6,6 +6,8 @@ import { cleanUpImportBatchIfOrphaned, cleanUpReceiptScanIfOrphaned } from "../l
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { createNotification, NOTIFICATION_TYPES } from "./notification.service";
 import { signedReceiptImageUrl, signedCsvFileUrl } from "./storage.service";
+import { logger } from "../config/logger";
+import { enqueueExpenseAnalyses, enqueueExpenseAnalysis } from "./anomalyDetection/job.service";
 
 interface CreateInput {
   businessProfileId: number;
@@ -42,6 +44,8 @@ export interface SearchFilters {
   keyword?: string;
   source?: ExpenseRecordSource;
   importBatchId?: number;
+  take?: number;
+  cursor?: { date: Date; id: number; mode: "same-type" | "include-date" | "exclude-date" };
 }
 
 function toDTO(record: ExpenseRecord) {
@@ -64,6 +68,12 @@ function toDTO(record: ExpenseRecord) {
     largeExpenseFlag: record.largeExpenseFlag,
     createdAt: record.createdAt,
   };
+}
+
+async function queueAnalysis(businessProfileId: number, expenseRecordId: number) {
+  await enqueueExpenseAnalysis(businessProfileId, expenseRecordId).catch((error) => {
+    logger.error({ err: error, expenseRecordId }, "failed to enqueue expense analysis");
+  });
 }
 
 async function findDuplicate(businessProfileId: number, date: Date, amount: Prisma.Decimal, description: string, excludeId?: number) {
@@ -166,6 +176,8 @@ export async function createExpenseRecord(userId: number, input: CreateInput) {
       record.id
     );
   }
+
+  await queueAnalysis(record.businessProfileId, record.id);
 
   return toDTO(record);
 }
@@ -278,42 +290,59 @@ export async function bulkCreateExpenseRecords(
   }
 
   if (duplicatesEarlierRow.size > 0) {
+    /*
+     * Grouped by TARGET, so this is one UPDATE per distinct original rather
+     * than one per duplicate row.
+     *
+     * It used to be a statement each, which was fine at a 5,000-row cap and
+     * became the only superlinear path in the import once that cap rose: a file
+     * whose rows all repeat one another turns every row after the first into a
+     * separate UPDATE in a single transaction. Measured at 30,000 such rows
+     * that was 18s against a local database, versus ~5s for the same file
+     * without the repetition — and it collapses to a handful of statements
+     * here, because all those rows point at the same original.
+     */
+    const rowsByTarget = new Map<number, number[]>();
+    for (const [rowIndex, earlierIndex] of duplicatesEarlierRow) {
+      const targetId = created[earlierIndex]!.id;
+      const bucket = rowsByTarget.get(targetId);
+      if (bucket) bucket.push(created[rowIndex]!.id);
+      else rowsByTarget.set(targetId, [created[rowIndex]!.id]);
+    }
+
     await prisma.$transaction(
-      [...duplicatesEarlierRow].map(([rowIndex, earlierIndex]) =>
-        prisma.expenseRecord.update({
-          where: { id: created[rowIndex]!.id },
-          data: { duplicateOfRecordId: created[earlierIndex]!.id },
+      [...rowsByTarget].map(([targetId, ids]) =>
+        prisma.expenseRecord.updateMany({
+          where: { id: { in: ids } },
+          data: { duplicateOfRecordId: targetId },
         }),
       ),
     );
   }
 
-  const notifications = created.flatMap((record, i) => {
-    const row = rows[i]!;
-    const out: { userId: number; businessProfileId: number; type: string; message: string; expenseRecordId: number }[] = [];
-    if (data[i]!.duplicateStatus === "Flagged") {
-      out.push({
-        userId,
-        businessProfileId,
-        type: NOTIFICATION_TYPES.POSSIBLE_DUPLICATE,
-        message: `Possible duplicate: "${row.description}" (PHP ${row.amount}) on ${row.date}`.slice(0, 255),
-        expenseRecordId: record.id,
-      });
-    }
-    if (data[i]!.largeExpenseFlag) {
-      out.push({
-        userId,
-        businessProfileId,
-        type: NOTIFICATION_TYPES.LARGE_EXPENSE_FLAG,
-        message: `Large expense flagged: "${row.description}" (PHP ${row.amount}) on ${row.date}`.slice(0, 255),
-        expenseRecordId: record.id,
-      });
-    }
-    return out;
+  /*
+   * NO PER-RECORD NOTIFICATIONS. This path is only ever reached by a CSV
+   * import, and confirmImport already raises ONE notification summarising the
+   * whole batch — how many rows were skipped, flagged as duplicates, and
+   * flagged as large.
+   *
+   * A notification each was tolerable at a 5,000-row cap and is actively
+   * harmful above it: a measured 30,000-row import produced 33,355 of them, on
+   * top of the summary, which does not inform an owner of anything — it buries
+   * every other notification they have and makes the bell useless for the one
+   * job it exists to do.
+   *
+   * Nothing becomes unreachable. Every flagged row still carries its
+   * duplicateStatus and largeExpenseFlag, still gets reviewStatus "Needs
+   * Review", and still appears in the review queue — which is the screen built
+   * for working through exactly this, and which handles thousands of rows in a
+   * way a notification list never could. The single-record paths
+   * (createExpenseRecord / updateExpenseRecord) keep their notifications,
+   * because there one record IS the whole event.
+   */
+  await enqueueExpenseAnalyses(businessProfileId, created.map((record) => record.id)).catch((error) => {
+    logger.error({ err: error, importBatchId }, "failed to enqueue imported expense analysis");
   });
-  if (notifications.length > 0) {
-    await prisma.notification.createMany({ data: notifications });
-  }
 
   return created.map(toDTO);
 }
@@ -534,6 +563,10 @@ export async function updateExpenseRecord(userId: number, id: number, input: Upd
     );
   }
 
+  if (valueFieldsChanged || input.vendor !== undefined || input.categoryId !== undefined) {
+    await queueAnalysis(record.businessProfileId, record.id);
+  }
+
   return toDTO(record);
 }
 
@@ -623,19 +656,33 @@ export async function bulkResolveExpenseDuplicates(
 export async function searchExpenseRecords(userId: number, filters: SearchFilters) {
   await requireOwnedBusinessProfile(userId, filters.businessProfileId);
 
+  const cursorWhere = !filters.cursor
+    ? undefined
+    : filters.cursor.mode === "include-date"
+      ? { date: { lte: filters.cursor.date } }
+      : filters.cursor.mode === "exclude-date"
+        ? { date: { lt: filters.cursor.date } }
+        : { OR: [{ date: { lt: filters.cursor.date } }, { date: filters.cursor.date, id: { lt: filters.cursor.id } }] };
+
   const records = await prisma.expenseRecord.findMany({
     where: {
       businessProfileId: filters.businessProfileId,
       categoryId: filters.categoryId,
       source: filters.source,
       importBatchId: filters.importBatchId,
-      date: {
-        gte: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
-        lte: filters.dateTo ? new Date(filters.dateTo) : undefined,
-      },
+      AND: [
+        {
+          date: {
+            gte: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
+            lte: filters.dateTo ? new Date(filters.dateTo) : undefined,
+          },
+        },
+        ...(cursorWhere ? [cursorWhere] : []),
+      ],
       description: filters.keyword ? { contains: filters.keyword, mode: "insensitive" } : undefined,
     },
-    orderBy: { date: "desc" },
+    orderBy: [{ date: "desc" }, { id: "desc" }],
+    take: filters.take,
   });
 
   return records.map(toDTO);

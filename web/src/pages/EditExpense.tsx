@@ -10,6 +10,7 @@ import { RecordOriginPanel } from "../components/RecordOriginPanel";
 import { Money } from "../components/Money";
 import { useToast } from "../components/Toast";
 import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 export function EditExpense() {
   const { id } = useParams<{ id: string }>();
@@ -92,10 +93,14 @@ export function EditExpense() {
           <TextInput type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
         <Field label="Description" htmlFor="description" required>
-          <TextInput required value={description} onChange={(e) => setDescription(e.target.value)} />
+          <TextInput required value={description} onChange={(e) => setDescription(e.target.value)}
+            maxLength={FIELD_LIMITS.recordDescription}
+          />
         </Field>
         <Field label="Vendor" htmlFor="vendor" optional>
-          <TextInput value={vendor} onChange={(e) => setVendor(e.target.value)} />
+          <TextInput value={vendor} onChange={(e) => setVendor(e.target.value)}
+            maxLength={FIELD_LIMITS.vendor}
+          />
         </Field>
         <Field label="Amount" htmlFor="amount" required>
           <MoneyInput

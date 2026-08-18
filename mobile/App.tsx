@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, Linking, Modal, Pressable, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -23,8 +23,17 @@ import {
 } from "@expo-google-fonts/ibm-plex-mono";
 
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
-import { BusinessProfileProvider } from "./src/context/BusinessProfileContext";
-import { LoginScreen, RegisterScreen, RecoverPasswordScreen } from "./src/screens/AuthScreens";
+import { BusinessProfileProvider, useBusinessProfiles } from "./src/context/BusinessProfileContext";
+import { OnboardingResumeScreen, OnboardingScreen } from "./src/screens/OnboardingScreens";
+import { readOnboarding } from "./src/lib/onboardingDraft";
+import {
+  LoginScreen,
+  RegisterScreen,
+  RecoverPasswordScreen,
+  ResetPasswordScreen,
+  ConfirmEmailScreen,
+} from "./src/screens/AuthScreens";
+import { parseAuthDeepLink, type AuthLinkResult } from "./src/lib/authLinkTokens";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import { MoreScreen } from "./src/screens/MoreScreen";
@@ -119,6 +128,9 @@ function DashboardStack() {
       */}
       <Stack.Screen name="DashboardHome" component={DashboardScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: "Alerts" }} />
+      {/* How someone who chose "Skip for now" gets back into setup — the
+          wizard draws its own header, so this one is hidden. */}
+      <Stack.Screen name="Onboarding" component={OnboardingResumeScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }
@@ -566,8 +578,53 @@ function AuthStack() {
   );
 }
 
+/**
+ * Watches for the auth deep links Supabase's emails point at.
+ *
+ * WHY THIS RATHER THAN REACT NAVIGATION'S `linking` CONFIG. The credentials in
+ * these links live in the URL *fragment*, which navigation's path/param matcher
+ * does not model, and the screens they lead to have to win over whatever is
+ * currently on screen — including a signed-in session, because "reset my
+ * password" is exactly what someone does when they think another person has
+ * their account. Rendering them above the navigator sidesteps both problems.
+ *
+ * Both the cold-start URL and links that arrive while the app is already open
+ * are handled: on Android a running app receives the second kind, and only the
+ * second kind, which is the case that silently does nothing if you only ask for
+ * the initial URL.
+ */
+function useAuthDeepLink() {
+  const [link, setLink] = useState<AuthLinkResult>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    Linking.getInitialURL()
+      .then((url) => {
+        if (active && url) {
+          const parsed = parseAuthDeepLink(url);
+          if (parsed) setLink(parsed);
+        }
+      })
+      .catch(() => undefined);
+
+    const sub = Linking.addEventListener("url", ({ url }) => {
+      const parsed = parseAuthDeepLink(url);
+      if (parsed) setLink(parsed);
+    });
+
+    return () => {
+      active = false;
+      sub.remove();
+    };
+  }, []);
+
+  return { link, dismiss: useCallback(() => setLink(null), []) };
+}
+
 function Root({ fontsReady }: { fontsReady: boolean }) {
-  const { profile, loading } = useAuth();
+  const { profile, loading, logout } = useAuth();
+  const { link, dismiss } = useAuthDeepLink();
 
   // Restoring the session from the device keystore is async, so the app waits
   // here rather than flashing Login at an already-signed-in user. Fonts are
@@ -593,13 +650,114 @@ function Root({ fontsReady }: { fontsReady: boolean }) {
     );
   }
 
+  /*
+   * An auth link beats whatever else is on screen.
+   *
+   * Including a signed-in session: someone resetting their password is often
+   * doing it BECAUSE another person has their account, and dropping them into
+   * the dashboard instead would be the one outcome that helps nobody. Finishing
+   * a reset ends every session anyway (the backend revokes globally), so
+   * `logout` clears the now-dead local one on the way out.
+   */
+  if (link) {
+    const tokens = "tokens" in link ? link.tokens : null;
+    const linkError = "error" in link ? link.error : null;
+    const finish = () => {
+      dismiss();
+      if (profile) void logout();
+    };
+    return link.kind === "reset-password" ? (
+      <ResetPasswordScreen tokens={tokens} linkError={linkError} onDone={finish} />
+    ) : (
+      <ConfirmEmailScreen tokens={tokens} linkError={linkError} onDone={finish} />
+    );
+  }
+
   return profile ? (
     <BusinessProfileProvider>
-      <MainTabs />
+      <MainOrOnboarding />
     </BusinessProfileProvider>
   ) : (
     <AuthStack />
   );
+}
+
+/**
+ * Sends an owner who has no business yet into the setup wizard.
+ *
+ * WHY `profiles.length === 0` IS THE WHOLE TEST. It is the fact the app already
+ * depends on everywhere else — no business means no records, no targets, and
+ * nothing to show — so it needs no flag of its own, and it can never catch an
+ * established owner: having a profile is exactly what completing setup means.
+ * See src/lib/onboardingDraft.ts.
+ *
+ * DISMISSAL IS RESPECTED. Someone who chose "Skip for now" is not sent back
+ * here on the next launch; they get on with whatever they opened the app for
+ * and resume from the prompt on the dashboard. A skip that does not skip is
+ * worse than no skip button at all.
+ *
+ * Lives inside BusinessProfileProvider because it decides on the profile list,
+ * and renders nothing until both that list and the stored dismissal have
+ * resolved — the alternative is a flash of the tab bar before the wizard
+ * replaces it, which reads as a glitch.
+ */
+function MainOrOnboarding() {
+  const { profile: user } = useAuth();
+  const { profiles, loading } = useBusinessProfiles();
+  const [dismissed, setDismissed] = useState<boolean | null>(null);
+  /** Latched once the wizard hands over, so finishing it does not re-enter it. */
+  const [left, setLeft] = useState(false);
+  /** Set when the wizard's last step asked for the importer, consumed on mount below. */
+  const [pendingImport, setPendingImport] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!user) return;
+    void readOnboarding(user.id).then((stored) => {
+      if (active) setDismissed(Boolean(stored.dismissed));
+    });
+    return () => {
+      active = false;
+    };
+    // Keyed by the id alone: the profile object is replaced on every refresh,
+    // and depending on it would re-read the keystore for no reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  /*
+   * Deferred to an effect rather than dispatched from the wizard's callback:
+   * the tabs do not exist yet at the moment the owner taps "Import CSV", so a
+   * navigate() there would land on a navigator that has not mounted and be
+   * silently dropped.
+   */
+  useEffect(() => {
+    if (!pendingImport) return;
+    setPendingImport(false);
+    if (navigationRef.isReady()) {
+      navigationRef.dispatch(CommonActions.navigate("Records", { screen: "ImportCsv" }));
+    }
+  }, [pendingImport]);
+
+  if (loading || dismissed === null) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: paper[50] }}>
+        <ActivityIndicator color={brand[600]} />
+      </View>
+    );
+  }
+
+  if (profiles.length === 0 && !dismissed && !left) {
+    return (
+      <OnboardingScreen
+        onDone={(next) => {
+          if (next === "import") setPendingImport(true);
+          setLeft(true);
+        }}
+      />
+    );
+  }
+
+  return <MainTabs />;
 }
 
 export default function App() {

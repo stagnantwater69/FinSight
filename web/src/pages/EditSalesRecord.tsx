@@ -7,6 +7,7 @@ import { FormPage } from "../components/ui";
 import { Button } from "../components/Button";
 import { useToast } from "../components/Toast";
 import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 export function EditSalesRecord() {
   const { id } = useParams<{ id: string }>();
@@ -55,7 +56,9 @@ export function EditSalesRecord() {
           <TextInput type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
         <Field label="Description" htmlFor="description" required>
-          <TextInput required value={description} onChange={(e) => setDescription(e.target.value)} />
+          <TextInput required value={description} onChange={(e) => setDescription(e.target.value)}
+            maxLength={FIELD_LIMITS.recordDescription}
+          />
         </Field>
         <Field label="Amount" htmlFor="amount" required>
           <MoneyInput

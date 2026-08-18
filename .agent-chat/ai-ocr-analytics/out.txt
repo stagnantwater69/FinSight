@@ -1,0 +1,1 @@
+[ready] ai-ocr-analytics: standing by for tasks.

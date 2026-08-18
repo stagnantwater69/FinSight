@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
@@ -7,18 +7,26 @@ import { FormPage } from "../components/ui";
 import { Button } from "../components/Button";
 import { useToast } from "../components/Toast";
 import { Field, FormError, MoneyInput, TextInput } from "../components/Field";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+interface DuplicateSalesState {
+  description: string;
+  amount: number;
 }
 
 export function AddSalesRecord() {
   const { selected } = useBusinessProfiles();
   const navigate = useNavigate();
   const toast = useToast();
+  // Prefilled by the "Duplicate" action on Records — date is left at today().
+  const duplicateFrom = (useLocation().state as { duplicateFrom?: DuplicateSalesState } | null)?.duplicateFrom;
   const [date, setDate] = useState(today());
-  const [description, setDescription] = useState("Daily sales");
-  const [amount, setAmount] = useState<number | "">("");
+  const [description, setDescription] = useState(duplicateFrom?.description ?? "Daily sales");
+  const [amount, setAmount] = useState<number | "">(duplicateFrom?.amount ?? "");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -52,7 +60,9 @@ export function AddSalesRecord() {
           <TextInput type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
         <Field label="Description" htmlFor="description" required>
-          <TextInput required value={description} onChange={(e) => setDescription(e.target.value)} />
+          <TextInput required value={description} onChange={(e) => setDescription(e.target.value)}
+            maxLength={FIELD_LIMITS.recordDescription}
+          />
         </Field>
         <Field label="Amount" htmlFor="amount" required>
           <MoneyInput

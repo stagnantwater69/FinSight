@@ -167,7 +167,11 @@ export function BentoGridFeatures() {
             {/* Mini Bar Chart Mockup */}
             <div className="mt-6 flex items-end gap-2 rounded-2xl border border-paper-200 bg-paper-50 p-4 h-24">
               {[40, 65, 45, 90, 75, 100, 85].map((h, idx) => (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+                // h-full on the column matters: a percentage height resolves
+                // against the parent's height, and without it the column was
+                // auto-height, so every bar computed to zero and the card
+                // rendered as an empty box.
+                <div key={idx} className="flex h-full flex-1 flex-col justify-end items-center gap-1">
                   <div
                     className="w-full rounded-t-md bg-brand-500 transition hover:bg-brand-600"
                     style={{ height: `${h}%` }}

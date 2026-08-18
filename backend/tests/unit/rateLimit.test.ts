@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextFunction, Request, Response } from "express";
-import { LIMITS, rateLimit, resetRateLimits } from "../../src/middleware/rateLimit.middleware";
+import { byEmail, LIMITS, rateLimit, resetRateLimits } from "../../src/middleware/rateLimit.middleware";
 
 /**
  * These endpoints spend money per request, so the thing worth proving is not
@@ -8,8 +8,8 @@ import { LIMITS, rateLimit, resetRateLimits } from "../../src/middleware/rateLim
  * limiter, and released when the window passes.
  */
 
-function fakeReq(userId?: number): Request {
-  return { user: userId === undefined ? undefined : { id: userId }, ip: "10.0.0.1" } as unknown as Request;
+function fakeReq(userId?: number, ip = "10.0.0.1", body?: unknown): Request {
+  return { user: userId === undefined ? undefined : { id: userId }, ip, body } as unknown as Request;
 }
 
 function fakeRes() {
@@ -128,5 +128,102 @@ describe("rateLimit", () => {
     // Chattiest AI call — fires from a 500ms debounce while typing, so it has
     // to sit well above the others.
     expect(LIMITS.SUGGEST_CATEGORY.limit).toBeGreaterThan(LIMITS.ASK_BURST.limit);
+  });
+
+  /*
+   * THE FAILURE THIS GUARDS AGAINST is not an attacker — it is one wrong
+   * password locking out the entire product.
+   *
+   * The durable limiter keys on `req.ip`, and behind a reverse proxy with
+   * `trust proxy` unset that is the PROXY's address for every caller on earth.
+   * All auth traffic then shares a single bucket, and the real login limit
+   * becomes ten attempts per fifteen minutes for all users combined. These two
+   * tests state what has to hold either side of that: distinct clients get
+   * distinct buckets, and a client cannot mint itself a fresh one.
+   */
+  it("gives separate IPs separate quotas", () => {
+    const mw = rateLimit({ name: "t", limit: 1, windowMs: 60_000 });
+    expect(call(mw, fakeReq(undefined, "203.0.113.7")).allowed).toBe(true);
+    expect(call(mw, fakeReq(undefined, "203.0.113.7")).allowed).toBe(false);
+    // A different shop, on a different connection, is unaffected.
+    expect(call(mw, fakeReq(undefined, "198.51.100.4")).allowed).toBe(true);
+  });
+
+  /**
+   * `req.ip` is Express's resolved address, and with a HOP COUNT for
+   * `trust proxy` (see app.ts) it is the entry our own nginx appended — not the
+   * left-most one, which is whatever the client wrote. So a spoofed header
+   * cannot change the identity this limiter sees; the same resolved IP keeps
+   * counting against the same bucket however many forged hops precede it.
+   */
+  it("counts against the resolved address, not a client-supplied one", () => {
+    const mw = rateLimit({ name: "t", limit: 1, windowMs: 60_000 });
+    const spoofing = () => {
+      const req = fakeReq(undefined, "203.0.113.7");
+      (req.headers as unknown) = { "x-forwarded-for": "1.2.3.4, 203.0.113.7" };
+      return req;
+    };
+    expect(call(mw, spoofing()).allowed).toBe(true);
+    expect(call(mw, spoofing()).allowed).toBe(false);
+  });
+
+  describe("keyed by email", () => {
+    /*
+     * WHY THE AUTH LIMITS COME IN PAIRS. IP-only lets a rotating phone tether
+     * spray one owner's account; email-only lets one origin walk a list of
+     * addresses trying the same password against each. Both are mounted, and
+     * whichever runs out first answers 429.
+     */
+    it("counts one address separately from another", () => {
+      const mw = rateLimit({ name: "t", limit: 1, windowMs: 60_000, identify: byEmail });
+      expect(call(mw, fakeReq(undefined, "10.0.0.1", { email: "a@shop.ph" })).allowed).toBe(true);
+      // Same IP, so an IP-keyed limiter would have blocked this. A different
+      // account is being attempted, so this one must not.
+      expect(call(mw, fakeReq(undefined, "10.0.0.1", { email: "b@shop.ph" })).allowed).toBe(true);
+      expect(call(mw, fakeReq(undefined, "10.0.0.1", { email: "a@shop.ph" })).allowed).toBe(false);
+    });
+
+    it("treats one address as one address whatever its case or spacing", () => {
+      const mw = rateLimit({ name: "t", limit: 1, windowMs: 60_000, identify: byEmail });
+      expect(call(mw, fakeReq(undefined, "10.0.0.1", { email: "owner@shop.ph" })).allowed).toBe(true);
+      // Otherwise the limit is bypassed by holding down shift.
+      expect(call(mw, fakeReq(undefined, "10.0.0.2", { email: "  OWNER@Shop.PH " })).allowed).toBe(false);
+    });
+
+    /**
+     * A body with no address means Zod is about to reject the request anyway.
+     * Skipping is deliberate: keying every malformed body onto one shared
+     * "unknown" bucket would let junk requests exhaust a real limiter.
+     */
+    it("skips the limiter when there is no address to key on", () => {
+      const mw = rateLimit({ name: "t", limit: 1, windowMs: 60_000, identify: byEmail });
+      expect(call(mw, fakeReq(undefined, "10.0.0.1", {})).allowed).toBe(true);
+      expect(call(mw, fakeReq(undefined, "10.0.0.1", { email: "   " })).allowed).toBe(true);
+      expect(call(mw, fakeReq(undefined, "10.0.0.1", undefined)).allowed).toBe(true);
+    });
+  });
+
+  /**
+   * The two endpoints that verify the CURRENT password server-side are password
+   * oracles for anyone holding a stolen access token — at network speed, with
+   * account deletion as the prize. requireAuth does not bound that.
+   */
+  it("bounds the re-authentication oracles tightly", () => {
+    expect(LIMITS.AUTH_REAUTH.limit).toBeLessThanOrEqual(5);
+    expect(LIMITS.AUTH_REAUTH.windowMs).toBeGreaterThanOrEqual(15 * 60_000);
+  });
+
+  /** Every unauthenticated auth route has both halves of its pair. */
+  it("pairs every unauthenticated auth limiter with an email-keyed one", () => {
+    for (const [ip, email] of [
+      [LIMITS.AUTH_LOGIN, LIMITS.AUTH_LOGIN_EMAIL],
+      [LIMITS.AUTH_REGISTER, LIMITS.AUTH_REGISTER_EMAIL],
+      [LIMITS.AUTH_RECOVERY, LIMITS.AUTH_RECOVERY_EMAIL],
+    ] as const) {
+      expect(email.identify, email.name).toBe(byEmail);
+      // Tighter than its IP partner: repeated failures against ONE address are
+      // already unlike someone who has forgotten their own password.
+      expect(email.limit, email.name).toBeLessThanOrEqual(ip.limit);
+    }
   });
 });

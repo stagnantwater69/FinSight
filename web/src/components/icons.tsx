@@ -166,6 +166,15 @@ export function IconTrash(p: IconProps) {
   );
 }
 
+export function IconDuplicate(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </Svg>
+  );
+}
+
 export function IconCheck(p: IconProps) {
   return (
     <Svg {...p}>
@@ -265,6 +274,28 @@ export function IconTag(p: IconProps) {
     <Svg {...p}>
       <path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-9 9z" />
       <path d="M7.5 7.5h.01" strokeWidth={2.4} />
+    </Svg>
+  );
+}
+
+/** Reveal a password. Same 24×24, currentColor, 1.8-stroke family as the rest. */
+export function IconEye(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </Svg>
+  );
+}
+
+/** Hide a password — the same eye, struck through. */
+export function IconEyeOff(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M9.9 5.7A9.5 9.5 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.8 3.7" />
+      <path d="M6.3 6.3A17 17 0 0 0 2.5 12S6 18.5 12 18.5a9.4 9.4 0 0 0 3.6-.7" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      <path d="M3 3l18 18" />
     </Svg>
   );
 }

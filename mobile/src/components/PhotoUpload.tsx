@@ -3,7 +3,7 @@ import { ActivityIndicator, Image, Pressable, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ErrorNote, T } from "./ui";
 import { api, errorMessage } from "../lib/api";
-import { brand, ink, paper, radius, space } from "../theme/tokens";
+import { brand, ink, paper, radius, space, typeScale } from "../theme/tokens";
 
 /**
  * Choosing a profile photo or a business logo.
@@ -130,7 +130,7 @@ export function PhotoUpload({
             accessibilityLabel={url ? `Change ${label}` : `Add ${label}`}
             style={{ paddingVertical: space.sm, opacity: busy ? 0.5 : 1 }}
           >
-            <T style={{ color: brand[700], fontSize: 14 }}>
+            <T style={{ color: brand[700], fontSize: typeScale.bodySm }}>
               {busy ? "Uploading…" : url ? "Change photo" : "Choose a photo"}
             </T>
           </Pressable>

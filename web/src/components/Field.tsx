@@ -12,6 +12,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import { IconEye, IconEyeOff } from "./icons";
 
 /**
  * Form fields, with the labelling and error obligations built in.
@@ -99,6 +100,7 @@ export function Field({
   required = false,
   optional = false,
   labelAction,
+  fillRow = false,
   className = "",
   children,
 }: {
@@ -118,6 +120,21 @@ export function Field({
   optional?: boolean;
   /** Trailing control on the label row — e.g. Login's "Forgot password?". */
   labelAction?: ReactNode;
+  /**
+   * Bottom-aligns the control so side-by-side fields line up.
+   *
+   * WHY THIS IS NEEDED. A Field stacks label, hint and control, so the control
+   * starts wherever the hint above it happens to end. Put two Fields in a grid
+   * row and a hint that wraps to three lines against one that wraps to two
+   * drops one control ~19px below its neighbour — which is exactly what the
+   * business-profile form looked like, and it reads as sloppiness rather than
+   * as the accident of text length that it is.
+   *
+   * Opt-in rather than automatic: it only means anything for a field sharing a
+   * row with another, and `h-full` on a field that stands alone is a property
+   * with nothing to resolve against.
+   */
+  fillRow?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -130,7 +147,10 @@ export function Field({
 
   return (
     <FieldContext.Provider value={{ id, describedBy, invalid: Boolean(error) }}>
-      <div className={className}>
+      {/* Grid children stretch by default, so `h-full` gives the column the
+          row's height and `mt-auto` on the control below pushes it to the
+          bottom of it — putting every control in the row on one line. */}
+      <div className={`${fillRow ? "flex h-full flex-col" : ""} ${className}`.trim()}>
         <div className="flex items-center justify-between gap-3">
           <label htmlFor={id} className="block text-sm font-medium text-ink-700">
             {label}
@@ -151,7 +171,7 @@ export function Field({
           </p>
         ) : null}
 
-        <div className="mt-1.5">{children}</div>
+        <div className={fillRow ? "mt-auto pt-1.5" : "mt-1.5"}>{children}</div>
 
         {/*
           role="alert" so a validation failure is announced the moment it
@@ -185,6 +205,127 @@ export function TextInput({ className = "", ...rest }: InputHTMLAttributes<HTMLI
       aria-invalid={invalid}
       className={`${CONTROL_BASE} ${invalid ? CONTROL_INVALID : ""} ${className}`.trim()}
     />
+  );
+}
+
+/**
+ * A password box with a show/hide control.
+ *
+ * WHY IT IS WORTH HAVING. A password field is the one input in the app that
+ * gives no feedback at all, and it is also the one people most often get
+ * wrong — on a phone keyboard, with a capital letter they cannot see. The
+ * alternative to revealing it is a failed login the owner cannot diagnose,
+ * which on this app's login screen is indistinguishable from a wrong account.
+ *
+ * The reveal is DEFAULT OFF and resets on every mount, so nothing is ever
+ * shown that the owner did not just ask to see. It is a toggle rather than a
+ * press-and-hold because press-and-hold cannot be operated from a keyboard.
+ *
+ * `type` is switched rather than the text being masked by hand, so browser
+ * and password-manager autofill keep working — `autoComplete` is still the
+ * caller's to set, and it is what those integrations key off.
+ */
+export function PasswordInput({
+  className = "",
+  ...rest
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
+  const { id, describedBy, invalid } = useFieldWiring(rest);
+  const [revealed, setRevealed] = useState(false);
+
+  /*
+   * The control appears only once there is something to reveal.
+   *
+   * An empty password box has nothing to show, so an eye sitting in it is a
+   * button that does nothing — and on the login screen it is the first thing
+   * the eye lands on, competing with the field it decorates. It arrives when
+   * the first character does.
+   *
+   * Read from the value prop where there is one (every call site here is
+   * controlled) and tracked internally otherwise, so an uncontrolled input
+   * still gets the toggle rather than silently losing it.
+   */
+  const [typed, setTyped] = useState(false);
+  const controlled = typeof rest.value === "string";
+  const hasText = controlled ? (rest.value as string).length > 0 : typed;
+
+  /*
+   * Clearing the field re-hides it. Otherwise someone who reveals a password,
+   * clears it and types a new one has the new one on screen without ever
+   * asking — the state would outlive the value it described.
+   */
+  if (revealed && !hasText) setRevealed(false);
+
+  return (
+    <div className="relative">
+      <input
+        {...rest}
+        type={revealed ? "text" : "password"}
+        id={id}
+        aria-describedby={describedBy}
+        aria-invalid={invalid}
+        onChange={(e) => {
+          if (!controlled) setTyped(e.target.value.length > 0);
+          rest.onChange?.(e);
+        }}
+        // Room on the right for the button only when it is there, so a
+        // password never runs underneath it and a field without one is not
+        // left with a gap.
+        className={`${CONTROL_BASE} ${hasText ? "pr-11" : ""} ${invalid ? CONTROL_INVALID : ""} ${className}`.trim()}
+      />
+      {hasText ? (
+        <button
+          type="button"
+          onClick={() => setRevealed((r) => !r)}
+          /*
+           * The label states the ACTION ("Show password"), and aria-pressed
+           * states the current state. A label that instead described the
+           * state would leave a screen-reader user unable to tell what
+           * pressing it would do — and the icon alone says nothing at all.
+           */
+          aria-label={revealed ? "Hide password" : "Show password"}
+          aria-pressed={revealed}
+          className="tap-inline absolute right-1 top-1/2 flex -translate-y-1/2 items-center justify-center rounded-md p-2 text-ink-500 hover:text-ink-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+        >
+          {revealed ? <IconEyeOff className="h-5 w-5" /> : <IconEye className="h-5 w-5" />}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A labelled checkbox.
+ *
+ * Its own component because a checkbox's label wraps the control rather than
+ * sitting above it, which is the one shape `<Field>` cannot express — and
+ * hand-rolling it at the call site is how the hit area ends up being the 16px
+ * box instead of the whole row.
+ */
+export function Checkbox({
+  label,
+  checked,
+  onChange,
+  hint,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  /** Optional line under the label, for saying what the choice actually does. */
+  hint?: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 py-1">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 shrink-0 rounded border-ink-300 text-brand-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+      />
+      <span className="text-sm text-ink-700">
+        {label}
+        {hint ? <span className="block text-xs text-ink-500">{hint}</span> : null}
+      </span>
+    </label>
   );
 }
 
@@ -249,11 +390,28 @@ export function MoneyInput({ className = "", ...rest }: InputHTMLAttributes<HTML
         type="number"
         inputMode="decimal"
         step="0.01"
+        /*
+         * THE WHEEL GUARD IS NOT COSMETIC. A focused `type="number"` input
+         * treats the scroll wheel as a value control, so scrolling the page
+         * with the pointer over a money field silently edits the amount —
+         * and on a long form the owner is scrolling PAST the field they just
+         * filled in. The change looks like nothing happened; it is only
+         * discovered later, in the figures. Blurring hands the scroll back to
+         * the page, which is what the gesture meant.
+         *
+         * Placed before the spread so a call site can still override it.
+         */
+        onWheel={(e) => e.currentTarget.blur()}
         {...rest}
         id={id}
         aria-describedby={describedBy}
         aria-invalid={invalid}
-        className={`${CONTROL_BASE} figure pl-12 ${invalid ? CONTROL_INVALID : ""} ${className}`.trim()}
+        // `no-spinner` hides the up/down arrows: they step by 0.01, which is a
+        // useless increment on a figure like 500,000, and they crowd the right
+        // edge of every money field in the app. Typing is the only sane way to
+        // enter these, and the keyboard arrows still work for anyone who wants
+        // them. See index.css.
+        className={`${CONTROL_BASE} figure no-spinner pl-12 ${invalid ? CONTROL_INVALID : ""} ${className}`.trim()}
       />
     </div>
   );

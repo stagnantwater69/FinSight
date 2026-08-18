@@ -11,11 +11,11 @@ import { CategoryComparisonChart } from "../components/CategoryComparisonChart";
 import { DailySpendChart } from "../components/DailySpendChart";
 import { SkeletonPanel, SkeletonStatTile } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
-import { ButtonLink } from "../components/Button";
+import { Button, ButtonLink } from "../components/Button";
 import { formatMoney } from "../components/Money";
 import { STATUS_INK } from "../lib/chartPalette";
 import { AiCard, KpiCard, Kw, PageHead, Panel, Callout, Pill } from "../components/ui";
-import type { ExpenseBehavior as ExpenseInsightData, RecordItem } from "../lib/types";
+import type { AnomalyFinding, AnomalyFindingFeedback, AnomalyFindingPage, AnomalyFindingStatus, ExpenseBehavior as ExpenseInsightData, RecordItem, RecurringPattern } from "../lib/types";
 
 const PERIOD_OPTIONS = [
   { label: "This week", days: 7 },
@@ -105,10 +105,27 @@ export function ExpenseInsight() {
   const { selected } = useBusinessProfiles();
   const { categories } = useExpenseCategories();
   const [periodDays, setPeriodDays] = useState(30);
+  /**
+   * The day the window ends on, or null for "today".
+   *
+   * Set by the "Most recent month" option, which exists because every window
+   * here is measured back from today and a business whose history was imported
+   * can have its last expense a year ago — putting all of them in a gap, and
+   * making the page report "no expenses recorded" to someone with hundreds.
+   *
+   * It is a real, selectable period rather than an automatic redirect. An
+   * automatic one flips back the instant a single new expense is recorded,
+   * yanking the owner out of the month they were reading and into a window
+   * holding one record; and a page that silently decides what you are looking
+   * at is one you cannot trust the labels on.
+   */
+  const [endDate, setEndDate] = useState<string | null>(null);
   const [data, setData] = useState<ExpenseInsightData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flaggedExpenses, setFlaggedExpenses] = useState<RecordItem[]>([]);
+  const [findings, setFindings] = useState<AnomalyFinding[]>([]);
+  const [recurringPatterns, setRecurringPatterns] = useState<RecurringPattern[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Set only by the "expand on this" link — the plain header button opens
   // the drawer with this left undefined, same as always.
@@ -119,11 +136,13 @@ export function ExpenseInsight() {
     setLoading(true);
     setError(null);
     try {
-      const [behavior, flagged] = await Promise.all([
+      const [behavior, flagged, findingPage, patterns] = await Promise.all([
         api.get<ExpenseInsightData>("/insights/expense-behavior", {
-          params: { businessProfileId: selected.id, periodDays },
+          params: { businessProfileId: selected.id, periodDays, ...(endDate ? { endDate } : {}) },
         }),
         api.get<RecordItem[]>("/records/flagged", { params: { businessProfileId: selected.id } }),
+        api.get<AnomalyFindingPage>("/insights/findings", { params: { businessProfileId: selected.id, status: "OPEN", take: 20 } }),
+        api.get<RecurringPattern[]>("/insights/recurring-patterns", { params: { businessProfileId: selected.id } }),
       ]);
       setData(behavior.data);
       setFlaggedExpenses(
@@ -131,6 +150,8 @@ export function ExpenseInsight() {
           .filter((r) => r.type === "expense")
           .sort((a, b) => (a.date < b.date ? 1 : -1)),
       );
+      setFindings(findingPage.data.items);
+      setRecurringPatterns(patterns.data);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -138,17 +159,60 @@ export function ExpenseInsight() {
     }
   }
 
+  async function reviewFinding(id: number, status: AnomalyFindingStatus, feedback: AnomalyFindingFeedback) {
+    await api.patch(`/insights/findings/${id}/review`, { status, feedback });
+    setFindings((current) => current.filter((finding) => finding.id !== id));
+  }
+
+  async function reviewPattern(id: number, status: RecurringPattern["status"]) {
+    await api.patch(`/insights/recurring-patterns/${id}`, { status });
+    setRecurringPatterns((current) => current.map((pattern) => pattern.id === id ? { ...pattern, status } : pattern));
+  }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, periodDays]);
+  }, [selected?.id, periodDays, endDate]);
 
   // A refetch with data already on screen is a refresh, not a load — see the
   // note on the skeleton below.
   const isInitialLoad = loading && !data;
   const isRefreshing = loading && !!data;
 
-  const periodLabel = periodDays === 7 ? "this week" : "this month";
+  /**
+   * The month the owner's records actually end in, when that is somewhere the
+   * ordinary windows cannot reach.
+   *
+   * Null in the normal case — a business recording daily has its latest expense
+   * inside "This month" already, and offering a second button for the same
+   * window under a stranger name would be worse than offering nothing.
+   */
+  const anchorMonth = useMemo(() => {
+    const latest = data?.latestExpenseDate;
+    if (!latest) return null;
+    const latestTime = new Date(latest).getTime();
+    // Reachable by the widest ordinary window (30 days back from today)? Then
+    // there is nothing here the existing options do not already cover.
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    if (latestTime >= thirtyDaysAgo) return null;
+    return {
+      endDate: latest.slice(0, 10),
+      label: new Date(latest).toLocaleDateString(undefined, {
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      }),
+    };
+  }, [data?.latestExpenseDate]);
+
+  /** True while showing a window that ends somewhere other than today. */
+  const isAnchored = endDate !== null;
+
+  const periodLabel = isAnchored
+    ? `in ${anchorMonth?.label ?? "that period"}`
+    : periodDays === 7
+      ? "this week"
+      : "this month";
   const previousLabel = periodDays === 7 ? "Last week" : "Last month";
 
   // ---- headline figures, all from one denominator ----
@@ -225,15 +289,18 @@ export function ExpenseInsight() {
       : undefined;
 
   const periodPicker = (
-    <div className="flex gap-1 rounded-xl border border-paper-200 bg-paper-100 p-1">
+    <div className="flex flex-wrap gap-1 rounded-xl border border-paper-200 bg-paper-100 p-1">
       {PERIOD_OPTIONS.map((opt) => (
         <button
           key={opt.days}
           type="button"
-          onClick={() => setPeriodDays(opt.days)}
-          aria-pressed={periodDays === opt.days}
+          onClick={() => {
+            setPeriodDays(opt.days);
+            setEndDate(null);
+          }}
+          aria-pressed={periodDays === opt.days && endDate === null}
           className={`tap rounded-lg px-3 text-[13.5px] font-semibold transition ${
-            periodDays === opt.days
+            periodDays === opt.days && endDate === null
               ? "bg-paper text-brand-800 shadow-sm"
               : "text-ink-500 hover:text-brand-800"
           }`}
@@ -241,6 +308,29 @@ export function ExpenseInsight() {
           {opt.label}
         </button>
       ))}
+      {/*
+        Offered only when it would show something the other options cannot —
+        i.e. the latest expense is outside the window they cover. A business
+        recording daily never sees this button, because for them it would be a
+        duplicate of "This month" under a stranger name.
+      */}
+      {anchorMonth ? (
+        <button
+          type="button"
+          onClick={() => {
+            setPeriodDays(30);
+            setEndDate(anchorMonth.endDate);
+          }}
+          aria-pressed={endDate === anchorMonth.endDate}
+          className={`tap rounded-lg px-3 text-[13.5px] font-semibold transition ${
+            endDate === anchorMonth.endDate
+              ? "bg-paper text-brand-800 shadow-sm"
+              : "text-ink-500 hover:text-brand-800"
+          }`}
+        >
+          {anchorMonth.label}
+        </button>
+      ) : null}
     </div>
   );
 
@@ -297,23 +387,65 @@ export function ExpenseInsight() {
           <SkeletonPanel lines={5} />
         </div>
       ) : !data || !summary ? null : summary.total === 0 ? (
-        <EmptyState
-          title={`No expenses recorded ${periodLabel}`}
-          icon="◔"
-          action={
-            <>
-              <ButtonLink to="/records/expenses/new" variant="primary">
-                Add an expense
-              </ButtonLink>
-              <ButtonLink to="/records/csv-imports/new" variant="secondary">
-                Import from a spreadsheet
-              </ButtonLink>
-            </>
-          }
-        >
-          Once you record a few expenses, this page shows where your money goes, what changed since last
-          period, and anything that looks unusual — in plain language.
-        </EmptyState>
+        /*
+          TWO DIFFERENT EMPTINESSES, and they were getting the same screen.
+
+          "You have never recorded an expense" and "you have hundreds, none of
+          them recent" look identical from inside a 30-day window, and the old
+          state answered both with "Add an expense / Import from a spreadsheet"
+          — which told an owner who had just imported 527 expenses to go and
+          import some expenses. That is not merely unhelpful; it is the app
+          confidently contradicting something the owner just did.
+        */
+        anchorMonth ? (
+          <EmptyState
+            title={`No expenses ${periodLabel}`}
+            icon="◔"
+            action={
+              /* A Button, not a ButtonLink: nothing is being navigated to. The
+                 data is already loaded and this only moves the window — it is
+                 the same control as the period option above. */
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => {
+                  setPeriodDays(30);
+                  setEndDate(anchorMonth.endDate);
+                }}
+              >
+                Show {anchorMonth.label}
+              </Button>
+            }
+          >
+            Your records are here — the most recent one is dated{" "}
+            {new Date(data.latestExpenseDate!).toLocaleDateString(undefined, {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+              timeZone: "UTC",
+            })}
+            . This page reads a window ending today, and there's nothing in the last{" "}
+            {periodDays} days.
+          </EmptyState>
+        ) : (
+          <EmptyState
+            title={`No expenses recorded ${periodLabel}`}
+            icon="◔"
+            action={
+              <>
+                <ButtonLink to="/records/expenses/new" variant="primary">
+                  Add an expense
+                </ButtonLink>
+                <ButtonLink to="/records/csv-imports/new" variant="secondary">
+                  Import from a spreadsheet
+                </ButtonLink>
+              </>
+            }
+          >
+            Once you record a few expenses, this page shows where your money goes, what changed since
+            last period, and anything that looks unusual — in plain language.
+          </EmptyState>
+        )
       ) : (
         <div
           className={`space-y-6 transition-opacity duration-200 ${
@@ -677,6 +809,63 @@ export function ExpenseInsight() {
               </p>
             ) : null}
           </Panel>
+
+          <Panel
+            eyebrow="Review queue"
+            title="FinSight findings"
+            action={findings.length > 0 ? <span className="text-xs text-ink-400">{findings.length} open</span> : null}
+          >
+            {findings.length === 0 ? (
+              <EmptyState compact title="No findings need review" icon="✓">
+                FinSight will place explainable amount, duplicate, frequency, recurring, trend, and behavior findings here.
+              </EmptyState>
+            ) : (
+              <ul className="space-y-3">
+                {findings.map((finding) => (
+                  <li key={finding.id} className="rounded-xl border border-edge-subtle p-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-ink-800">{finding.title}</p>
+                      <Pill>{finding.severity.toLowerCase()}</Pill>
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-500">
+                      {finding.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                    </ul>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" className="rounded-lg bg-brand-700 px-3 py-2 text-xs font-semibold text-white"
+                        onClick={() => void reviewFinding(finding.id, "CONFIRMED", finding.type === "POSSIBLE_DUPLICATE" ? "DUPLICATE" : "CONFIRMED_UNUSUAL")}>
+                        Confirm
+                      </button>
+                      <button type="button" className="rounded-lg border border-edge-subtle px-3 py-2 text-xs font-semibold text-ink-600"
+                        onClick={() => void reviewFinding(finding.id, "DISMISSED", "EXPECTED_TRANSACTION")}>
+                        Expected / dismiss
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          {recurringPatterns.some((pattern) => pattern.status === "CANDIDATE") ? (
+            <Panel eyebrow="Recurring expenses" title="Confirm expected payments">
+              <ul className="space-y-3">
+                {recurringPatterns.filter((pattern) => pattern.status === "CANDIDATE").map((pattern) => (
+                  <li key={pattern.id} className="rounded-xl border border-edge-subtle p-3.5">
+                    <p className="text-sm font-semibold text-ink-800">{pattern.description}</p>
+                    <p className="mt-1 text-xs text-ink-500">
+                      {pattern.category.name} · about every {pattern.intervalDays} days · {formatMoney(pattern.expectedAmount)}
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <button type="button" className="rounded-lg bg-brand-700 px-3 py-2 text-xs font-semibold text-white"
+                        onClick={() => void reviewPattern(pattern.id, "CONFIRMED")}>Confirm recurring</button>
+                      <button type="button" className="rounded-lg border border-edge-subtle px-3 py-2 text-xs font-semibold text-ink-600"
+                        onClick={() => void reviewPattern(pattern.id, "DISMISSED")}>Not recurring</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          ) : null}
         </div>
       )}
 

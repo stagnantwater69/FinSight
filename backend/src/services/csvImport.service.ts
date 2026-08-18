@@ -1,10 +1,20 @@
 import { parse } from "csv-parse/sync";
 import { prisma } from "../config/prisma";
+import { ApiError } from "../middleware/error.middleware";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { uploadCsvFile, downloadCsvFile } from "./storage.service";
 import { bulkCreateExpenseRecords } from "./expenseRecord.service";
 import { bulkCreateSalesRecords } from "./salesRecord.service";
 import { createNotification, NOTIFICATION_TYPES } from "./notification.service";
+import {
+  classifyTypeValue,
+  columnsWithSignedAmounts,
+  DEFAULT_IMPORT_CATEGORY,
+  DETECTION_SAMPLE_ROWS,
+  detectTypeColumn,
+  parseSignedAmount,
+  type RowRecordType,
+} from "../lib/recordTypeDetection";
 
 export interface ColumnMapping {
   date: string;
@@ -18,12 +28,43 @@ export interface ColumnMapping {
    * for lacking a vendor.
    */
   vendor?: string;
+  /**
+   * The column saying whether each row is a sale or an expense.
+   *
+   * Only meaningful when `recordType` is "mixed" with the "column" strategy;
+   * ignored otherwise. See lib/recordTypeDetection.ts.
+   */
+  recordType?: string;
 }
+
+/**
+ * What one import writes.
+ *
+ * "mixed" is the case an owner who keeps ONE spreadsheet for everything
+ * actually has. It is not a guess at the file's contents — it is the owner
+ * saying "this file has both", after which the rows are separated by whatever
+ * the file itself states.
+ */
+export type ImportRecordType = "expense" | "sales" | "mixed";
+
+/** How a mixed file distinguishes its rows. */
+export type MixedStrategy = "column" | "sign";
 
 export interface PreviewResult {
   headers: string[];
   previewRows: Record<string, string>[];
   totalRows: number;
+  /**
+   * What the file appears to say about sales versus expenses, so the client can
+   * OFFER a mixed import rather than making the owner know to ask for one.
+   *
+   * Both are suggestions and neither is acted on by itself — the owner still
+   * chooses, and the preview shows every row's resolved type first. See
+   * lib/recordTypeDetection.ts for why detection stops at what the file states.
+   */
+  detectedTypeColumn: string | null;
+  /** Columns mixing negative and positive numbers — candidates for the sign strategy. */
+  columnsWithNegatives: string[];
 }
 
 /** Replacement cell values, keyed by spreadsheet row number as a string. */
@@ -34,7 +75,9 @@ export type RowCorrections = Record<
 
 export interface ConfirmInput {
   businessProfileId: number;
-  recordType: "expense" | "sales";
+  recordType: ImportRecordType;
+  /** Required when `recordType` is "mixed", ignored otherwise. */
+  mixedStrategy?: MixedStrategy;
   title: string;
   buffer: Buffer;
   originalname: string;
@@ -47,8 +90,71 @@ export interface SkippedRow {
   reason: string;
 }
 
+/**
+ * The most data rows one import may carry.
+ *
+ * WHY ROWS AND NOT MEGABYTES. The upload is already capped at 5 MB by multer,
+ * and that number says almost nothing about how much work the file represents.
+ * A CSV is plain text, so its size tracks the CHARACTERS in it, not the records:
+ *
+ *   `2026-01-05,Load,120`            ~25 bytes  →  5 MB is ~200,000 rows
+ *   a row with a full description   ~600 bytes  →  5 MB is ~8,000 rows
+ *
+ * A twenty-five-fold swing in work for an identical file size — and every row
+ * becomes an ExpenseRecord with its own validation, duplicate check, large-
+ * expense evaluation and downstream analysis job. Bytes are the wrong unit for
+ * the thing that actually costs; rows are the thing that costs.
+ *
+ * WHERE 30,000 COMES FROM. Measured, against a local Postgres, on the real
+ * bulkCreate path rather than on a guess:
+ *
+ *   30,000 typical rows                       ~5.0s
+ *   30,000 with 15% duplicates, 10% flagged   ~4.7s
+ *   30,000 rows that ALL repeat one another  ~18.1s  -> now ~5s, see below
+ *
+ * The writes are bulk (`createManyAndReturn`, `createMany`), so cost is linear
+ * at roughly 160µs a row. The one path that was not bulk — relinking rows that
+ * duplicate an earlier row of the same file — issued a statement per duplicate
+ * and produced that 18s outlier; it is now grouped by target, so the
+ * pathological file costs about what an ordinary one does.
+ *
+ * The earlier cap was 5,000, chosen for a shop recording expenses daily
+ * (~365 rows a year). That reasoning undercounted the real case: a business
+ * importing per-transaction SALES history can produce 50-100 rows a day, and
+ * 5,000 is then under three months. 30,000 is about a year of that, or decades
+ * of daily expense logging.
+ *
+ * It stays a guard against a runaway or mistaken file rather than a quota, and
+ * the ceiling above it is a real one: this runs inside a single request, so a
+ * materially larger file wants the AnalysisJob queue rather than a bigger
+ * number here. If an owner meets this limit the answer is still to split the
+ * file, and the message says so.
+ */
+export const MAX_IMPORT_ROWS = 30_000;
+
 function parseCsv(buffer: Buffer): Record<string, string>[] {
-  return parse(buffer, { columns: true, skip_empty_lines: true, trim: true, bom: true }) as Record<string, string>[];
+  const records = parse(buffer, {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+    bom: true,
+  }) as Record<string, string>[];
+
+  /*
+   * Checked HERE rather than at each call site, so preview and confirm cannot
+   * disagree — an oversized file must be refused on the mapping screen, before
+   * an owner spends time matching columns for an import that was never going to
+   * run.
+   */
+  if (records.length > MAX_IMPORT_ROWS) {
+    throw new ApiError(
+      400,
+      `This file has ${records.length.toLocaleString()} rows and the limit is ${MAX_IMPORT_ROWS.toLocaleString()}. ` +
+        `Split it into smaller files — by month or by year — and import them one at a time.`,
+    );
+  }
+
+  return records;
 }
 
 // The preview is a full-height table on the mapping screen now, not the
@@ -60,7 +166,17 @@ const PREVIEW_ROW_LIMIT = 50;
 export function previewCsv(buffer: Buffer): PreviewResult {
   const records = parseCsv(buffer);
   const headers = records.length > 0 ? Object.keys(records[0]!) : [];
-  return { headers, previewRows: records.slice(0, PREVIEW_ROW_LIMIT), totalRows: records.length };
+  // Detection reads further than the preview shows: 50 rows is what fits on a
+  // screen, but a type column can easily be uniform for the first 50 rows of a
+  // file that is sorted by kind.
+  const sample = records.slice(0, DETECTION_SAMPLE_ROWS);
+  return {
+    headers,
+    previewRows: records.slice(0, PREVIEW_ROW_LIMIT),
+    totalRows: records.length,
+    detectedTypeColumn: detectTypeColumn(sample),
+    columnsWithNegatives: columnsWithSignedAmounts(sample),
+  };
 }
 
 export interface ImportBatchSummary {
@@ -129,13 +245,23 @@ export async function previewImportBatch(userId: number, batchId: number): Promi
  * the old insert loop is what lets the inserts be batched at all, and it keeps
  * the skip reasons (and the order they are checked in) in one readable place.
  */
+interface ValidRow {
+  date: string;
+  description: string;
+  amount: number;
+  category?: string;
+  vendor?: string;
+}
+
 function validateRows(
   records: Record<string, string>[],
   mapping: ColumnMapping,
-  recordType: "expense" | "sales",
+  recordType: ImportRecordType,
   corrections: RowCorrections = {},
+  mixedStrategy?: MixedStrategy,
 ) {
-  const valid: { date: string; description: string; amount: number; category?: string; vendor?: string }[] = [];
+  const expenses: ValidRow[] = [];
+  const sales: ValidRow[] = [];
   const skipped: SkippedRow[] = [];
 
   for (let i = 0; i < records.length; i++) {
@@ -161,35 +287,79 @@ function validateRows(
       continue;
     }
 
-    const amountNum = rawAmount ? Number(rawAmount.replace(/,/g, "")) : NaN;
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    /*
+     * Signed amounts are only meaningful under the "sign" strategy, so the
+     * sign is read first and then discarded: a negative in a file that is NOT
+     * using the convention stays the invalid amount it has always been, rather
+     * than quietly becoming a positive one.
+     */
+    const signedAmount = parseSignedAmount(rawAmount);
+    const usesSign = recordType === "mixed" && mixedStrategy === "sign";
+    const amountNum = usesSign && signedAmount !== null ? Math.abs(signedAmount) : signedAmount;
+
+    if (amountNum === null || !Number.isFinite(amountNum) || amountNum <= 0) {
       skipped.push({ row: rowNumber, reason: `Invalid amount: "${rawAmount ?? ""}"` });
       continue;
     }
 
+    // Which of the two this row is. For a single-type import that is simply
+    // what the owner chose; for a mixed one it comes from the file.
+    let rowType: RowRecordType;
+    if (recordType !== "mixed") {
+      rowType = recordType;
+    } else if (mixedStrategy === "sign") {
+      // signedAmount is non-null here: amountNum derives from it.
+      rowType = signedAmount! < 0 ? "expense" : "sales";
+    } else {
+      const rawType = mapping.recordType ? row[mapping.recordType] : undefined;
+      const classified = classifyTypeValue(rawType);
+      if (!classified) {
+        skipped.push({
+          row: rowNumber,
+          reason: rawType?.trim()
+            ? `Could not tell if "${rawType.trim()}" means a sale or an expense`
+            : "Missing sale/expense value",
+        });
+        continue;
+      }
+      rowType = classified;
+    }
+
     const isoDate = parsedDate.toISOString().slice(0, 10);
 
-    if (recordType === "expense") {
+    if (rowType === "expense") {
       const rawCategory = (fix?.category ?? (mapping.category ? row[mapping.category] : undefined))?.trim();
-      if (!rawCategory) {
+      /*
+       * A missing category skips the row in a single-type import — the owner
+       * mapped a category column and this row has a hole in it, which is worth
+       * telling them about.
+       *
+       * In a MIXED file it falls back instead. Sales rows have no category by
+       * nature, so plenty of combined exports carry no category column at all,
+       * and skipping every expense in the file over a column that was never
+       * going to be there would reject the exact file this feature exists to
+       * accept. The rows land in "Uncategorised" and the result screen says how
+       * many need sorting.
+       */
+      if (!rawCategory && recordType !== "mixed") {
         skipped.push({ row: rowNumber, reason: "Missing category" });
         continue;
       }
       // Checked last and never fatal — an empty vendor cell is simply no vendor.
       const rawVendor = (mapping.vendor ? row[mapping.vendor] : undefined)?.trim();
-      valid.push({
+      expenses.push({
         date: isoDate,
         description: rawDescription,
         amount: amountNum,
-        category: rawCategory,
+        category: rawCategory || DEFAULT_IMPORT_CATEGORY,
         vendor: rawVendor || undefined,
       });
     } else {
-      valid.push({ date: isoDate, description: rawDescription, amount: amountNum });
+      sales.push({ date: isoDate, description: rawDescription, amount: amountNum });
     }
   }
 
-  return { valid, skipped };
+  return { expenses, sales, skipped };
 }
 
 /**
@@ -236,7 +406,13 @@ export async function confirmImport(userId: number, input: ConfirmInput) {
     },
   });
 
-  const { valid, skipped } = validateRows(records, input.columnMapping, input.recordType, input.corrections);
+  const { expenses, sales, skipped } = validateRows(
+    records,
+    input.columnMapping,
+    input.recordType,
+    input.corrections,
+    input.mixedStrategy,
+  );
 
   // Duplicate flags and large-expense flags are counted separately: the two
   // mean different things to the owner, and the batch status has to account for
@@ -244,14 +420,22 @@ export async function confirmImport(userId: number, input: ConfirmInput) {
   // were sitting in the review queue.
   let flagged = 0;
   let largeExpenseFlagged = 0;
+  let uncategorised = 0;
 
-  if (input.recordType === "expense") {
+  /*
+   * Both halves write into the SAME batch. CSVImportBatch already relates to
+   * expenseRecords and salesReferenceRecords both, so a mixed file stays one
+   * import in the owner's history — one row in the "which import" filter, one
+   * file to re-open, one thing to undo — rather than splitting into two
+   * batches that happen to share a name.
+   */
+  if (expenses.length > 0) {
     const categoryIds = await resolveCategories(
       input.businessProfileId,
-      valid.map((r) => r.category!),
+      expenses.map((r) => r.category!),
     );
     const created = await bulkCreateExpenseRecords(userId, profile, batch.id,
-      valid.map((r) => ({
+      expenses.map((r) => ({
         categoryId: categoryIds.get(r.category!.toLowerCase())!,
         date: r.date,
         description: r.description,
@@ -259,14 +443,17 @@ export async function confirmImport(userId: number, input: ConfirmInput) {
         vendor: r.vendor,
       })),
     );
-    flagged = created.filter((r) => r.duplicateStatus === "Flagged").length;
-    largeExpenseFlagged = created.filter((r) => r.largeExpenseFlag).length;
-  } else {
-    const created = await bulkCreateSalesRecords(userId, input.businessProfileId, batch.id, valid);
-    flagged = created.filter((r) => r.duplicateStatus === "Flagged").length;
+    flagged += created.filter((r) => r.duplicateStatus === "Flagged").length;
+    largeExpenseFlagged += created.filter((r) => r.largeExpenseFlag).length;
+    uncategorised = expenses.filter((r) => r.category === DEFAULT_IMPORT_CATEGORY).length;
   }
 
-  const imported = valid.length;
+  if (sales.length > 0) {
+    const created = await bulkCreateSalesRecords(userId, input.businessProfileId, batch.id, sales);
+    flagged += created.filter((r) => r.duplicateStatus === "Flagged").length;
+  }
+
+  const imported = expenses.length + sales.length;
 
   // A large-expense flag sets the record's reviewStatus to "Needs Review", so a
   // batch containing one genuinely needs review — reporting "Completed" told
@@ -297,5 +484,10 @@ export async function confirmImport(userId: number, input: ConfirmInput) {
     skipped,
     flagged,
     largeExpenseFlagged,
+    // Reported separately so a mixed import can say what it did with each half,
+    // rather than one total that hides having filed everything one way.
+    importedExpenses: expenses.length,
+    importedSales: sales.length,
+    uncategorised,
   };
 }

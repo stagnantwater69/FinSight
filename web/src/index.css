@@ -441,6 +441,26 @@
   }
 
   /* ---------------------------------------------------------------
+     Number inputs without the stepper arrows.
+
+     They step by 0.01 on a money field, which is a meaningless
+     increment on a figure like 500,000, and they sit on top of the
+     right edge of every amount in the app. `type="number"` is kept for
+     the numeric keypad it brings up on a phone — this only removes the
+     control nobody was going to use. Keyboard arrows still work.
+     --------------------------------------------------------------- */
+  .no-spinner::-webkit-outer-spin-button,
+  .no-spinner::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .no-spinner {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  /* ---------------------------------------------------------------
      Skeleton loaders (Doherty Threshold).
      ---------------------------------------------------------------
      For work that genuinely cannot finish inside 400ms — AI calls, OCR, CSV

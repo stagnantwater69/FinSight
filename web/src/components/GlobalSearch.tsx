@@ -106,11 +106,11 @@ export function GlobalSearch({ className = "" }: { className?: string }) {
     const controller = new AbortController();
     setSearching(true);
     api
-      .get<RecordItem[]>("/records/search", {
-        params: { businessProfileId: selected.id, type: "all", keyword: debounced },
+      .get<{ items: RecordItem[]; nextCursor: string | null }>("/records/search", {
+        params: { businessProfileId: selected.id, type: "all", keyword: debounced, limit: 6 },
         signal: controller.signal,
       })
-      .then(({ data }) => setRecords(data.slice(0, 6)))
+      .then(({ data }) => setRecords(data.items))
       .catch(() => {
         // A failed record search shouldn't blank the local results that are
         // already on screen and already useful.

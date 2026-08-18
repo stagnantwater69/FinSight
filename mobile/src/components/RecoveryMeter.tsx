@@ -1,6 +1,7 @@
 import { View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { Money, T } from "./ui";
-import { ACCENT, ink, paper, radius, space, status, statusText } from "../theme/tokens";
+import { ACCENT, font, ink, paper, radius, space, status, statusText, typeScale } from "../theme/tokens";
 import type { RecoveryTargets } from "../lib/types";
 
 /**
@@ -30,6 +31,14 @@ export function RecoveryMeter({ data }: { data: RecoveryTargets }) {
         : statusText.good;
   const todayRatio =
     data.todaysTarget > 0 ? Math.min(data.todaysSales / data.todaysTarget, 1) : data.todaysSales > 0 ? 1 : 0;
+  /*
+    The soft surface behind today's panel. Literals for the same reason
+    InsightsScreens gives: tokens.ts carries the status FILLS and the darkened
+    TEXT steps but no tinted backgrounds, and it is a hand-kept mirror of
+    web's config — adding a scale on mobile alone would put the two out of step.
+  */
+  const todaySurface =
+    data.todaysStatus === "below" ? "#fdecec" : data.todaysStatus === "at" ? "#fffbeb" : "#eafaf1";
 
   return (
     <View>
@@ -54,9 +63,9 @@ export function RecoveryMeter({ data }: { data: RecoveryTargets }) {
             justifyContent: "center",
           }}
         >
-          <T style={{ color: "#fff", fontSize: 11 }}>{data.onTrack ? "✓" : "!"}</T>
+          <T style={{ color: "#fff", fontSize: typeScale.micro }}>{data.onTrack ? "✓" : "!"}</T>
         </View>
-        <T style={{ color: monthInk, fontSize: 14 }}>
+        <T style={{ color: monthInk, fontSize: typeScale.bodySm }}>
           {data.onTrack ? "On pace for the month" : "Behind pace for the month"}
         </T>
       </View>
@@ -95,10 +104,38 @@ export function RecoveryMeter({ data }: { data: RecoveryTargets }) {
         The adjusted daily target spreads that across the days you are open, not every day left on the calendar.
       </T>
 
-      <View style={{ marginTop: space.lg, borderTopWidth: 1, borderTopColor: paper[200], paddingTop: space.md }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-          <T variant="caption">Today</T>
-          <T style={{ color: todayInk, fontSize: 12 }}>
+      {/*
+        Today, given a panel of its own.
+        
+        It answers a different question from everything above it — those are
+        about the month, this is about the shift the owner is currently
+        standing in — and separated only by a rule it read as the last row of
+        the month's figures. The tint is the status colour's own surface, so
+        a day that is behind looks behind before a word is read.
+      */}
+      <View
+        style={{
+          marginTop: space.lg,
+          padding: space.md,
+          borderRadius: radius.md,
+          backgroundColor: todaySurface,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.sm }}>
+          <View
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              backgroundColor: paper.DEFAULT,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="calendar-outline" size={15} color={todayInk} />
+          </View>
+          <T style={{ flex: 1, fontSize: typeScale.bodySm, color: ink[900], fontFamily: font.sansSemibold }}>Today</T>
+          <T style={{ color: todayInk, fontSize: typeScale.caption }}>
             {data.todaysStatus === "at" ? (
               "Reached target"
             ) : (

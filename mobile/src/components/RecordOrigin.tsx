@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Image, Linking, Pressable, View } from "react-native";
 import { Callout, Money, T } from "./ui";
-import { brand, font, ink, paper, radius, space, statusText } from "../theme/tokens";
+import { brand, font, ink, paper, radius, space, statusText, typeScale } from "../theme/tokens";
 
 /**
  * Where a saved record came from.
@@ -122,7 +122,7 @@ export function RecordOriginPanel({ origin, recordAmount }: { origin: RecordOrig
             }}
           >
             <View style={{ flex: 1 }}>
-              <T style={{ fontSize: 13, color: ink[800] }} numberOfLines={2}>
+              <T style={{ fontSize: typeScale.label, color: ink[800] }} numberOfLines={2}>
                 {item.name}
                 {item.quantity != null ? <T variant="caption"> × {item.quantity}</T> : null}
               </T>
@@ -177,7 +177,7 @@ export function RecordOriginPanel({ origin, recordAmount }: { origin: RecordOrig
               key={s.id}
               style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm, paddingVertical: 2 }}
             >
-              <T style={{ flex: 1, fontSize: 13, color: ink[700] }} numberOfLines={1}>
+              <T style={{ flex: 1, fontSize: typeScale.label, color: ink[700] }} numberOfLines={1}>
                 {s.categoryName}
               </T>
               <Money value={s.amount} size={13} />

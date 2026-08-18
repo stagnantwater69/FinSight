@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import * as receiptScanService from "../services/receiptScan.service";
 import { assessImageQuality } from "../lib/imageQuality";
+import { detectReceiptCorners } from "../lib/edgeDetection";
 import { ApiError } from "../middleware/error.middleware";
 
 const uploadSchema = z.object({
@@ -135,6 +136,12 @@ export async function show(req: Request, res: Response) {
   res.json(scan);
 }
 
+export async function retry(req: Request, res: Response) {
+  const id = parseId(req.params.id!);
+  const scan = await receiptScanService.retryScan(req.user!.id, id);
+  res.status(202).json(scan);
+}
+
 /**
  * A single page's own readability, with none of the rest of the pipeline —
  * no OCR, no vision call, no storage write, no database row.
@@ -153,6 +160,34 @@ export async function checkQuality(req: Request, res: Response) {
   }
   const quality = await assessImageQuality(req.file.buffer);
   res.status(200).json(quality);
+}
+
+/**
+ * Where the receipt appears to be in a photograph, as four corners.
+ *
+ * SAME SHAPE AS `checkQuality` AND FOR THE SAME REASONS: no OCR, no vision
+ * call, no Storage write, no database row. It answers a question the capture
+ * screen asks on every shutter press, and it only ever PROPOSES — the corners
+ * become the starting position of handles the owner drags, and the crop is
+ * not applied until they say so.
+ *
+ * WHY THE SERVER DOES THIS AT ALL. Detecting edges on the phone needs a
+ * native module, and none of the candidates exists in Expo Go; adopting one
+ * means a development-build migration, the same cost that ruled out on-device
+ * OCR. `sharp` is already loaded in this process and the phone is already
+ * posting this exact image to `checkQuality` on the same press.
+ *
+ * 200 with `corners: null` rather than a 404 or an error when nothing is
+ * found. Finding no receipt is a perfectly ordinary answer — a dark counter,
+ * a white table, a hand across the frame — and the client's behaviour is
+ * identical either way: open the crop editor on default handles.
+ */
+export async function detectEdges(req: Request, res: Response) {
+  if (!req.file) {
+    throw new ApiError(400, "A photo is required");
+  }
+  const result = await detectReceiptCorners(req.file.buffer);
+  res.status(200).json(result);
 }
 
 /**

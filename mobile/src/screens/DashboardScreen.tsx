@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { Dimensions, Modal, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { Button, Card, EmptyState, ErrorNote, Money, Screen, SetupProgress, StatTile, T } from "../components/ui";
+import { Button, Callout, Card, EmptyState, ErrorNote, Money, Screen, SetupProgress, StatTile, T } from "../components/ui";
 import { HomeHeader } from "../components/HomeHeader";
 import { QuickActions, type QuickAction } from "../components/QuickActions";
 import { CashflowChart } from "../components/charts";
@@ -13,11 +13,25 @@ import { SpendingBreakdownCard } from "../components/SpendingBreakdownCard";
 import { SkeletonBox, SkeletonDashboard } from "../components/Skeleton";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
-import { brand, ink, paper, radius, space, statusText, TAP } from "../theme/tokens";
+import { brand, ink, paper, radius, space, statusText, TAP, typeScale } from "../theme/tokens";
 import type { CashflowGranularity, DashboardCashflow, DashboardSummary } from "../lib/types";
 
 /** The dashboard summary (available funds, sales, expenses) is always this month — the period selector was removed. */
 const SUMMARY_PERIOD_DAYS = 30;
+
+/**
+ * "All time", matching ALL_TIME_PERIOD on the server: no lower date bound.
+ *
+ * NOT a period selector coming back. The one above was removed deliberately and
+ * this does not reinstate it — there is no control on screen offering these as
+ * a choice. It is an escape hatch, reachable only from the notice that appears
+ * when the fixed month is empty AND the business has records outside it.
+ *
+ * Without it a phone had no way at all to see imported history: the window is
+ * hard-coded, so an owner whose records end more than 30 days ago could be told
+ * their data exists and still never see a figure derived from it.
+ */
+const ALL_TIME_PERIOD_DAYS = 0;
 
 const GRANULARITY_OPTIONS: { label: string; value: CashflowGranularity }[] = [
   { label: "Daily", value: "daily" },
@@ -121,7 +135,7 @@ function GranularityDropdown({
           opacity: pressed ? 0.7 : 1,
         })}
       >
-        <T style={{ fontSize: 12, color: ink[700] }}>{current.label}</T>
+        <T style={{ fontSize: typeScale.caption, color: ink[700] }}>{current.label}</T>
         <Ionicons name="chevron-down" size={14} color={ink[500]} />
       </Pressable>
 
@@ -171,7 +185,7 @@ function GranularityDropdown({
                     backgroundColor: pressed ? paper[100] : "transparent",
                   })}
                 >
-                  <T style={{ fontSize: 14, color: ink[900] }}>{o.label}</T>
+                  <T style={{ fontSize: typeScale.bodySm, color: ink[900] }}>{o.label}</T>
                   {o.value === value ? <Ionicons name="checkmark" size={16} color={brand[600]} /> : null}
                 </Pressable>
               ))}
@@ -187,6 +201,8 @@ export function DashboardScreen({ navigation }: any) {
   const { selected, profiles, categories, error: profilesError, refresh: refreshProfiles, selectProfile } =
     useBusinessProfiles();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  /** Stays at the fixed month unless the empty-period notice widens it. */
+  const [summaryPeriodDays, setSummaryPeriodDays] = useState(SUMMARY_PERIOD_DAYS);
   const [cashflow, setCashflow] = useState<DashboardCashflow | null>(null);
   const [cashflowGranularity, setCashflowGranularity] = useState<CashflowGranularity>("daily");
   const [loading, setLoading] = useState(true);
@@ -208,7 +224,7 @@ export function DashboardScreen({ navigation }: any) {
       setSummary(
         await api.get<DashboardSummary>("/dashboard/summary", {
           businessProfileId: selected.id,
-          periodDays: SUMMARY_PERIOD_DAYS,
+          periodDays: summaryPeriodDays,
         })
       );
     } catch (err) {
@@ -216,7 +232,7 @@ export function DashboardScreen({ navigation }: any) {
     } finally {
       setLoading(false);
     }
-  }, [selected?.id]);
+  }, [selected?.id, summaryPeriodDays]);
 
   const loadCashflow = useCallback(async () => {
     if (!selected) return;
@@ -273,8 +289,16 @@ export function DashboardScreen({ navigation }: any) {
             </>
           ) : (
             <EmptyState
-              title="Set up a business first"
-              body="FinSight needs a business profile before it can show you anything."
+              title="Finish setting up your business"
+              icon="◎"
+              body="FinSight needs your business name and a few figures before it can work out your sales target, track your recovery or flag large expenses. Anything you already typed was kept."
+              action={
+                <Button
+                  title="Continue setup"
+                  variant="primary"
+                  onPress={() => navigation.navigate("Onboarding")}
+                />
+              }
             />
           )}
         </View>
@@ -282,40 +306,73 @@ export function DashboardScreen({ navigation }: any) {
     );
   }
 
-  const hasRecords =
-    !!summary && (summary.overview.totalExpenses > 0 || summary.overview.totalSalesReference > 0);
+  /*
+   * "Has this business ever recorded anything" — NOT "did it record anything
+   * in the selected period". These were the same expression, and the
+   * difference is not academic: an owner who imported two years of history saw
+   * "Record your first expense or sale" still unticked, because none of their
+   * records fell inside the last 30 days. The checklist told them the import
+   * had failed. It had not.
+   */
+  const hasRecords = summary?.lifetime
+    ? summary.lifetime.recordCount > 0
+    : !!summary && (summary.overview.totalExpenses > 0 || summary.overview.totalSalesReference > 0);
+
+  /** Records exist, just none in this window — otherwise indistinguishable from a failed import. */
+  const periodIsEmpty =
+    !!summary &&
+    hasRecords &&
+    summary.overview.totalExpenses === 0 &&
+    summary.overview.totalSalesReference === 0;
   const unreadCount = summary ? summary.alerts.filter((a) => !a.readStatus).length : 0;
+
+  /*
+   * The nested-params form is the only one that works across tabs.
+   *
+   * Switching to the tab and then dispatching a bare push reads better and
+   * silently does nothing — `useOnAction` forwards an action into a CHILD
+   * navigator only when it carries a `target`, so a targetless push bubbles
+   * up past the tab navigator and is dropped.
+   *
+   * The residue is that `{ screen }` sticks to the Records tab route, which
+   * bottom-tabs replays on every later press of that tab. That is handled
+   * once, in `recordsTabPressAction`, rather than at each of these call
+   * sites.
+   */
+  const openInRecords = (screen: string) => navigation.navigate("Records", { screen });
 
   const quickActions: QuickAction[] = [
     {
       key: "scan",
       label: "Scan receipt",
       icon: "scan-outline",
-      onPress: () => navigation.navigate("Records", { screen: "ScanReceipt", params: { autoLaunch: true } }),
+      // `autoLaunch` is gone — ScanReceipt opens its camera on arrival now,
+      // so the param only described behaviour that had moved.
+      onPress: () => openInRecords("ScanReceipt"),
     },
     {
       key: "addExpense",
       label: "Add expense",
       icon: "wallet-outline",
-      onPress: () => navigation.navigate("Records", { screen: "AddExpense" }),
+      onPress: () => openInRecords("AddExpense"),
     },
     {
       key: "addSale",
       label: "Add sale",
       icon: "cash-outline",
-      onPress: () => navigation.navigate("Records", { screen: "AddSales" }),
+      onPress: () => openInRecords("AddSales"),
     },
     {
       key: "categories",
       label: "Categories",
       icon: "pricetags-outline",
-      onPress: () => navigation.navigate("Records", { screen: "Categories" }),
+      onPress: () => openInRecords("Categories"),
     },
     {
       key: "importCsv",
       label: "Import CSV",
       icon: "cloud-upload-outline",
-      onPress: () => navigation.navigate("Records", { screen: "ImportCsv" }),
+      onPress: () => openInRecords("ImportCsv"),
     },
     {
       key: "insights",
@@ -373,6 +430,46 @@ export function DashboardScreen({ navigation }: any) {
               { label: "Record your first expense or sale", done: hasRecords },
             ]}
           />
+        ) : null}
+
+        {/*
+          One line above the panels rather than a "no data" note inside each of
+          them: three empty cards describe the symptom three times, while this
+          gives the cause. The date is the whole value — "no records in this
+          period" is as opaque as the empty cards, whereas naming the most
+          recent record tells the owner their import landed and where it is.
+        */}
+        {!loading && periodIsEmpty ? (
+          <View style={{ marginBottom: space.lg }}>
+            <Callout tone="info">
+              No records in this period, but this business has{" "}
+              {summary!.lifetime!.recordCount.toLocaleString()} in total
+              {summary!.lifetime!.latestRecordDate
+                ? `, the most recent dated ${new Date(
+                    summary!.lifetime!.latestRecordDate,
+                  ).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    // Date-only columns stored at midnight UTC — formatting in
+                    // local time shows the previous day west of it.
+                    timeZone: "UTC",
+                  })}`
+                : ""}
+              . Your history is safe — this screen is only looking at the last 30 days.
+            </Callout>
+            {/*
+              The fix, not a signpost. Telling the owner their data is in
+              Records answered "is it there?" and left Home permanently blank
+              for them — which is the screen the insights live on.
+            */}
+            <Button
+              title="Show all time"
+              variant="secondary"
+              onPress={() => setSummaryPeriodDays(ALL_TIME_PERIOD_DAYS)}
+              style={{ marginTop: space.sm }}
+            />
+          </View>
         ) : null}
 
         {error ? <ErrorNote>{error}</ErrorNote> : null}

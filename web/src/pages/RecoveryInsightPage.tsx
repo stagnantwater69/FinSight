@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
@@ -9,8 +10,9 @@ import { StatTile } from "../components/StatTile";
 import { DataTable, type Column } from "../components/DataTable";
 import { STATUS_TEXT_COLORS } from "../lib/chartPalette";
 import type { DailyCoverageRow, DayStatus, RecoveryInsight } from "../lib/types";
-import { AiCard, Kw, PageHead, Panel, Pill, type PillTone } from "../components/ui";
+import { AiCard, Callout, Card, Kw, PageHead, Panel, Pill, type PillTone } from "../components/ui";
 import { Money, formatMoney } from "../components/Money";
+import { SkeletonPanel, SkeletonRows, SkeletonStatTile } from "../components/Skeleton";
 
 // Text-variant colors: used for the Gap column, which stays a plain coloured
 // figure rather than a chip — see the Pill mapping below for the Status
@@ -176,8 +178,75 @@ export function RecoveryInsightPage() {
 
       {error ? <p className="mb-4 text-sm text-tone-danger">{error}</p> : null}
 
+      {/*
+        SAID BEFORE THE FIGURES, because without it the figures are a false
+        accusation.
+
+        Recovery is month-to-date and has no period to select, so a business
+        whose records were imported and stop months ago is shown zero sales
+        against its full monthly target — a page confidently reporting that the
+        owner has missed everything, for a month they never traded in. The
+        numbers below are arithmetically correct and completely misleading on
+        their own; this is the sentence that makes them honest.
+      */}
+      {!loading && data?.monthHasNoRecords ? (
+        <div className="mb-5">
+          <Callout tone="warn">
+            <b className="font-semibold">No sales are recorded for this month yet</b>, so every figure
+            below compares your target against zero. It isn't a shortfall you've made — there's simply
+            nothing in this month to measure.
+            {data.latestSaleDate ? (
+              <>
+                {" "}
+                Your most recent sale is dated{" "}
+                <span className="figure font-semibold">
+                  {new Date(data.latestSaleDate).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                    timeZone: "UTC",
+                  })}
+                </span>
+                .
+              </>
+            ) : null}{" "}
+            <Link
+              to="/records"
+              className="tap-inline font-semibold text-brand-700 underline underline-offset-2"
+            >
+              See your records →
+            </Link>
+          </Callout>
+        </div>
+      ) : null}
+
       {loading || !data ? (
-        <p className="text-sm text-ink-500">Loading…</p>
+        <div className="space-y-6" aria-busy="true" aria-live="polite">
+          <span className="sr-only">Loading your recovery target…</span>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <SkeletonStatTile />
+            <SkeletonStatTile />
+            <SkeletonStatTile />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-4">
+            <SkeletonStatTile />
+            <SkeletonStatTile />
+            <SkeletonStatTile />
+            <SkeletonStatTile />
+          </div>
+          <SkeletonPanel lines={3} />
+          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            <SkeletonStatTile />
+            <SkeletonStatTile />
+            <SkeletonStatTile />
+            <SkeletonStatTile />
+            <SkeletonStatTile />
+          </div>
+          <Card>
+            <SkeletonRows rows={5} />
+          </Card>
+          <SkeletonPanel lines={3} />
+        </div>
       ) : (
         <div className="space-y-6">
           {/* This tracks the current calendar month — there is no period to

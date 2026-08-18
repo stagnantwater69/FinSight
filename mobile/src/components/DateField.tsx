@@ -4,7 +4,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { SelectChip, T } from "./ui";
 import * as haptics from "../lib/haptics";
-import { brand, ink, paper, radius, space, TAP } from "../theme/tokens";
+import { brand, ink, paper, radius, space, TAP, typeScale } from "../theme/tokens";
 
 /**
  * Picking a date, instead of typing one.
@@ -99,7 +99,7 @@ export function DateField({
           }}
         >
           <Ionicons name="calendar-outline" size={18} color={ink[500]} />
-          <T style={{ flex: 1, fontSize: 15, color: hasValue ? ink[900] : ink[400] }}>
+          <T style={{ flex: 1, fontSize: typeScale.body, color: hasValue ? ink[900] : ink[400] }}>
             {hasValue ? humanise(value) : "Choose a date"}
           </T>
         </Pressable>
@@ -148,7 +148,7 @@ export function DateField({
           accessibilityRole="button"
           style={{ alignSelf: "flex-end", paddingVertical: space.sm, paddingHorizontal: space.md }}
         >
-          <T style={{ color: brand[700], fontSize: 14 }}>Done</T>
+          <T style={{ color: brand[700], fontSize: typeScale.bodySm }}>Done</T>
         </Pressable>
       ) : null}
     </View>

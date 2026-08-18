@@ -1,6 +1,7 @@
 import { createWorker } from "tesseract.js";
 import sharp from "sharp";
 import { env } from "../config/env";
+import { logger } from "../config/logger";
 
 /**
  * The width a receipt photo is reduced to before OCR.
@@ -117,7 +118,7 @@ export async function extractReceipt(buffer: Buffer, options: OcrEngineOptions =
   try {
     image = await preprocessReceiptImage(buffer);
   } catch (err) {
-    console.error("Receipt image preprocessing failed; reading the original image instead:", err);
+    logger.error({ err }, "Receipt image preprocessing failed; reading the original image instead");
   }
 
   const worker = await createWorker(env.TESSERACT_LANG);
@@ -173,7 +174,7 @@ export async function extractText(buffer: Buffer, options: OcrEngineOptions = {}
   try {
     image = await preprocessReceiptImage(buffer);
   } catch (err) {
-    console.error("Receipt image preprocessing failed; reading the original image instead:", err);
+    logger.error({ err }, "Receipt image preprocessing failed; reading the original image instead");
   }
 
   const worker = await createWorker(env.TESSERACT_LANG);
@@ -328,14 +329,34 @@ function parseAmount(text: string): number | null {
 const NOT_A_VENDOR =
   /^[\W_]*(sales\s+invoice|official\s+receipt|invoice|receipt|cash\s+invoice|statement|order\s+slip)[\W_]*$/i;
 
+// Decorative banner punctuation ("*** SALES INVOICE ***", "=== STORE COPY ===",
+// "~~~ Thank you ~~~"). These characters never appear in a printed business
+// name, so a line carrying one is document furniture regardless of what the
+// letters inside it say — which matters because OCR frequently mangles the
+// header text itself: "*** SALES INVOICE ***" was read as "*xx GALES INVOICE
+// ***" on a real corpus image, and the garbled spelling slipped past
+// NOT_A_VENDOR's exact-phrase match while the asterisks were still intact.
+// Catching the decoration instead of the (unreliable) wording is what let the
+// genuine footer vendor name on that same receipt win instead.
+const DECORATIVE_BANNER = /[*~]|={2,}/;
+
+/**
+ * Closing/farewell boilerplate a receipt prints below the last item — never
+ * the store's name, but ordinary prose that would otherwise pass every other
+ * filter (real letters, multiple words, no digits).
+ */
+const CLOSING_LINE = /\b(thank\s*you|come\s+again|please\s+come\s+back|salamat|maraming\s+salamat)\b/i;
+
 /**
  * Words that mark a line as a business name rather than an address or a
  * scrap of OCR noise. Deliberately Philippine-retail flavoured, because that
  * is the market — a "sari-sari store" or a "marketing corporation" is a shop,
- * a line reading "Dore" is almost certainly a mangled logo.
+ * a line reading "Dore" is almost certainly a mangled logo. "Tindahan" is the
+ * Filipino word for "store" and appears as often as the English word on
+ * small-shop receipts.
  */
 const VENDOR_KEYWORD =
-  /\b(store|shop|mart|market|supermarket|grocery|groceries|trading|enterprise|enterprises|corporation|corp|incorporated|inc|company|co|merchandise|merchandising|pharmacy|bakery|hardware|sari-?sari|foods?|restaurant|cafe|coffee|eatery|carinderia|depot|supply|supplies|center|centre)\b/i;
+  /\b(store|shop|mart|market|supermarket|grocery|groceries|trading|enterprise|enterprises|corporation|corp|incorporated|inc|company|co|merchandise|merchandising|pharmacy|bakery|hardware|sari-?sari|tindahan|foods?|restaurant|cafe|coffee|eatery|carinderia|depot|supply|supplies|center|centre)\b/i;
 
 /**
  * Best guess at the store name.
@@ -352,9 +373,13 @@ const VENDOR_KEYWORD =
  * counts — the name really is usually near the top — but it no longer decides
  * on its own.
  *
- * KNOWN LIMITATION, unchanged: a store name printed only in the FOOTER is
- * still read wrong when something plausible sits at the top. The confirm
- * screen is where the owner fixes it.
+ * A store name printed only in the FOOTER is no longer disqualified by
+ * position alone (see the scoring notes below) — a footer name with a
+ * recognisable business-type word, or one left as the only real candidate
+ * once decorative banners and closing boilerplate are excluded, wins. This
+ * is not a promise the footer always wins: two equally plausible bare names,
+ * one top and one bottom, still resolve toward the top. The confirm screen
+ * is where the owner fixes whichever draft is wrong.
  */
 function parseVendor(text: string): string | null {
   const lines = text.split("\n").map((l) => l.trim());
@@ -366,6 +391,11 @@ function parseVendor(text: string): string | null {
     // store name, and skip bare "SALES INVOICE"-style headers.
     .filter(({ line }) => !ADMINISTRATIVE_LINE.test(line))
     .filter(({ line }) => !NOT_A_VENDOR.test(line.replace(/[*=~-]/g, " ").trim()))
+    // Decorative banners are document furniture even when OCR has mangled
+    // the wording inside them (see DECORATIVE_BANNER above), and a "thank
+    // you, come again" footer line is never the store's name either.
+    .filter(({ line }) => !DECORATIVE_BANNER.test(line))
+    .filter(({ line }) => !CLOSING_LINE.test(line))
     // A line that is mostly digits/punctuation is a reference number, not a name.
     .filter(({ line }) => {
       const letters = (line.match(/[a-zA-Z]/g) ?? []).length;
@@ -801,6 +831,155 @@ export function looksLikeDuplicatePage(pageA: string, pageB: string): boolean {
   const bLines = new Set(b);
   const shared = a.filter((line) => bLines.has(line)).length;
   return shared / Math.min(a.length, b.length) >= DUPLICATE_PAGE_OVERLAP;
+}
+
+// ============================================================
+// Seams — where one photographed section runs into the next
+// ============================================================
+// The camera asks for 15-25% overlap between sections of a long receipt, so
+// the owner can see where to continue (mobile ReceiptGuide). That overlap is
+// what makes the sections obviously parts of ONE receipt — and it is also the
+// only way a few item lines can get read twice, because pages are OCR'd
+// separately and their text concatenated in order.
+//
+// WHAT THIS DELIBERATELY IS NOT. An earlier draft of the plan scored every
+// line of page n against every line of page n+1, normalised currency symbols
+// and punctuation, and dropped whatever passed a similarity threshold. That
+// is a preference-based heuristic deciding which money lines survive, and
+// this codebase already fixed the opposite rule for exactly this situation at
+// rescueWithVision: a competing reading replaces the deterministic one "only
+// on an OBJECTIVE test, never a preference". The objective test available
+// here is the receipt's own printed total — see receiptScan.service.
+
+/**
+ * The most lines at a seam that will be considered overlap.
+ *
+ * The camera asks for a quarter of a frame; a quarter of a photographed
+ * section is rarely more than a dozen printed lines. A cap matters because
+ * without one the longest common run between two pages of a restock receipt —
+ * where the same supplier's items repeat legitimately — could swallow a whole
+ * page of genuine purchases.
+ */
+const MAX_SEAM_LINES = 12;
+
+/** How much of a line must survive normalisation for it to be worth comparing. */
+const MIN_SEAM_LINE_LENGTH = 3;
+
+/**
+ * Comparable form for seam matching.
+ *
+ * Whole lines, lower-cased, with runs of whitespace collapsed — and nothing
+ * else. The temptation is to strip currency symbols and punctuation too, on
+ * the grounds that OCR renders them inconsistently; the reason not to is that
+ * those characters are most of what distinguishes one money line from
+ * another, and a normaliser aggressive enough to match "P 45.00" with
+ * "₱45,00" is also aggressive enough to match two genuinely different lines.
+ * Being conservative here means missing some overlap, which costs a
+ * reconciliation warning the owner can see. Being aggressive means deleting a
+ * purchase, which costs money nobody notices.
+ */
+function seamKey(line: string): string {
+  return line.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function seamLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map(seamKey)
+    .filter((line) => line.length >= MIN_SEAM_LINE_LENGTH);
+}
+
+export interface PageSeam {
+  /** 1-indexed page whose TOP repeats the previous page's bottom. */
+  pageNumber: number;
+  /** How many lines repeat. */
+  lineCount: number;
+}
+
+/**
+ * The longest run of lines that ends page A and begins page B.
+ *
+ * An ANCHORED match — the run must be A's tail and B's head — not a search
+ * for shared lines anywhere in either page. That distinction is the whole
+ * safety property: a restock receipt legitimately repeats "san miguel pale
+ * pilsen 1 case" on pages 1 and 3, and an unanchored search would find it and
+ * call it overlap. Only a tail-to-head repeat is evidence that the camera
+ * photographed the same strip of paper twice, because that is the only shape
+ * the overlap guide can produce.
+ *
+ * Longest-first so a genuine 6-line overlap is not reported as a 1-line one
+ * because the shorter run also matched.
+ */
+export function seamOverlapLength(pageA: string, pageB: string): number {
+  const a = seamLines(pageA);
+  const b = seamLines(pageB);
+  const limit = Math.min(MAX_SEAM_LINES, a.length, b.length);
+
+  for (let run = limit; run >= 1; run--) {
+    let matches = true;
+    for (let i = 0; i < run; i++) {
+      if (a[a.length - run + i] !== b[i]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return run;
+  }
+  return 0;
+}
+
+/** Every seam in a scan, adjacent pages only. */
+export function findPageSeams(pageTexts: string[]): PageSeam[] {
+  const seams: PageSeam[] = [];
+  for (let i = 1; i < pageTexts.length; i++) {
+    const lineCount = seamOverlapLength(pageTexts[i - 1] ?? "", pageTexts[i] ?? "");
+    if (lineCount > 0) seams.push({ pageNumber: i + 1, lineCount });
+  }
+  return seams;
+}
+
+/**
+ * The pages' text joined with each seam's repeat removed from the later page.
+ *
+ * A CANDIDATE READING, not a decision. Nothing calls this and uses the result
+ * unconditionally — receiptScan.service builds both this and the plain
+ * concatenation, then keeps this one only when the arithmetic says it is
+ * right. See `overlapSettlesTheGap` there.
+ */
+export function joinPagesWithoutSeams(pageTexts: string[]): string {
+  if (pageTexts.length <= 1) return pageTexts.join("\n");
+
+  const parts: string[] = [pageTexts[0] ?? ""];
+  for (let i = 1; i < pageTexts.length; i++) {
+    const page = pageTexts[i] ?? "";
+    const overlap = seamOverlapLength(pageTexts[i - 1] ?? "", page);
+    if (overlap === 0) {
+      parts.push(page);
+      continue;
+    }
+
+    /*
+     * Dropped by counting SIGNIFICANT lines, then cutting the raw text at
+     * that point — rather than by filtering the raw lines directly. The two
+     * differ whenever OCR emits a blank or a one-character line inside the
+     * overlap, and cutting at the wrong index there would take a line of real
+     * purchases with it.
+     */
+    const rawLines = page.split("\n");
+    let significantSeen = 0;
+    let cutAt = 0;
+    for (let index = 0; index < rawLines.length; index++) {
+      if (seamKey(rawLines[index] ?? "").length >= MIN_SEAM_LINE_LENGTH) {
+        significantSeen++;
+        if (significantSeen === overlap) {
+          cutAt = index + 1;
+          break;
+        }
+      }
+    }
+    parts.push(rawLines.slice(cutAt).join("\n"));
+  }
+  return parts.join("\n");
 }
 
 export function parseReceiptFields(text: string): ParsedReceiptFields {

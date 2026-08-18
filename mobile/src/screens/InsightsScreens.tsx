@@ -12,7 +12,7 @@ import { AskFinSightFab, FAB_CLEARANCE } from "../components/AskFinSightFab";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { api, errorMessage } from "../lib/api";
 import { formatMoney } from "../lib/money";
-import { ACCENT, brand, font, ink, paper, radius, space, status, statusText, TAP } from "../theme/tokens";
+import { ACCENT, brand, font, ink, paper, radius, space, status, statusText, TAP, typeScale } from "../theme/tokens";
 import type { AnomalyFindingPage, ExpenseBehavior, RecoveryInsight, RecurringPattern, SpendingImpact } from "../lib/types";
 
 /**
@@ -146,7 +146,7 @@ function DeltaPill({ percentChange, direction }: { percentChange: number | null;
   if (percentChange === null) {
     return (
       <View style={{ paddingHorizontal: space.sm, paddingVertical: 2, borderRadius: radius.full, backgroundColor: paper[100] }}>
-        <T style={{ fontSize: 11, color: ink[500] }}>new</T>
+        <T style={{ fontSize: typeScale.micro, color: ink[500] }}>new</T>
       </View>
     );
   }
@@ -168,8 +168,8 @@ function DeltaPill({ percentChange, direction }: { percentChange: number | null;
         backgroundColor: surface,
       }}
     >
-      <T style={{ fontSize: 11, color: tone }}>{flat ? "—" : up ? "▲" : "▼"}</T>
-      <T style={{ fontSize: 11, color: tone }}>{Math.abs(percentChange).toFixed(0)}%</T>
+      <T style={{ fontSize: typeScale.micro, color: tone }}>{flat ? "—" : up ? "▲" : "▼"}</T>
+      <T style={{ fontSize: typeScale.micro, color: tone }}>{Math.abs(percentChange).toFixed(0)}%</T>
     </View>
   );
 }
@@ -336,7 +336,16 @@ function useInsight<T>(path: string, query: Record<string, any>, deps: any[]) {
 const PERIODS = [
   { label: "This week", value: 7 },
   { label: "This month", value: 30 },
-] as const;
+];
+
+/**
+ * The "most recent month with records" option's value.
+ *
+ * Negative because DropdownPill keys options by value and every real period is
+ * a positive day count — this can never collide with one. It is not a length;
+ * it means "anchor the 30-day window to the last expense instead of to today".
+ */
+const ANCHOR_PERIOD = -1;
 
 /**
  * How many category rows "What changed" shows before offering the rest.
@@ -350,6 +359,16 @@ const TREND_PREVIEW_COUNT = 4;
 export function ExpenseBehaviorScreen({ navigation }: any) {
   const { selected } = useBusinessProfiles();
   const [periodDays, setPeriodDays] = useState(30);
+  /**
+   * The day the window ends on, or null for today.
+   *
+   * Every window here is measured back from today, so a business whose history
+   * was imported can have its last expense a year ago — putting all of them in
+   * a gap and making this screen report "nothing recorded" to an owner with
+   * hundreds of records. Selecting the anchor option moves the window to where
+   * the data actually is, and says which month that was.
+   */
+  const [endDate, setEndDate] = useState<string | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   /**
    * Which sub-section is showing.
@@ -363,8 +382,8 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
   const [showAllTrends, setShowAllTrends] = useState(false);
   const { data, loading, error } = useInsight<ExpenseBehavior>(
     "/insights/expense-behavior",
-    { businessProfileId: selected?.id, periodDays },
-    [selected?.id, periodDays]
+    { businessProfileId: selected?.id, periodDays, ...(endDate ? { endDate } : {}) },
+    [selected?.id, periodDays, endDate]
   );
   const findingState = useInsight<AnomalyFindingPage>(
     "/insights/findings",
@@ -374,6 +393,33 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
   const patternState = useInsight<RecurringPattern[]>(
     "/insights/recurring-patterns", { businessProfileId: selected?.id }, [selected?.id]
   );
+
+  /**
+   * The month this business's expenses actually end in, when the ordinary
+   * windows cannot reach it.
+   *
+   * Null for a business recording daily — its latest expense is already inside
+   * "This month", so a second option covering the same window under a stranger
+   * name would be worse than none.
+   */
+  const anchorMonth = (() => {
+    const latest = data?.latestExpenseDate;
+    if (!latest) return null;
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    if (new Date(latest).getTime() >= thirtyDaysAgo) return null;
+    return {
+      endDate: latest.slice(0, 10),
+      label: new Date(latest).toLocaleDateString(undefined, {
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      }),
+    };
+  })();
+
+  const periodOptions = anchorMonth
+    ? [...PERIODS, { label: anchorMonth.label, value: ANCHOR_PERIOD }]
+    : PERIODS;
 
   async function reviewFinding(id: number, confirmed: boolean, duplicate: boolean) {
     await api.patch(`/insights/findings/${id}/review`, {
@@ -475,9 +521,17 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
         {section === "overview" ? (
           <View style={{ marginBottom: space.lg }}>
             <DropdownPill
-              options={PERIODS}
-              value={periodDays}
-              onChange={setPeriodDays}
+              options={periodOptions}
+              value={endDate ? ANCHOR_PERIOD : periodDays}
+              onChange={(value) => {
+                if (value === ANCHOR_PERIOD) {
+                  setPeriodDays(30);
+                  setEndDate(anchorMonth!.endDate);
+                } else {
+                  setPeriodDays(value);
+                  setEndDate(null);
+                }
+              }}
               icon="calendar-outline"
               sheetTitle="Show which period"
               accessibilityLabel="Period"
@@ -497,6 +551,27 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
             */}
             {section === "overview" ? (
               <>
+              {/*
+                THE WINDOW IS EMPTY BUT THE BUSINESS IS NOT.
+
+                Every window here ends today, so imported history that stops
+                months ago puts all of them in a gap and the screen reports
+                nothing recorded — to an owner holding hundreds of records.
+                Said here, with the month named, and with the option that fixes
+                it one tap away in the period picker above.
+              */}
+              {data.totals.current === 0 && anchorMonth ? (
+                <Callout tone="info">
+                  No expenses in this window — your records are here, the most recent is{" "}
+                  {new Date(data.latestExpenseDate!).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                    timeZone: "UTC",
+                  })}
+                  . Choose "{anchorMonth.label}" in the period picker above to see it.
+                </Callout>
+              ) : null}
               <Card>
                 {/*
                   THE HEADLINE FIGURE, and the reason this card leads.
@@ -509,7 +584,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                 */}
                 <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
                   <Money value={data.totals.current} size={28} weight="semibold" />
-                  <T style={{ fontSize: 15, color: ink[600] }}>spent</T>
+                  <T style={{ fontSize: typeScale.body, color: ink[600] }}>spent</T>
                 </View>
                 {/*
                   THE COMPARISON, SAID IN FULL.
@@ -550,7 +625,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                       />
                       <T
                         style={{
-                          fontSize: 12,
+                          fontSize: typeScale.caption,
                           fontFamily: font.sansSemibold,
                           color: periodDelta >= 0 ? statusText.serious : statusText.good,
                         }}
@@ -651,7 +726,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                         })}
                       >
                         <Medallion icon="pricetag-outline" tint={brand[700]} surface={brand[50]} />
-                        <T style={{ flex: 1, fontSize: 14, color: ink[900] }} numberOfLines={1}>
+                        <T style={{ flex: 1, fontSize: typeScale.bodySm, color: ink[900] }} numberOfLines={1}>
                           {t.categoryName}
                         </T>
                         <Money value={t.current} size={14} weight="medium" />
@@ -679,7 +754,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                   >
                     <Card>
                       <View style={{ flexDirection: "row", alignItems: "center", minHeight: TAP - 12 }}>
-                        <T style={{ flex: 1, fontSize: 15, color: ink[900] }}>
+                        <T style={{ flex: 1, fontSize: typeScale.body, color: ink[900] }}>
                           {showAllTrends
                             ? "Show fewer categories"
                             : `View all ${data.categoryTrends.length} category trends`}
@@ -804,7 +879,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                             surface={duplicate ? STATUS_SURFACE.warning : STATUS_SURFACE.critical}
                           />
                           <View style={{ flex: 1 }}>
-                            <T style={{ fontSize: 14, color: ink[900], fontFamily: font.sansSemibold }}>
+                            <T style={{ fontSize: typeScale.bodySm, color: ink[900], fontFamily: font.sansSemibold }}>
                               {finding.title}
                             </T>
                             {finding.reasons.map((reason) => (
@@ -821,7 +896,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                         <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.md }}>
                           <View style={{ flex: 1 }}>
                             <Button
-                              title={duplicate ? "Duplicate" : "Confirm unusual"}
+                              title={duplicate ? "Duplicate" : "Unusual"}
                               variant="brand"
                               onPress={() => void reviewFinding(finding.id, true, duplicate)}
                             />
@@ -866,7 +941,7 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                         padding: space.md,
                       }}
                     >
-                      <T style={{ fontSize: 14, color: ink[900], fontFamily: font.sansSemibold }}>
+                      <T style={{ fontSize: typeScale.bodySm, color: ink[900], fontFamily: font.sansSemibold }}>
                         {pattern.description}
                       </T>
                       <T variant="caption" style={{ marginTop: 2 }}>
@@ -1028,7 +1103,7 @@ export function SpendingImpactScreen({ navigation }: any) {
                 borderColor: amountFocused ? brand[600] : ink[200],
                 borderRadius: radius.md,
                 paddingHorizontal: space.md,
-                fontSize: 15,
+                fontSize: typeScale.body,
                 color: ink[900],
               }}
             />
@@ -1066,7 +1141,7 @@ export function SpendingImpactScreen({ navigation }: any) {
                   paddingVertical: 4,
                 }}
               >
-                <T style={{ color: bandColor, fontSize: 12 }}>{data.impactBand}</T>
+                <T style={{ color: bandColor, fontSize: typeScale.caption }}>{data.impactBand}</T>
               </View>
             </View>
 
@@ -1287,6 +1362,30 @@ export function RecoveryTargetScreen({ navigation }: any) {
           </View>
         ) : (
           <View style={{ gap: space.lg }}>
+            {/*
+              SAID BEFORE THE FIGURES, because without it the figures are a
+              false accusation.
+
+              Recovery is month-to-date and has no period to select, so imported
+              history that stops months ago shows zero sales against the full
+              monthly target — a screen confidently reporting that the owner
+              missed everything, in a month they never traded in. The arithmetic
+              is right; this is the sentence that makes it honest.
+            */}
+            {data.monthHasNoRecords ? (
+              <Callout tone="warn">
+                No sales are recorded for this month yet, so every figure below compares your target
+                against zero. It isn't a shortfall you've made — there's simply nothing in this month
+                to measure.
+                {data.latestSaleDate
+                  ? ` Your most recent sale is dated ${new Date(data.latestSaleDate).toLocaleDateString(
+                      undefined,
+                      { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" },
+                    )}.`
+                  : ""}
+              </Callout>
+            ) : null}
+
             <Card>
               <RecoveryMeter data={data} />
             </Card>
@@ -1327,8 +1426,8 @@ export function RecoveryTargetScreen({ navigation }: any) {
                 }}
               >
                 <Medallion icon="calendar-outline" tint={brand[700]} surface={brand[50]} size={28} />
-                <T style={{ flex: 1, fontSize: 14 }}>Remaining operating days</T>
-                <T style={{ fontSize: 14, fontFamily: font.monoMedium }}>≈ {data.remainingOperatingDays}</T>
+                <T style={{ flex: 1, fontSize: typeScale.bodySm }}>Remaining operating days</T>
+                <T style={{ fontSize: typeScale.bodySm, fontFamily: font.monoMedium }}>≈ {data.remainingOperatingDays}</T>
               </View>
             </Card>
 
@@ -1366,7 +1465,7 @@ export function RecoveryTargetScreen({ navigation }: any) {
                     <T variant="caption" style={{ width: 56, fontFamily: font.monoMedium }}>{d.date.slice(5)}</T>
                     <Money value={d.sales} size={13} weight="medium" />
                     <View style={{ flex: 1, alignItems: "flex-end" }}>
-                      <T style={{ fontSize: 12, color: c }}>
+                      <T style={{ fontSize: typeScale.caption, color: c }}>
                         {d.status === "at"
                           ? "Reached"
                           : `${Math.round(Math.abs(d.gap)).toLocaleString("en-PH")} ${d.status}`}
@@ -1421,7 +1520,7 @@ function Row({
       }}
     >
       <Medallion icon={icon} tint={brand[700]} surface={brand[50]} size={28} />
-      <T style={{ fontSize: 14, flex: 1 }}>{label}</T>
+      <T style={{ fontSize: typeScale.bodySm, flex: 1 }}>{label}</T>
       <Money value={value} size={14} weight="medium" color={tint} />
     </View>
   );

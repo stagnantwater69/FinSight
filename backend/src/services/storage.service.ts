@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "../config/supabase";
 import { env } from "../config/env";
 import { ApiError } from "../middleware/error.middleware";
+import { logger } from "../config/logger";
 
 // [ADDED] Not provisioned by the Supabase connection step (which only
 // created "receipts") — CSVImportBatch.fileReference is NOT NULL in the
@@ -36,7 +37,7 @@ async function uploadWithRetry(bucket: string, path: string, buffer: Buffer, con
 
     const status = (error as { status?: number }).status;
     const statusCode = (error as { statusCode?: string }).statusCode;
-    console.error(`Storage upload failed (attempt ${attempt}/2): ${error.message} [status=${status} statusCode=${statusCode}]`);
+    logger.error(`Storage upload failed (attempt ${attempt}/2): ${error.message} [status=${status} statusCode=${statusCode}]`);
 
     if (attempt === 2) {
       throw new ApiError(502, `Could not upload file to storage: ${error.message}`);
@@ -74,10 +75,23 @@ export async function signedReceiptImageUrl(path: string): Promise<string | null
     .createSignedUrl(path, RECEIPT_URL_TTL_SECONDS);
 
   if (error || !data?.signedUrl) {
-    console.error(`Could not sign receipt image URL for "${path}": ${error?.message ?? "no URL returned"}`);
+    logger.error(`Could not sign receipt image URL for "${path}": ${error?.message ?? "no URL returned"}`);
     return null;
   }
   return data.signedUrl;
+}
+
+/**
+ * Downloads a private receipt image for durable background processing.
+ * Unlike the UI's signed URL this is service-to-service and returns the real
+ * bytes; a missing object is a failed job, not an empty OCR result.
+ */
+export async function downloadReceiptImage(path: string): Promise<Buffer> {
+  const { data, error } = await supabaseAdmin.storage.from(env.SUPABASE_STORAGE_BUCKET).download(path);
+  if (error || !data) {
+    throw new ApiError(502, `Could not download receipt image: ${error?.message ?? "no data returned"}`);
+  }
+  return Buffer.from(await data.arrayBuffer());
 }
 
 /**
@@ -130,7 +144,7 @@ export async function signedCsvFileUrl(path: string): Promise<string | null> {
     .createSignedUrl(path, CSV_URL_TTL_SECONDS, { download: originalCsvName(path) });
 
   if (error || !data?.signedUrl) {
-    console.error(`Could not sign CSV file URL for "${path}": ${error?.message ?? "no URL returned"}`);
+    logger.error(`Could not sign CSV file URL for "${path}": ${error?.message ?? "no URL returned"}`);
     return null;
   }
   return data.signedUrl;
@@ -152,7 +166,7 @@ export async function signedCsvFileUrl(path: string): Promise<string | null> {
 async function removeObject(bucket: string, path: string): Promise<boolean> {
   const { error } = await supabaseAdmin.storage.from(bucket).remove([path]);
   if (error) {
-    console.error(`Could not delete "${path}" from ${bucket}: ${error.message}`);
+    logger.error(`Could not delete "${path}" from ${bucket}: ${error.message}`);
     return false;
   }
   return true;
@@ -168,6 +182,19 @@ export async function deleteCsvFile(path: string): Promise<boolean> {
   return removeObject(CSV_IMPORT_BUCKET, path);
 }
 
+/** Removes an avatar/logo from its persisted public URL, including cache-bust query strings. */
+export async function deletePublicImageUrl(url: string): Promise<boolean> {
+  const marker = `/storage/v1/object/public/${AVATAR_BUCKET}/`;
+  const markerAt = url.indexOf(marker);
+  if (markerAt === -1) return true;
+  const encodedPath = url.slice(markerAt + marker.length).split("?")[0]!;
+  try {
+    return removeObject(AVATAR_BUCKET, decodeURIComponent(encodedPath));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fetches an imported CSV's own bytes back out of storage, for previewing it
  * as a table rather than only offering it as a download.
@@ -180,7 +207,7 @@ export async function deleteCsvFile(path: string): Promise<boolean> {
 export async function downloadCsvFile(path: string): Promise<Buffer | null> {
   const { data, error } = await supabaseAdmin.storage.from(CSV_IMPORT_BUCKET).download(path);
   if (error || !data) {
-    console.error(`Could not download CSV file "${path}": ${error?.message ?? "no data returned"}`);
+    logger.error(`Could not download CSV file "${path}": ${error?.message ?? "no data returned"}`);
     return null;
   }
   return Buffer.from(await data.arrayBuffer());

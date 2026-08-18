@@ -10,7 +10,7 @@ vi.mock("../../src/services/storage.service", () => ({
 }));
 
 import { prisma } from "../../src/config/prisma";
-import { confirmImport, previewCsv } from "../../src/services/csvImport.service";
+import { confirmImport, MAX_IMPORT_ROWS, previewCsv } from "../../src/services/csvImport.service";
 import { disconnectDb, makeOwnerWithProfile, resetDb, utcDayString } from "../setup/testDb";
 
 let ctx: Awaited<ReturnType<typeof makeOwnerWithProfile>>;
@@ -51,6 +51,71 @@ async function importExpenses(
     corrections,
   });
 }
+
+describe("the import is bounded by ROW COUNT, not only by file size", () => {
+  /*
+   * WHY THIS BOUND EXISTS AND WHY IT IS NOT MEGABYTES. The upload is already
+   * capped at 5 MB by multer, and that number says almost nothing about how
+   * much work the file represents. A CSV is plain text, so its size tracks the
+   * characters in it rather than the records:
+   *
+   *   `2026-01-05,Load,120`           ~25 bytes  →  5 MB is ~200,000 rows
+   *   a row with a full description  ~600 bytes  →  5 MB is ~8,000 rows
+   *
+   * Twenty-five times the work for an identical file size — and each row
+   * becomes an ExpenseRecord with its own validation, duplicate check, large-
+   * expense evaluation and analysis job. Bytes do not bound the cost; rows do.
+   */
+  function rowsOfLength(count: number): string[] {
+    return Array.from({ length: count }, (_, i) => `${utcDayString(-((i % 27) + 1))},Row ${i},100,Inventory`);
+  }
+
+  it("accepts a file exactly at the limit", () => {
+    expect(previewCsv(csv(rowsOfLength(MAX_IMPORT_ROWS))).totalRows).toBe(MAX_IMPORT_ROWS);
+  });
+
+  it("refuses one row past it, with a message that says what to do", () => {
+    let message = "";
+    try {
+      previewCsv(csv(rowsOfLength(MAX_IMPORT_ROWS + 1)));
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    // Names both figures and the remedy: "too large" is unactionable when the
+    // file is only a few megabytes and the owner cannot see why.
+    expect(message).toContain(String(MAX_IMPORT_ROWS + 1).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+    expect(message).toMatch(/split/i);
+  });
+
+  /**
+   * Refused at PREVIEW, not only at confirm. An owner must not spend time
+   * mapping columns for an import that was never going to run.
+   */
+  it("refuses on the mapping screen, before any column is matched", () => {
+    expect(() => previewCsv(csv(rowsOfLength(MAX_IMPORT_ROWS + 1)))).toThrow(/limit is/i);
+  });
+
+  it("refuses the same file at confirm, so the two cannot disagree", async () => {
+    await expect(importExpenses(csv(rowsOfLength(MAX_IMPORT_ROWS + 1)))).rejects.toThrow(/limit is/i);
+  });
+
+  /**
+   * Set from measured capacity AND from use.
+   *
+   * The floor below is the case that drove it up from 5,000: a business
+   * importing per-transaction SALES history produces 50-100 rows a day, which
+   * 5,000 covered for under three months. A year of that is the bar.
+   *
+   * The ceiling is real too — the import runs inside one request, and the
+   * measured cost is ~160µs a row — so a limit far above this wants the job
+   * queue rather than a bigger number, and this test fails if someone raises it
+   * to a figure that no longer fits a request.
+   */
+  it("covers a year of per-transaction sales without leaving request scope", () => {
+    expect(MAX_IMPORT_ROWS).toBeGreaterThanOrEqual(365 * 50);
+    expect(MAX_IMPORT_ROWS).toBeLessThanOrEqual(50_000);
+  });
+});
 
 describe("previewCsv", () => {
   it("returns headers and row count without touching the database", () => {
@@ -406,18 +471,40 @@ describe("imported rows still go through the normal flagging rules", () => {
     expect(records[2]!.duplicateOfRecordId).toBe(records[0]!.id);
   });
 
-  it("raises one notification per flag, linked to the record it is about", async () => {
+  /**
+   * DELIBERATELY CHANGED. This used to assert one notification per flagged row,
+   * carrying a link to the record it was about, which was reasonable while an
+   * import was capped at 5,000 rows.
+   *
+   * It stopped being reasonable when the cap rose to 30,000: a measured import
+   * of that size produced 33,355 notifications, which does not inform an owner
+   * of anything — it buries every other notification they have. The batch
+   * summary is now the whole of what an import raises, and the flagged rows are
+   * worked through in the review queue, which is built for the volume.
+   *
+   * The per-record link is not lost anywhere it mattered: createExpenseRecord
+   * and updateExpenseRecord still raise their own, because there a single
+   * record IS the whole event.
+   */
+  it("summarises a batch in one notification rather than one per flagged row", async () => {
     const day = utcDayString(-1);
     await importExpenses(csv([`${day},Supplier stocks,1400,Inventory`, `${day},Supplier stocks,1400,Inventory`]), "Batch");
 
-    const notifications = await prisma.notification.findMany({
+    const perRecord = await prisma.notification.findMany({
       where: { businessProfileId: ctx.profile.id, type: "Possible Duplicate" },
     });
-    expect(notifications).toHaveLength(1);
+    expect(perRecord).toEqual([]);
+
+    const all = await prisma.notification.findMany({ where: { businessProfileId: ctx.profile.id } });
+    expect(all).toHaveLength(1);
+    expect(all[0]!.message).toContain("flagged as possible duplicates");
+
+    // The flag itself still exists on the record, which is what the review
+    // queue reads — only the notification per row is gone.
     const flagged = await prisma.expenseRecord.findFirst({
       where: { businessProfileId: ctx.profile.id, duplicateStatus: "Flagged" },
     });
-    expect(notifications[0]!.expenseRecordId).toBe(flagged!.id);
+    expect(flagged).not.toBeNull();
   });
 });
 
@@ -461,5 +548,225 @@ describe("ownership", () => {
     // Nothing was written to the victim's profile.
     expect(await prisma.expenseRecord.count({ where: { businessProfileId: other.profile.id } })).toBe(0);
     expect(await prisma.cSVImportBatch.count({ where: { businessProfileId: other.profile.id } })).toBe(0);
+  });
+});
+
+/**
+ * One file holding both sales and expenses — the sheet an owner who keeps a
+ * single spreadsheet actually has.
+ *
+ * The rule under test throughout is that the file DECIDES and FinSight never
+ * guesses. A row filed the wrong way is not a cosmetic error: it moves money
+ * from one side of the books to the other, changes the recovery target and the
+ * daily target, and reports nothing. So every case below either takes the
+ * file's word or skips the row.
+ */
+describe("mixed sales-and-expense imports", () => {
+  const MIXED_MAPPING = {
+    date: "Date",
+    description: "Particulars",
+    amount: "Amount",
+    category: "Class",
+    recordType: "Type",
+  };
+
+  function mixedCsv(rows: string[]): Buffer {
+    return Buffer.from(["Date,Particulars,Amount,Class,Type", ...rows].join("\n") + "\n");
+  }
+
+  function importMixed(buffer: Buffer, mapping = MIXED_MAPPING, strategy: "column" | "sign" = "column") {
+    return confirmImport(ctx.user.id, {
+      businessProfileId: ctx.profile.id,
+      recordType: "mixed",
+      mixedStrategy: strategy,
+      title: "Combined sheet",
+      buffer,
+      originalname: "mixed.csv",
+      columnMapping: mapping,
+    });
+  }
+
+  it("splits one file into sales records and expense records", async () => {
+    const result = await importMixed(
+      mixedCsv([
+        `${utcDayString(-1)},Morning sales,2500,,Sale`,
+        `${utcDayString(-1)},Supplier stocks,1400,Inventory,Expense`,
+        `${utcDayString(-2)},Afternoon sales,1800,,benta`,
+        `${utcDayString(-2)},Electricity,900,Utilities,gastos`,
+      ]),
+    );
+
+    expect(result.imported).toBe(4);
+    expect(result.importedSales).toBe(2);
+    expect(result.importedExpenses).toBe(2);
+    expect(result.skipped).toEqual([]);
+
+    expect(await prisma.expenseRecord.count({ where: { businessProfileId: ctx.profile.id } })).toBe(2);
+    expect(await prisma.salesReferenceRecord.count({ where: { businessProfileId: ctx.profile.id } })).toBe(2);
+  });
+
+  /**
+   * ONE batch, not two. CSVImportBatch already relates to both record types, so
+   * a combined file stays a single entry in the owner's import history — one
+   * row in the "which import" filter, one file to re-open.
+   */
+  it("files both halves under the same import batch", async () => {
+    const result = await importMixed(
+      mixedCsv([
+        `${utcDayString(-1)},Morning sales,2500,,Sale`,
+        `${utcDayString(-1)},Supplier stocks,1400,Inventory,Expense`,
+      ]),
+    );
+
+    const batches = await prisma.cSVImportBatch.findMany({ where: { businessProfileId: ctx.profile.id } });
+    expect(batches).toHaveLength(1);
+    expect(batches[0]!.id).toBe(result.batchId);
+
+    expect(await prisma.expenseRecord.count({ where: { importBatchId: result.batchId } })).toBe(1);
+    expect(await prisma.salesReferenceRecord.count({ where: { importBatchId: result.batchId } })).toBe(1);
+  });
+
+  /** The core promise: an unreadable type is skipped and named, never assumed. */
+  it("skips rows whose type it cannot read, rather than guessing", async () => {
+    const result = await importMixed(
+      mixedCsv([
+        `${utcDayString(-1)},Morning sales,2500,,Sale`,
+        `${utcDayString(-1)},Bank transfer,5000,,Transfer`,
+        `${utcDayString(-1)},Mystery,300,,`,
+      ]),
+    );
+
+    expect(result.imported).toBe(1);
+    expect(result.skipped).toHaveLength(2);
+    expect(result.skipped[0]!.reason).toMatch(/could not tell/i);
+    expect(result.skipped[0]!.reason).toContain("Transfer");
+    expect(result.skipped[1]!.reason).toMatch(/missing/i);
+
+    // Nothing was invented for the rows it could not read.
+    expect(await prisma.expenseRecord.count({ where: { businessProfileId: ctx.profile.id } })).toBe(0);
+  });
+
+  /**
+   * A combined export usually has no category column — categories are an
+   * expense concept and the sales rows have nothing to put there. Skipping every
+   * expense over a column that was never going to exist would reject the exact
+   * file this feature exists to accept.
+   */
+  it("files uncategorised expenses rather than rejecting them", async () => {
+    const result = await importMixed(
+      Buffer.from(
+        ["Date,Particulars,Amount,Type", `${utcDayString(-1)},Morning sales,2500,Sale`, `${utcDayString(-1)},Supplier stocks,1400,Expense`].join("\n") + "\n",
+      ),
+      { date: "Date", description: "Particulars", amount: "Amount", recordType: "Type" },
+    );
+
+    expect(result.imported).toBe(2);
+    expect(result.uncategorised).toBe(1);
+
+    const expense = await prisma.expenseRecord.findFirstOrThrow({
+      where: { businessProfileId: ctx.profile.id },
+      include: { category: true },
+    });
+    expect(expense.category.name).toBe("Uncategorised");
+  });
+
+  it("reads the bank-statement convention where expenses are negative", async () => {
+    const result = await importMixed(
+      Buffer.from(
+        [
+          "Date,Particulars,Amount,Class",
+          `${utcDayString(-1)},Morning sales,2500,`,
+          `${utcDayString(-1)},Supplier stocks,-1400,Inventory`,
+          // Accounting parentheses are a negative too.
+          `${utcDayString(-2)},Electricity,(900),Utilities`,
+        ].join("\n") + "\n",
+      ),
+      { date: "Date", description: "Particulars", amount: "Amount", category: "Class" },
+      "sign",
+    );
+
+    expect(result.importedSales).toBe(1);
+    expect(result.importedExpenses).toBe(2);
+
+    // Stored as a positive magnitude — the sign was direction, not value.
+    const expenses = await prisma.expenseRecord.findMany({ where: { businessProfileId: ctx.profile.id } });
+    for (const e of expenses) expect(Number(e.amount)).toBeGreaterThan(0);
+  });
+
+  /**
+   * A negative in a file that is NOT using the sign convention stays the
+   * invalid amount it has always been. Silently flipping it would import a
+   * refund as an ordinary expense.
+   */
+  it("still rejects negative amounts when the file does not use the sign convention", async () => {
+    const result = await importMixed(
+      mixedCsv([
+        `${utcDayString(-1)},Morning sales,2500,,Sale`,
+        `${utcDayString(-1)},Refund,-400,Inventory,Expense`,
+      ]),
+    );
+
+    expect(result.imported).toBe(1);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]!.reason).toMatch(/invalid amount/i);
+  });
+
+  /**
+   * The preview has to OFFER the mixed path, or an owner has to already know
+   * the feature exists to find it.
+   */
+  it("tells the preview which column names the type", () => {
+    const preview = previewCsv(
+      mixedCsv([
+        `${utcDayString(-1)},Morning sales,2500,,Sale`,
+        `${utcDayString(-1)},Supplier stocks,1400,Inventory,Expense`,
+      ]),
+    );
+    expect(preview.detectedTypeColumn).toBe("Type");
+  });
+
+  it("tells the preview which columns carry signed amounts", () => {
+    const preview = previewCsv(
+      Buffer.from(
+        ["Date,Particulars,Amount", `${utcDayString(-1)},Sales,2500`, `${utcDayString(-1)},Stocks,-1400`].join("\n") + "\n",
+      ),
+    );
+    expect(preview.columnsWithNegatives).toContain("Amount");
+  });
+});
+
+/**
+ * A CSV import raises ONE notification for the batch, never one per row.
+ *
+ * At the old 5,000-row cap a notification each was merely untidy. At 30,000 it
+ * is destructive: a measured import produced 33,355 of them, burying every
+ * other notification the owner had and making the bell useless for the one job
+ * it exists to do. The flagged rows remain reachable through the review queue,
+ * which is the screen built for working through them.
+ */
+describe("import notifications are summarised, not per-row", () => {
+  it("raises one notification for a batch with many flagged rows", async () => {
+    // Threshold is 25% of 60,000 = 15,000, so every row below is a large expense.
+    const rows = Array.from(
+      { length: 12 },
+      (_, i) => `${utcDayString(-((i % 20) + 1))},Big purchase ${i},20000,Inventory`,
+    );
+    const result = await importExpenses(csv(rows));
+
+    expect(result.largeExpenseFlagged).toBe(12);
+
+    const notifications = await prisma.notification.findMany({
+      where: { businessProfileId: ctx.profile.id },
+    });
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]!.message).toContain("CSV import");
+
+    // The records themselves still carry the flag and still need review, which
+    // is what the review queue reads.
+    expect(
+      await prisma.expenseRecord.count({
+        where: { businessProfileId: ctx.profile.id, largeExpenseFlag: true, reviewStatus: "Needs Review" },
+      }),
+    ).toBe(12);
   });
 });

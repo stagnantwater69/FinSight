@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import * as expenses from "../../src/services/expenseRecord.service";
 import * as sales from "../../src/services/salesRecord.service";
 import * as insights from "../../src/services/insights.service";
-import { getDashboardCashflow, getDashboardSummary } from "../../src/services/dashboard.service";
+import { ALL_TIME_PERIOD, getDashboardCashflow, getDashboardSummary } from "../../src/services/dashboard.service";
 import { Z_SCORE_THRESHOLD } from "../../src/services/analysis.service";
 import { disconnectDb, makeOwnerWithProfile, resetDb, utcDayString } from "../setup/testDb";
 
@@ -224,7 +224,7 @@ describe("unusual-expense detection against real rows", () => {
     expect(behavior.unusualExpenses).toHaveLength(0);
   });
 
-  it("only flags records inside the selected period, but scores against all history", async () => {
+  it("only flags records inside the selected period, but uses recent history outside that period", async () => {
     // History sits outside the 7-day window; the outlier sits inside it.
     await addExpense("Inventory", "Old stock A", 6000, -40);
     await addExpense("Inventory", "Old stock B", 5800, -41);
@@ -236,8 +236,23 @@ describe("unusual-expense detection against real rows", () => {
     await addExpense("Inventory", "Recent bulk delivery", 30000, -1);
 
     const behavior = await insights.getExpenseBehavior(ctx.user.id, ctx.profile.id, 7);
-    // Detected, because the baseline is all-time even though the window is 7 days.
+    // Detected, because the rolling baseline is wider than the selected 7-day view.
     expect(behavior.unusualExpenses.map((u) => u.description)).toEqual(["Recent bulk delivery"]);
+  });
+
+  it("does not let records older than the annual baseline influence detection", async () => {
+    for (let i = 0; i < 7; i++) {
+      await addExpense("Inventory", `Obsolete price ${i}`, 500 + i * 10, -400 - i);
+    }
+    await addExpense("Inventory", "Current purchase", 6000, -1);
+
+    const behavior = await insights.getExpenseBehavior(ctx.user.id, ctx.profile.id, 30);
+    expect(behavior.unusualExpenses).toHaveLength(0);
+    expect(behavior.insufficientHistoryCategories).toContainEqual({
+      categoryId: ctx.categories.Inventory,
+      categoryName: "Inventory",
+      historyCount: 1,
+    });
   });
 
   it("computes period-over-period category trends", async () => {
@@ -383,5 +398,256 @@ describe("records needing review", () => {
     const s = await getDashboardSummary(ctx.user.id, ctx.profile.id, 30);
     expect(s.alerts.length).toBeGreaterThan(0);
     expect(s.alerts.every((a) => a.businessProfileId === ctx.profile.id)).toBe(true);
+  });
+});
+
+/**
+ * The dashboard answers TWO different questions and must not use one set of
+ * numbers for both.
+ *
+ * "What happened lately" is period-scoped and always has been. "Has this
+ * business ever recorded anything" is not, and was being answered with the
+ * period figures — so an owner who imported two years of history onto a
+ * dashboard showing "This month" was told, by the setup checklist, that they
+ * had not yet recorded their first expense or sale. Their 21,097 records were
+ * all there; none of them fell inside 30 days.
+ *
+ * That is the worst available failure for an import feature: the data is fine
+ * and the app says it is missing.
+ */
+describe("lifetime totals are reported outside the period", () => {
+  it("counts records the period cannot see", async () => {
+    // Well outside any period selector the dashboard offers.
+    await addExpense("Inventory", "Old stock purchase", 1200, -400);
+    await addSale(3000, -395);
+
+    const summary = await getDashboardSummary(ctx.user.id, ctx.profile.id, 30);
+
+    // The period is genuinely empty — that part was never wrong.
+    expect(summary.overview.totalExpenses).toBe(0);
+    expect(summary.overview.totalSalesReference).toBe(0);
+
+    // But the business is not, and this is what the checklist reads.
+    expect(summary.lifetime.recordCount).toBe(2);
+  });
+
+  it("reports the most recent record's date, so the page can say where the data is", async () => {
+    await addExpense("Inventory", "Older", 500, -400);
+    await addSale(900, -350);
+
+    const summary = await getDashboardSummary(ctx.user.id, ctx.profile.id, 30);
+
+    expect(summary.lifetime.latestRecordDate).not.toBeNull();
+    expect(summary.lifetime.latestRecordDate!.toISOString().slice(0, 10)).toBe(utcDayString(-350));
+  });
+
+  it("takes the later of the two record types", async () => {
+    await addExpense("Inventory", "Expense is newer", 500, -100);
+    await addSale(900, -200);
+
+    const summary = await getDashboardSummary(ctx.user.id, ctx.profile.id, 1);
+    expect(summary.lifetime.latestRecordDate!.toISOString().slice(0, 10)).toBe(utcDayString(-100));
+  });
+
+  it("says nothing at all for a business that has genuinely never recorded", async () => {
+    const summary = await getDashboardSummary(ctx.user.id, ctx.profile.id, 30);
+    expect(summary.lifetime.recordCount).toBe(0);
+    expect(summary.lifetime.latestRecordDate).toBeNull();
+  });
+
+  /** Scoped to the business, not the owner — the count must not leak across profiles. */
+  it("counts only this business profile's records", async () => {
+    const other = await makeOwnerWithProfile();
+    await expenses.createExpenseRecord(other.user.id, {
+      businessProfileId: other.profile.id,
+      categoryId: other.categories.Inventory!,
+      date: utcDayString(-300),
+      description: "Someone else's record",
+      amount: 999,
+    });
+
+    const summary = await getDashboardSummary(ctx.user.id, ctx.profile.id, 30);
+    expect(summary.lifetime.recordCount).toBe(0);
+  });
+});
+
+/**
+ * "All time" — the period that has no lower bound.
+ *
+ * It exists because every other setting is a lookback window of a month or
+ * less, while CSV import invites owners to bring in years of history. Without
+ * it a business whose records end more than 30 days ago has no setting that can
+ * see a single one of them, which is what a real 21,097-row import of 2023-2025
+ * data ran into.
+ */
+describe("the all-time period", () => {
+  it("includes records far outside every other period", async () => {
+    await addExpense("Inventory", "Two years ago", 1200, -700);
+    await addSale(4000, -700);
+
+    const month = await getDashboardSummary(ctx.user.id, ctx.profile.id, 30);
+    expect(month.overview.totalExpenses).toBe(0);
+    expect(month.overview.totalSalesReference).toBe(0);
+
+    const allTime = await getDashboardSummary(ctx.user.id, ctx.profile.id, ALL_TIME_PERIOD);
+    expect(allTime.overview.totalExpenses).toBe(1200);
+    expect(allTime.overview.totalSalesReference).toBe(4000);
+  });
+
+  it("builds the category breakdown across the whole history", async () => {
+    await addExpense("Inventory", "Old stock", 1000, -700);
+    await addExpense("Utilities", "Old power", 500, -365);
+    await addExpense("Inventory", "Recent stock", 500, -2);
+
+    const s = await getDashboardSummary(ctx.user.id, ctx.profile.id, ALL_TIME_PERIOD);
+
+    expect(s.overview.totalExpenses).toBe(2000);
+    const inventory = s.expenseCategoryBreakdown.find((c) => c.categoryName === "Inventory");
+    expect(inventory?.total).toBe(1500);
+    expect(inventory?.percent).toBeCloseTo(75);
+    // Sorted by size, like every other period.
+    expect(s.expenseCategoryBreakdown[0]!.categoryName).toBe("Inventory");
+  });
+
+  /**
+   * A spreadsheet can legitimately carry a future date, and an owner who
+   * imported one must be able to find it. This is why "all time" drops the
+   * filter rather than widening the lower bound and keeping `lte: today`.
+   */
+  it("includes future-dated records, which the bounded periods exclude", async () => {
+    await addExpense("Inventory", "Dated ahead", 300, 5);
+
+    const month = await getDashboardSummary(ctx.user.id, ctx.profile.id, 30);
+    expect(month.overview.totalExpenses).toBe(0);
+
+    const allTime = await getDashboardSummary(ctx.user.id, ctx.profile.id, ALL_TIME_PERIOD);
+    expect(allTime.overview.totalExpenses).toBe(300);
+  });
+
+  it("reports the span it actually covers, so the page can say so", async () => {
+    await addExpense("Inventory", "First ever", 100, -500);
+    await addSale(200, -10);
+
+    const s = await getDashboardSummary(ctx.user.id, ctx.profile.id, ALL_TIME_PERIOD);
+    expect(s.periodStart?.toISOString().slice(0, 10)).toBe(utcDayString(-500));
+  });
+
+  it("stays scoped to the one business profile", async () => {
+    const other = await makeOwnerWithProfile();
+    await expenses.createExpenseRecord(other.user.id, {
+      businessProfileId: other.profile.id,
+      categoryId: other.categories.Inventory!,
+      date: utcDayString(-700),
+      description: "Someone else's history",
+      amount: 9999,
+    });
+    await addExpense("Inventory", "Mine", 100, -700);
+
+    const s = await getDashboardSummary(ctx.user.id, ctx.profile.id, ALL_TIME_PERIOD);
+    expect(s.overview.totalExpenses).toBe(100);
+  });
+
+  it("is empty, not broken, for a business with no records at all", async () => {
+    const s = await getDashboardSummary(ctx.user.id, ctx.profile.id, ALL_TIME_PERIOD);
+    expect(s.overview.totalExpenses).toBe(0);
+    expect(s.expenseCategoryBreakdown).toEqual([]);
+    expect(s.periodStart).toBeNull();
+  });
+});
+
+/**
+ * Anchoring an insight window somewhere other than today.
+ *
+ * WHY THIS EXISTS. Every window on the Expense Insight page is measured back
+ * from today, which is right for a business recording daily and useless for one
+ * whose history was imported — CSV import will happily accept two years ending
+ * a year ago, and then every window the page offers lands in a gap. The page
+ * then reports "no expenses recorded" and invites the owner to import a
+ * spreadsheet, which is the app contradicting something they just did.
+ *
+ * `endDate` moves the window to where the records are. It is also the primitive
+ * a custom date range would need, so it is not throwaway.
+ */
+describe("insight windows can be anchored to a past date", () => {
+  it("reads the window ending on the given date, not on today", async () => {
+    // Two years back — outside every window the page offers by default.
+    await addExpense("Inventory", "Old stock", 1200, -700);
+
+    const today = await insights.getExpenseBehavior(ctx.user.id, ctx.profile.id, 30);
+    expect(today.totals.current).toBe(0);
+
+    const anchored = await insights.getExpenseBehavior(
+      ctx.user.id,
+      ctx.profile.id,
+      30,
+      new Date(`${utcDayString(-700)}T00:00:00.000Z`),
+    );
+    expect(anchored.totals.current).toBe(1200);
+    expect(anchored.periodEnd.toISOString().slice(0, 10)).toBe(utcDayString(-700));
+  });
+
+  /** The comparison is the point of the page, so it has to move with the window. */
+  it("compares against the period before the anchor, not before today", async () => {
+    await addExpense("Inventory", "Anchor month", 1000, -400);
+    await addExpense("Inventory", "Month before that", 600, -430);
+
+    const anchored = await insights.getExpenseBehavior(
+      ctx.user.id,
+      ctx.profile.id,
+      30,
+      new Date(`${utcDayString(-400)}T00:00:00.000Z`),
+    );
+    expect(anchored.totals.current).toBe(1000);
+    expect(anchored.totals.previous).toBe(600);
+  });
+
+  it("defaults to today when no anchor is given", async () => {
+    await addExpense("Inventory", "Recent", 300, -1);
+    const result = await insights.getExpenseBehavior(ctx.user.id, ctx.profile.id, 30);
+    expect(result.totals.current).toBe(300);
+    expect(result.periodEnd.toISOString().slice(0, 10)).toBe(utcDayString(0));
+  });
+
+  /**
+   * The field that lets an empty window tell "you have never recorded an
+   * expense" apart from "you have plenty, none of it lately". Those produced an
+   * identical screen and identical, opposite-of-useful advice.
+   */
+  it("reports the latest expense date regardless of the window", async () => {
+    await addExpense("Inventory", "Old stock", 1200, -700);
+
+    const result = await insights.getExpenseBehavior(ctx.user.id, ctx.profile.id, 30);
+    expect(result.totals.current).toBe(0);
+    expect(result.latestExpenseDate?.toISOString().slice(0, 10)).toBe(utcDayString(-700));
+  });
+
+  it("reports no latest expense for a business that has never recorded one", async () => {
+    const result = await insights.getExpenseBehavior(ctx.user.id, ctx.profile.id, 30);
+    expect(result.latestExpenseDate).toBeNull();
+  });
+});
+
+/**
+ * Recovery is month-to-date and has no period to select, so a business whose
+ * records stop months ago is shown zero sales against its full monthly target —
+ * "you are catastrophically behind", for a month it never traded in. The
+ * arithmetic is right and the framing was missing; these two fields are what
+ * let the page say so.
+ */
+describe("recovery reports an empty month rather than implying a missed target", () => {
+  it("flags a month with no sales at all", async () => {
+    await addSale(5000, -400); // long before this month
+
+    const result = await insights.getRecoveryInsight(ctx.user.id, ctx.profile.id, 31);
+    expect(result.monthHasNoRecords).toBe(true);
+    expect(result.latestSaleDate?.toISOString().slice(0, 10)).toBe(utcDayString(-400));
+    // The targets themselves are untouched — it is the framing that was added.
+    expect(result.salesThisMonth).toBe(0);
+  });
+
+  it("does not flag a month that has sales in it", async () => {
+    await addSale(5000, 0);
+    const result = await insights.getRecoveryInsight(ctx.user.id, ctx.profile.id, 31);
+    expect(result.monthHasNoRecords).toBe(false);
   });
 });

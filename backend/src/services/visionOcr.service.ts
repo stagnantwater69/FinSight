@@ -1,5 +1,6 @@
 import { env } from "../config/env";
 import { GEMINI_ENDPOINT } from "./ai.service";
+import { logger } from "../config/logger";
 
 /**
  * Reading a receipt photograph with a multimodal model, for the receipts the
@@ -205,7 +206,7 @@ export async function extractReceiptWithVision(pages: VisionPage[]): Promise<Vis
     });
 
     if (!res.ok) {
-      console.error(`Vision receipt read failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+      logger.error(`Vision receipt read failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
       return null;
     }
 
@@ -217,7 +218,7 @@ export async function extractReceiptWithVision(pages: VisionPage[]): Promise<Vis
 
     return validateVisionReceipt(text);
   } catch (err) {
-    console.error("Vision receipt read failed:", err);
+    logger.error({ err }, "Vision receipt read failed");
     return null;
   }
 }

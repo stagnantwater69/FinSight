@@ -2,7 +2,7 @@ import { Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
-import { AuthenticatedLayout } from "./components/AuthenticatedLayout";
+import { AuthenticatedLayout, OnboardingLayout } from "./components/AuthenticatedLayout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
 import { ConfirmProvider } from "./components/ConfirmDialog";
@@ -10,6 +10,13 @@ import { Landing } from "./pages/Landing";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 const RecoverPassword = lazy(() => import("./pages/RecoverPassword").then((m) => ({ default: m.RecoverPassword })));
+// The two screens Supabase's auth emails link back to. Their paths are also
+// registered in the Supabase dashboard under Authentication → URL
+// Configuration → Redirect URLs; anything not on that list is silently
+// redirected to the Site URL instead, which presents as "the link goes to the
+// wrong page" rather than as an error.
+const ResetPassword = lazy(() => import("./pages/ResetPassword").then((m) => ({ default: m.ResetPassword })));
+const ConfirmEmail = lazy(() => import("./pages/ConfirmEmail").then((m) => ({ default: m.ConfirmEmail })));
 const Faqs = lazy(() => import("./pages/Faqs").then((m) => ({ default: m.Faqs })));
 const Blogs = lazy(() => import("./pages/Blogs").then((m) => ({ default: m.Blogs })));
 const Tutorials = lazy(() => import("./pages/Tutorials").then((m) => ({ default: m.Tutorials })));
@@ -35,6 +42,7 @@ const RecoveryInsightPage = lazy(() => import("./pages/RecoveryInsightPage").the
 const SpendingImpact = lazy(() => import("./pages/SpendingImpact").then((m) => ({ default: m.SpendingImpact })));
 const Categories = lazy(() => import("./pages/Categories").then((m) => ({ default: m.Categories })));
 const Notifications = lazy(() => import("./pages/Notifications").then((m) => ({ default: m.Notifications })));
+const Onboarding = lazy(() => import("./pages/Onboarding").then((m) => ({ default: m.Onboarding })));
 
 /**
  * `/` serves the public landing page to visitors and skips straight to the
@@ -99,6 +107,8 @@ function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/recover-password" element={<RecoverPassword />} />
+                <Route path="/auth/reset-password" element={<ResetPassword />} />
+                <Route path="/auth/confirm" element={<ConfirmEmail />} />
 
                 {/* Public help-centre pages. Outside AuthenticatedLayout —
                     they are reachable signed out, and each renders its own
@@ -109,6 +119,11 @@ function App() {
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/privacy" element={<Privacy />} />
                 <Route path="/terms" element={<Terms />} />
+
+                {/* Its own layout, without the app chrome — see OnboardingLayout. */}
+                <Route element={<OnboardingLayout />}>
+                  <Route path="/onboarding" element={<Onboarding />} />
+                </Route>
 
                 <Route element={<AuthenticatedLayout />}>
                   <Route path="/profile" element={<Profile />} />

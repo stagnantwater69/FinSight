@@ -235,8 +235,12 @@ export function computeQuartiles(amounts: number[]): CategoryQuartiles {
 }
 
 /** Whether the amount falls outside Tukey's fences for this category. */
-export function isOutsideIqrFence(amount: number, quartiles: CategoryQuartiles): boolean {
-  const margin = IQR_FENCE_MULTIPLIER * quartiles.iqr;
+export function isOutsideIqrFence(
+  amount: number,
+  quartiles: CategoryQuartiles,
+  fenceMultiplier: number = IQR_FENCE_MULTIPLIER,
+): boolean {
+  const margin = fenceMultiplier * quartiles.iqr;
   return amount < quartiles.q1 - margin || amount > quartiles.q3 + margin;
 }
 
@@ -280,11 +284,15 @@ export function isUnusualExpense(
   amount: number,
   stats: CategoryStats,
   quartiles: CategoryQuartiles,
+  thresholds: { zScoreThreshold?: number; iqrFenceMultiplier?: number; minimumDeviationFraction?: number } = {},
 ): boolean {
+  const zScoreThreshold = thresholds.zScoreThreshold ?? Z_SCORE_THRESHOLD;
+  const minimumDeviationFraction = thresholds.minimumDeviationFraction ?? MIN_DEVIATION_FRACTION;
   const statisticallyUnusual =
-    Math.abs(zScore(amount, stats)) > Z_SCORE_THRESHOLD || isOutsideIqrFence(amount, quartiles);
+    Math.abs(zScore(amount, stats)) > zScoreThreshold
+    || isOutsideIqrFence(amount, quartiles, thresholds.iqrFenceMultiplier);
 
-  return statisticallyUnusual && deviationFraction(amount, stats) >= MIN_DEVIATION_FRACTION;
+  return statisticallyUnusual && deviationFraction(amount, stats) >= minimumDeviationFraction;
 }
 
 /** Which test reported the record. Carried to the owner-facing output so a
@@ -293,9 +301,10 @@ export function detectionMethod(
   amount: number,
   stats: CategoryStats,
   quartiles: CategoryQuartiles,
+  thresholds: { zScoreThreshold?: number; iqrFenceMultiplier?: number } = {},
 ): "z-score" | "iqr" | "both" {
-  const byZ = Math.abs(zScore(amount, stats)) > Z_SCORE_THRESHOLD;
-  const byIqr = isOutsideIqrFence(amount, quartiles);
+  const byZ = Math.abs(zScore(amount, stats)) > (thresholds.zScoreThreshold ?? Z_SCORE_THRESHOLD);
+  const byIqr = isOutsideIqrFence(amount, quartiles, thresholds.iqrFenceMultiplier);
   if (byZ && byIqr) return "both";
   return byZ ? "z-score" : "iqr";
 }

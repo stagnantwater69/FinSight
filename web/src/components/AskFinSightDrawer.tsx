@@ -5,6 +5,7 @@ import { getErrorMessage } from "../lib/errors";
 import { SkeletonBubble } from "./Skeleton";
 import type { AIInteraction, AskResponse, InteractionModule } from "../lib/types";
 import { useFocusTrap } from "../lib/hooks";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 // One drawer component, parameterized by module, used from all four
 // trigger points (Dashboard + the three Insights screens). It sends only
@@ -262,8 +263,8 @@ export function AskFinSightDrawer({ businessProfileId, module, open, onClose, in
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask about your numbers…"
-            maxLength={500}
-            className="min-h-tap flex-1 rounded-full border border-ink-200 px-4 text-sm"
+            maxLength={FIELD_LIMITS.aiQuestion}
+            className="min-h-tap flex-1 rounded-full border border-ink-200 bg-paper px-4 text-sm text-ink-900 placeholder:text-ink-400"
           />
           <button
             type="submit"

@@ -9,6 +9,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 const { uploadCallCount } = vi.hoisted(() => ({ uploadCallCount: { value: 0 } }));
 vi.mock("../../src/services/storage.service", () => ({
   uploadReceiptImage: vi.fn(async () => `1/mock-page-${++uploadCallCount.value}.jpg`),
+  downloadReceiptImage: vi.fn(async () => Buffer.from("stored-page")),
   uploadCsvFile: vi.fn(async () => "1/mock.csv"),
   signedReceiptImageUrl: vi.fn(async () => "https://example.test/signed.jpg"),
 }));
@@ -48,7 +49,7 @@ vi.mock("../../src/services/visionOcr.service", async (importOriginal) => {
 
 import { prisma } from "../../src/config/prisma";
 import * as ocrService from "../../src/services/ocr.service";
-import { confirmReceipt, getScan, uploadAndScan, MAX_PAGES } from "../../src/services/receiptScan.service";
+import { confirmReceipt, getScan, uploadAndScan, MAX_PAGES, runReceiptWorkerOnce } from "../../src/services/receiptScan.service";
 import { disconnectDb, makeOwnerWithProfile, resetDb, utcDayString, waitForScanProcessing } from "../setup/testDb";
 
 let ctx: Awaited<ReturnType<typeof makeOwnerWithProfile>>;
@@ -177,9 +178,7 @@ describe("background processing", () => {
     expect(done.extractedAmount).toBe(1220);
   });
 
-  it("records a failed read as Failed with a reason, rather than hanging on Processing", async () => {
-    // A scan whose OCR throws must not sit in "Processing" forever — the
-    // client would poll indefinitely with nothing to show the owner.
+  it("records a failed attempt and durably retries it from Storage", async () => {
     const boom = new Error("tesseract exploded");
     const spy = vi.spyOn(ocrService, "extractReceipt").mockRejectedValueOnce(boom);
 
@@ -188,9 +187,20 @@ describe("background processing", () => {
       pages: [page("x")],
     });
 
-    expect(await waitForScanProcessing(created.id)).toBe("Failed");
-    const failed = await getScan(ctx.user.id, created.id);
-    expect(failed.processingError).toContain("tesseract exploded");
+    let queued = await getScan(ctx.user.id, created.id);
+    for (let i = 0; i < 50 && !queued.processingError; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      queued = await getScan(ctx.user.id, created.id);
+    }
+    expect(queued.processingStatus).toBe("Processing");
+    expect(queued.processingError).toContain("tesseract exploded");
+
+    // Make the backoff due now. The next worker has no request buffer, so its
+    // success proves the page was reconstructed from durable Storage.
+    pageQueue.push({ text: "ABC STORE\nItem A 10.00\nTOTAL 10.00", confidence: 95 });
+    await prisma.receiptScan.update({ where: { id: created.id }, data: { nextProcessingAttemptAt: new Date(0) } });
+    expect(await runReceiptWorkerOnce()).toBe(true);
+    expect((await getScan(ctx.user.id, created.id)).processingStatus).toBe("Complete");
     spy.mockRestore();
   });
 
@@ -314,5 +324,90 @@ describe("background processing", () => {
   it("returns one quality reading per page", async () => {
     const scan = await uploadPages([{ text: "Item A 1.00" }, { text: "Item B 2.00" }, { text: "TOTAL 3.00" }]);
     expect(scan.pageQualities).toHaveLength(3);
+  });
+});
+
+/**
+ * Overlapping sections — the shape the receipt camera actually produces.
+ *
+ * The capture guide asks the owner to re-photograph the last 15-25% of the
+ * previous section so they can see where to continue, which means a few item
+ * lines are read twice. These assert the rule the pipeline settles that with:
+ * the de-overlapped reading is used ONLY when the plain one fails to account
+ * for the receipt's printed total and the de-overlapped one does. Everything
+ * else keeps the full reading and lets the owner see it.
+ */
+describe("sections photographed with an overlap", () => {
+  it("counts an overlapping item once when that is what makes the total work", async () => {
+    const scan = await uploadPages([
+      { text: ["ABC STORE", "Date: 2026-07-20", "Rice 25kg   1220.00", "Cooking oil   180.00"].join("\n") },
+      // Photographed starting from the previous section's last line, exactly
+      // as the overlap guide asks.
+      { text: ["Cooking oil   180.00", "Sugar 1kg   75.00", "TOTAL   1475.00"].join("\n") },
+    ]);
+
+    const items = await prisma.receiptScanItem.findMany({ where: { receiptScanId: scan.id } });
+    expect(items.filter((i) => i.name === "Cooking oil")).toHaveLength(1);
+    // And the arithmetic that earned the removal actually holds.
+    const summed = items.reduce((total, i) => total + Number(i.amount), 0);
+    expect(summed).toBe(1475);
+    expect(scan.extractedAmount).toBe(1475);
+  });
+
+  it("reports the overlap so the confirm screen can explain the repeated lines", async () => {
+    const scan = await uploadPages([
+      { text: ["ABC STORE", "Date: 2026-07-20", "Rice 25kg   1220.00", "Cooking oil   180.00"].join("\n") },
+      { text: ["Cooking oil   180.00", "Sugar 1kg   75.00", "TOTAL   1475.00"].join("\n") },
+    ]);
+
+    expect(scan.overlappingPages).toEqual([2]);
+    // Distinct from a page shot twice by mistake, which is a different
+    // sentence with a different remedy.
+    expect(scan.duplicatePages).toEqual([]);
+  });
+
+  it("says nothing about sections that do not overlap", async () => {
+    const scan = await uploadPages([
+      { text: "ABC STORE\nDate: 2026-07-20\nItem A   10.00" },
+      { text: "Item B   20.00\nTOTAL 30.00" },
+    ]);
+
+    expect(scan.overlappingPages).toEqual([]);
+  });
+
+  /**
+   * THE ONE THAT PROTECTS MONEY.
+   *
+   * Where removing the overlap does NOT make the arithmetic work — here a
+   * middle section was never photographed, so the items fall short of the
+   * total either way — there is no evidence the removal helped. The full
+   * reading has to stand and the gap has to reach the owner, because a
+   * duplicate they can see and delete beats a real purchase deleted quietly.
+   */
+  it("keeps every line when dropping the overlap does not settle the total", async () => {
+    const scan = await uploadPages([
+      { text: ["ABC STORE", "Date: 2026-07-20", "Rice 25kg   1220.00", "Cooking oil   180.00"].join("\n") },
+      // Overlaps page 1, but a whole section of purchases is missing between
+      // this and the printed total.
+      { text: ["Cooking oil   180.00", "TOTAL   9999.00"].join("\n") },
+    ]);
+
+    const items = await prisma.receiptScanItem.findMany({ where: { receiptScanId: scan.id } });
+    expect(items.filter((i) => i.name === "Cooking oil")).toHaveLength(2);
+    expect(scan.overlappingPages).toEqual([2]);
+  });
+
+  /**
+   * The audit trail must never lose a line this chose not to count. rawText
+   * is what the origin panel shows and what any later correction reads.
+   */
+  it("stores the full unedited text even when it counted fewer items", async () => {
+    const scan = await uploadPages([
+      { text: ["ABC STORE", "Date: 2026-07-20", "Rice 25kg   1220.00", "Cooking oil   180.00"].join("\n") },
+      { text: ["Cooking oil   180.00", "Sugar 1kg   75.00", "TOTAL   1475.00"].join("\n") },
+    ]);
+
+    const stored = await prisma.receiptScan.findUniqueOrThrow({ where: { id: scan.id } });
+    expect(stored.rawText!.match(/Cooking oil/g)).toHaveLength(2);
   });
 });

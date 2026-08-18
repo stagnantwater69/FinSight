@@ -1,19 +1,26 @@
-import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, useState, type FormEvent } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { useExpenseCategories } from "../context/ExpenseCategoryContext";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
-import { Callout, Card, FormPage, PageHead } from "../components/ui";
+import { Callout, Card, FormPage, PageHead, Tag } from "../components/ui";
+import { classifyTypeValue, parseSignedAmount, type RowRecordType } from "../lib/recordTypeDetection";
 import { Button, ButtonLink } from "../components/Button";
 import { Celebration } from "../components/Confirmation";
 import { Field, FileInput, FormError, SelectInput, TextInput } from "../components/Field";
 import { Money } from "../components/Money";
+import { SkeletonLine, SkeletonRows } from "../components/Skeleton";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 interface PreviewResult {
   headers: string[];
   previewRows: Record<string, string>[];
   totalRows: number;
+  /** The server's guess at a sale/expense column, from its values. May be absent on older responses. */
+  detectedTypeColumn?: string | null;
+  /** Columns mixing negative and positive numbers — candidates for the sign convention. */
+  columnsWithNegatives?: string[];
 }
 
 interface ImportResult {
@@ -25,7 +32,15 @@ interface ImportResult {
   skipped: { row: number; reason: string }[];
   flagged: number;
   largeExpenseFlagged: number;
+  importedExpenses?: number;
+  importedSales?: number;
+  uncategorised?: number;
 }
+
+/** What the file is being read as. "mixed" splits it row by row. */
+type ImportRecordType = "expense" | "sales" | "mixed";
+/** How a mixed file says which row is which. */
+type MixedStrategy = "column" | "sign";
 
 /**
  * Header synonyms, for guessing the column mapping.
@@ -98,12 +113,22 @@ function guessColumn(headers: string[], field: keyof typeof HEADER_SYNONYMS): st
 export function ImportCsv() {
   const { selected } = useBusinessProfiles();
   const { categories } = useExpenseCategories();
+  /*
+   * Set when the setup wizard's last step sent the owner here. The import
+   * itself is identical either way — this only changes where "done" points, so
+   * that finishing setup lands on the dashboard the wizard promised rather than
+   * dropping a brand-new owner into a records table.
+   */
+  const fromOnboarding = Boolean((useLocation().state as { fromOnboarding?: boolean } | null)?.fromOnboarding);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
 
-  const [recordType, setRecordType] = useState<"expense" | "sales">("expense");
+  const [recordType, setRecordType] = useState<ImportRecordType>("expense");
+  const [mixedStrategy, setMixedStrategy] = useState<MixedStrategy>("column");
+  /** The column naming each row's kind, for the "column" strategy. */
+  const [typeCol, setTypeCol] = useState("");
   const [title, setTitle] = useState("");
   const [dateCol, setDateCol] = useState("");
   const [descriptionCol, setDescriptionCol] = useState("");
@@ -121,6 +146,39 @@ export function ImportCsv() {
    */
   const [corrections, setCorrections] = useState<Record<number, Partial<Record<MappedField, string>>>>({});
 
+  /**
+   * What each previewed row resolves to under the current strategy.
+   *
+   * Runs the SAME readers the server will (lib/recordTypeDetection.ts), so the
+   * badge against a row and the record it becomes cannot disagree. `null` is a
+   * row the file does not classify — shown as such rather than defaulted,
+   * because a row silently defaulted to the wrong side is the one failure this
+   * feature must not have.
+   *
+   * Above the `!selected` return because hooks cannot sit behind one, which is
+   * also why the mixed check is spelled out here rather than using `isMixed`.
+   */
+  const previewRowTypes = useMemo(() => {
+    if (!preview || recordType !== "mixed") return null;
+    return preview.previewRows.map((row): RowRecordType | null => {
+      if (mixedStrategy === "sign") {
+        const amount = amountCol ? parseSignedAmount(row[amountCol]) : null;
+        if (amount === null || amount === 0) return null;
+        return amount < 0 ? "expense" : "sales";
+      }
+      return typeCol ? classifyTypeValue(row[typeCol]) : null;
+    });
+  }, [preview, recordType, mixedStrategy, amountCol, typeCol]);
+
+  const typeSplit = useMemo(() => {
+    if (!previewRowTypes) return null;
+    return {
+      sales: previewRowTypes.filter((t) => t === "sales").length,
+      expenses: previewRowTypes.filter((t) => t === "expense").length,
+      unknown: previewRowTypes.filter((t) => t === null).length,
+    };
+  }, [previewRowTypes]);
+
   if (!selected) return null;
 
   /**
@@ -128,18 +186,30 @@ export function ImportCsv() {
    * import the description as the amount, or the date as the category — and
    * nothing stopped it before.
    */
+  const isMixed = recordType === "mixed";
+  /** Whether a category may be supplied at all — sales rows never carry one. */
+  const usesCategory = recordType === "expense" || isMixed;
+
   const requiredMapping: [string, string][] = [
     ["date", dateCol],
     ["description", descriptionCol],
     ["amount", amountCol],
+    // Required for a pure expense import, OPTIONAL for a mixed one: a combined
+    // export often has no category column at all, and those expense rows land
+    // in "Uncategorised" rather than being rejected.
     ...(recordType === "expense" ? ([["category", categoryCol]] as [string, string][]) : []),
+    ...(isMixed && mixedStrategy === "column" ? ([["recordType", typeCol]] as [string, string][]) : []),
   ];
 
   // Vendor is checked for collisions but not for completeness: it is optional
   // (ExpenseRecord.vendor is nullable), so leaving it unmapped is a valid
   // choice, while pointing it at a column another field already owns is not.
-  const allMapping: [string, string][] =
-    recordType === "expense" ? [...requiredMapping, ["vendor", vendorCol]] : requiredMapping;
+  // Category joins it in the optional-but-exclusive set for mixed files.
+  const allMapping: [string, string][] = [
+    ...requiredMapping,
+    ...(usesCategory ? ([["vendor", vendorCol]] as [string, string][]) : []),
+    ...(isMixed ? ([["category", categoryCol]] as [string, string][]) : []),
+  ];
 
   const duplicateColumns = new Set(
     allMapping
@@ -149,6 +219,7 @@ export function ImportCsv() {
 
   const mappingIsComplete = requiredMapping.every(([, col]) => col !== "");
   const mappingIsValid = mappingIsComplete && duplicateColumns.size === 0;
+
 
   function duplicateError(col: string): string | null {
     return col !== "" && duplicateColumns.has(col)
@@ -196,10 +267,38 @@ export function ImportCsv() {
       setAmountCol(guessed.amount);
       setCategoryCol(guessed.category);
       setVendorCol(guessed.vendor);
+      /*
+       * OFFERED, NOT APPLIED SILENTLY — the owner still sees "Import as" and
+       * can change it, and the table below badges every row so the split is
+       * visible before anything is written.
+       *
+       * A detected type column also steals itself back from `category`, whose
+       * synonym list contains "type": a file with a Type column of Sale/Expense
+       * values would otherwise be auto-mapped as if those were category names,
+       * and quietly create categories called "Sale" and "Expense".
+       */
+      const detectedType = data.detectedTypeColumn ?? "";
+      if (detectedType) {
+        setRecordType("mixed");
+        setMixedStrategy("column");
+        setTypeCol(detectedType);
+        if (guessed.category === detectedType) {
+          guessed.category = "";
+          setCategoryCol("");
+        }
+      } else if ((data.columnsWithNegatives ?? []).includes(guessed.amount) && guessed.amount) {
+        setRecordType("mixed");
+        setMixedStrategy("sign");
+        setTypeCol("");
+      } else {
+        setTypeCol("");
+      }
+
       setAutoMapped(
-        new Set(
-          (Object.keys(guessed) as (keyof typeof guessed)[]).filter((k) => guessed[k] !== ""),
-        ),
+        new Set([
+          ...(Object.keys(guessed) as (keyof typeof guessed)[]).filter((k) => guessed[k] !== ""),
+          ...(detectedType ? ["recordType"] : []),
+        ]),
       );
     } catch (err) {
       setPreviewError(getErrorMessage(err));
@@ -224,6 +323,9 @@ export function ImportCsv() {
     setAmountCol("");
     setCategoryCol("");
     setVendorCol("");
+    setTypeCol("");
+    setRecordType("expense");
+    setMixedStrategy("column");
     setAutoMapped(new Set());
     setCorrections({});
     setConfirmError(null);
@@ -239,6 +341,7 @@ export function ImportCsv() {
       formData.append("file", file);
       formData.append("businessProfileId", String(selected!.id));
       formData.append("recordType", recordType);
+      if (isMixed) formData.append("mixedStrategy", mixedStrategy);
       formData.append("title", title);
       formData.append(
         "columnMapping",
@@ -246,10 +349,11 @@ export function ImportCsv() {
           date: dateCol,
           description: descriptionCol,
           amount: amountCol,
-          ...(recordType === "expense" ? { category: categoryCol } : {}),
-          // Omitted entirely when unmapped — the server's schema takes vendor
-          // as optional, not as an empty string.
-          ...(recordType === "expense" && vendorCol ? { vendor: vendorCol } : {}),
+          // Omitted entirely when unmapped — the server's schema takes these as
+          // optional, not as an empty string.
+          ...(usesCategory && categoryCol ? { category: categoryCol } : {}),
+          ...(usesCategory && vendorCol ? { vendor: vendorCol } : {}),
+          ...(isMixed && mixedStrategy === "column" && typeCol ? { recordType: typeCol } : {}),
         }),
       );
       if (Object.keys(corrections).length > 0) {
@@ -307,6 +411,26 @@ export function ImportCsv() {
             <dt className="text-ink-500">Imported</dt>
             <dd className="figure font-medium text-ink-900">{result.imported}</dd>
           </div>
+          {/*
+            Broken out only when the file actually held both. A single-type
+            import already said what it was on the previous screen, and
+            repeating "0 sales" there would be noise.
+          */}
+          {result.importedExpenses !== undefined &&
+          result.importedSales !== undefined &&
+          result.importedExpenses > 0 &&
+          result.importedSales > 0 ? (
+            <>
+              <div className="flex justify-between gap-3 pl-4">
+                <dt className="text-ink-500">— as expenses</dt>
+                <dd className="figure font-medium text-ink-900">{result.importedExpenses}</dd>
+              </div>
+              <div className="flex justify-between gap-3 pl-4">
+                <dt className="text-ink-500">— as sales</dt>
+                <dd className="figure font-medium text-ink-900">{result.importedSales}</dd>
+              </div>
+            </>
+          ) : null}
           <div className="flex justify-between gap-3">
             <dt className="text-ink-500">Skipped</dt>
             <dd className="figure font-medium text-ink-900">{result.skipped.length}</dd>
@@ -344,6 +468,31 @@ export function ImportCsv() {
           </div>
         ) : null}
 
+        {/*
+          Said here rather than left to be discovered: these rows imported
+          successfully, so nothing is wrong — but an expense with no category is
+          missing from every category breakdown until it has one, and the owner
+          would otherwise have no reason to go looking.
+        */}
+        {result.uncategorised ? (
+          <div className="mt-4">
+            <Callout tone="info">
+              <b className="font-semibold">
+                {result.uncategorised} expense{result.uncategorised === 1 ? "" : "s"} had no category
+                and went into "Uncategorised".
+              </b>{" "}
+              They're imported and counted — sorting them into real categories is what makes them
+              show up in your spending breakdown.{" "}
+              <Link
+                to="/records"
+                className="tap-inline font-semibold text-brand-700 underline underline-offset-2"
+              >
+                Sort them now →
+              </Link>
+            </Callout>
+          </div>
+        ) : null}
+
         {result.skipped.length > 0 ? (
           <div className="mt-4 rounded-lg bg-tint-danger p-3 text-xs text-tone-danger ring-1 ring-edge-danger">
             <p className="mb-1 font-medium">
@@ -361,10 +510,33 @@ export function ImportCsv() {
         ) : null}
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <ButtonLink to="/records" variant={clean ? "primary" : "brand"}>
-            See your records
-          </ButtonLink>
-          <ButtonLink to="/records/csv-imports/new" variant="secondary">
+          {fromOnboarding ? (
+            <ButtonLink to="/dashboard" variant={clean ? "primary" : "brand"}>
+              Go to my dashboard
+            </ButtonLink>
+          ) : (
+            /*
+             * Straight to THIS import's records, not to all of them.
+             *
+             * It used to link to a bare /records, which dropped the owner into
+             * every record they have ever had at the one moment they want to
+             * look at the few hundred that just arrived — and left them to
+             * rediscover the two filters (Source, then Which import) that
+             * narrow it. The page already reads both from the URL, so the link
+             * only has to say so.
+             */
+            <ButtonLink
+              to={`/records?source=CSV_UPLOAD&importBatchId=${result.batchId}`}
+              variant={clean ? "primary" : "brand"}
+            >
+              See these {result.imported} records
+            </ButtonLink>
+          )}
+          <ButtonLink
+            to="/records/csv-imports/new"
+            state={fromOnboarding ? { fromOnboarding: true } : undefined}
+            variant="secondary"
+          >
             Import another file
           </ButtonLink>
         </div>
@@ -390,7 +562,28 @@ export function ImportCsv() {
               hintText="A .csv export from your spreadsheet, up to 5MB. The first row should be your column headings."
             />
           </Field>
+          <p className="text-xs text-ink-500">
+            Not sure what to include?{" "}
+            <a href="/sample-import.csv" download className="font-medium text-brand-700 hover:text-brand-800">
+              Download an example CSV
+            </a>
+          </p>
           {previewError ? <FormError>{previewError}</FormError> : null}
+
+          {/* Parsing a real export can take a moment — commit to the shape of
+              the mapping table that's about to appear rather than leaving the
+              button label as the only signal, same reasoning as ScanReceipt's
+              read skeleton. */}
+          {previewing ? (
+            <div aria-busy="true" aria-live="polite" className="space-y-3 rounded-xl bg-paper-100 p-4">
+              <span className="sr-only">Reading your file…</span>
+              <p className="text-xs font-medium text-ink-500">Reading your file…</p>
+              <SkeletonLine className="w-1/3" />
+              <SkeletonLine className="w-full" />
+              <SkeletonLine className="w-2/3" />
+            </div>
+          ) : null}
+
           <Button type="submit" variant="primary" fullWidth disabled={previewing || !file}>
             {previewing ? "Reading file…" : "Preview"}
           </Button>
@@ -534,13 +727,23 @@ export function ImportCsv() {
       <form onSubmit={handleConfirm} className="space-y-4">
         <Card className="p-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Import as" htmlFor="csv-record-type" required>
+            <Field
+              label="Import as"
+              htmlFor="csv-record-type"
+              required
+              hint={
+                isMixed
+                  ? "FinSight will sort each row using your file's own values — check the Type column below before importing."
+                  : undefined
+              }
+            >
               <SelectInput
                 value={recordType}
-                onChange={(e) => setRecordType(e.target.value as "expense" | "sales")}
+                onChange={(e) => setRecordType(e.target.value as ImportRecordType)}
               >
                 <option value="expense">Expense records</option>
                 <option value="sales">Sales reference records</option>
+                <option value="mixed">Both — my file has sales and expenses</option>
               </SelectInput>
             </Field>
             <Field
@@ -549,9 +752,89 @@ export function ImportCsv() {
               required
               hint="What to call this import in your records, so you can find it again."
             >
-              <TextInput value={title} onChange={(e) => setTitle(e.target.value)} required />
+              <TextInput
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={FIELD_LIMITS.importTitle}
+                required
+              />
             </Field>
           </div>
+
+          {/*
+            Only for a mixed file, and stated as a question about the FILE
+            rather than about FinSight — an owner knows whether their sheet has
+            a "Type" column or uses minus signs; they do not know what a
+            "strategy" is.
+          */}
+          {isMixed ? (
+            <div className="mt-4 border-t border-paper-200 pt-4">
+              <Field
+                label="How does your file say which is which?"
+                htmlFor="csv-mixed-strategy"
+                required
+              >
+                <SelectInput
+                  value={mixedStrategy}
+                  onChange={(e) => setMixedStrategy(e.target.value as MixedStrategy)}
+                >
+                  <option value="column">A column says "sale" or "expense"</option>
+                  <option value="sign">Expenses are negative amounts (−)</option>
+                </SelectInput>
+              </Field>
+
+              {mixedStrategy === "column" ? (
+                <Field
+                  label="Which column?"
+                  htmlFor="csv-type-col"
+                  required
+                  error={duplicateError(typeCol)}
+                  hint={
+                    autoMapped.has("recordType")
+                      ? "Matched automatically from your file — change it if that's wrong."
+                      : undefined
+                  }
+                >
+                  <SelectInput value={typeCol} onChange={(e) => setTypeCol(e.target.value)}>
+                    <option value="">Choose a column…</option>
+                    {preview.headers.map((h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </Field>
+              ) : null}
+
+              {/*
+                The count is the check. A file the owner believes is half sales
+                that reads as 50 sales and 0 expenses is a mapping mistake they
+                can see here, in a second, instead of discovering it in their
+                dashboard a week later.
+              */}
+              {typeSplit ? (
+                <Callout tone={typeSplit.unknown > 0 ? "warn" : "info"}>
+                  {preview.totalRows > preview.previewRows.length ? (
+                    <>In the first {preview.previewRows.length} rows: </>
+                  ) : (
+                    <>In this file: </>
+                  )}
+                  <b className="font-semibold">{typeSplit.sales} sales</b> ·{" "}
+                  <b className="font-semibold">{typeSplit.expenses} expenses</b>
+                  {typeSplit.unknown > 0 ? (
+                    <>
+                      {" "}
+                      · <b className="font-semibold">{typeSplit.unknown} unrecognised</b>. Rows
+                      FinSight can't read a type from are skipped and listed after the import — they
+                      are never guessed.
+                    </>
+                  ) : (
+                    <>. Every row below shows which it will become.</>
+                  )}
+                </Callout>
+              ) : null}
+            </div>
+          ) : null}
         </Card>
 
         {/*
@@ -600,6 +883,18 @@ export function ImportCsv() {
                 >
                   <span className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-400">#</span>
                 </th>
+                {/* Only for a mixed file: the column that says what each row
+                    becomes, which is the whole thing being checked here. */}
+                {isMixed ? (
+                  <th
+                    scope="col"
+                    className="sticky top-0 z-10 w-28 border-b border-paper-200 bg-paper-100/95 px-3 py-2.5 align-top backdrop-blur"
+                  >
+                    <span className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-400">
+                      Imports as
+                    </span>
+                  </th>
+                ) : null}
                 {columns.map((c) => (
                   <MappedHeader
                     key={c.field}
@@ -611,7 +906,7 @@ export function ImportCsv() {
               </tr>
             </thead>
             <tbody>
-              {analysed.map(({ rowNumber, values, problem }) => (
+              {analysed.map(({ rowNumber, values, problem }, rowIndex) => (
                 <tr
                   key={rowNumber}
                   // A row that won't import is marked here too, so the count in
@@ -622,6 +917,11 @@ export function ImportCsv() {
                   }`}
                 >
                   <td className="figure px-3 py-2 text-right text-xs text-ink-400">{rowNumber}</td>
+                  {isMixed ? (
+                    <td className="whitespace-nowrap px-3 py-2 align-top">
+                      <RowTypeBadge type={previewRowTypes?.[rowIndex] ?? null} />
+                    </td>
+                  ) : null}
                   {columns.map((c) => (
                     <td
                       key={c.field}
@@ -746,6 +1046,16 @@ export function ImportCsv() {
 
         {confirmError ? <FormError>{confirmError}</FormError> : null}
 
+        {/* The insert is a batch write over every row, not instant for a
+            large file — same reasoning as the "reading file" skeleton above,
+            now for the write instead of the read. */}
+        {confirming ? (
+          <div aria-busy="true" aria-live="polite" className="rounded-2xl border border-paper-200 bg-paper shadow-sm">
+            <span className="sr-only">Importing your records…</span>
+            <SkeletonRows rows={4} />
+          </div>
+        ) : null}
+
         {/*
           The action bar sticks to the bottom of the viewport rather than
           sitting at the end of the page.
@@ -834,6 +1144,26 @@ const COLUMN_WIDTH: Record<MappedField, string> = {
  * aria-label because "Date" alone doesn't say what choosing something here
  * would do.
  */
+/**
+ * What one row of a mixed file will become.
+ *
+ * Reuses the app's existing expense/sales Tag so an imported row is labelled
+ * here exactly as it will be labelled everywhere else. The unreadable case gets
+ * its own treatment rather than a third colour of the same chip: it is not a
+ * third kind of record, it is a row that will not be imported at all, and it
+ * has to read as a problem.
+ */
+function RowTypeBadge({ type }: { type: RowRecordType | null }) {
+  if (type === null) {
+    return (
+      <span className="inline-flex shrink-0 rounded-lg bg-tint-danger px-2 py-0.5 text-[11.5px] font-semibold text-tone-danger ring-1 ring-edge-danger">
+        Can't tell
+      </span>
+    );
+  }
+  return <Tag kind={type === "expense" ? "expense" : "sales"} />;
+}
+
 function MappedHeader({
   column,
   headers,

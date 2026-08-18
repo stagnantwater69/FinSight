@@ -18,6 +18,7 @@ export default defineConfig({
      * cost lands only where it buys something.
      */
     environment: 'node',
+    include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
   },
 })

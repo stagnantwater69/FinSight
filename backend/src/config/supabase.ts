@@ -41,3 +41,28 @@ export function createPasswordAuthClient() {
     },
   });
 }
+
+/**
+ * A throwaway client on the ANON key, for sign-up.
+ *
+ * WHY NOT THE ADMIN API, which registration used to use. `admin.createUser()`
+ * writes a user straight into the auth schema, bypassing GoTrue's own signup
+ * path — and with it the confirmation email, the project's email-confirmation
+ * setting, and the "this address already exists" handling that GoTrue does
+ * without disclosing the fact. Registration therefore had to force
+ * `email_confirm: true`, because nothing else was ever going to send the
+ * confirmation. That is the single reason an unowned address could become a
+ * working account.
+ *
+ * Going through `signUp` on the anon key puts GoTrue back in charge of all of
+ * it. The service-role key would defeat the point: privileged keys skip the
+ * very checks being asked for here.
+ */
+export function createAnonAuthClient() {
+  return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}

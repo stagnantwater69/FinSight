@@ -73,6 +73,7 @@ export function Button({
 /** Same visual language for router links, so a link CTA matches a button CTA. */
 export function ButtonLink({
   to,
+  state,
   variant = "brand",
   size = "md",
   fullWidth = false,
@@ -80,6 +81,8 @@ export function ButtonLink({
   children,
 }: {
   to: string;
+  /** Router state to carry across, e.g. the setup wizard's `fromOnboarding`. */
+  state?: unknown;
   variant?: Variant;
   size?: Size;
   fullWidth?: boolean;
@@ -87,7 +90,7 @@ export function ButtonLink({
   children: ReactNode;
 }) {
   return (
-    <Link to={to} className={classesFor(variant, size, fullWidth, className)}>
+    <Link to={to} state={state} className={classesFor(variant, size, fullWidth, className)}>
       {children}
     </Link>
   );

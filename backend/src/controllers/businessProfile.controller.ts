@@ -3,7 +3,13 @@ import { z } from "zod";
 import * as businessProfileService from "../services/businessProfile.service";
 import { ApiError } from "../middleware/error.middleware";
 
-const createSchema = z.object({
+/*
+ * EXPORTED for the contract tests, the same reason auth.controller.ts exports
+ * its schemas: the clients' `maxLength` attributes are checked against the REAL
+ * rule here rather than against a copy of it, so a widened column cannot leave
+ * a form quietly truncating what the API would have accepted.
+ */
+export const createSchema = z.object({
   name: z.string().min(1).max(150),
   type: z.string().min(1).max(100),
   availableFunds: z.number().nonnegative(),

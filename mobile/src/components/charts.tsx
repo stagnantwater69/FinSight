@@ -3,7 +3,7 @@ import { View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 import { Money, T } from "./ui";
 import { formatMoney } from "../lib/money";
-import { brand, categorical, categoricalOnColor, font, ink, paper, space, status, statusText } from "../theme/tokens";
+import { brand, categorical, categoricalOnColor, font, ink, paper, space, status, statusText, typeScale } from "../theme/tokens";
 
 /**
  * The chart kit.
@@ -136,11 +136,11 @@ export function CategoryBreakdown({
                       backgroundColor: swatch,
                     }}
                   />
-                  <T style={{ fontSize: 13, color: ink[800], flex: 1 }} numberOfLines={1}>
+                  <T style={{ fontSize: typeScale.label, color: ink[800], flex: 1 }} numberOfLines={1}>
                     {row.categoryName}
                   </T>
                 </View>
-                <T style={{ fontSize: 13, color: ink[900] }}>{formatMoney(row.total)}</T>
+                <T style={{ fontSize: typeScale.label, color: ink[900] }}>{formatMoney(row.total)}</T>
               </View>
 
               {/*
@@ -199,7 +199,7 @@ export function CategoryBreakdown({
                 >
                   <T
                     style={{
-                      fontSize: 11,
+                      fontSize: typeScale.micro,
                       fontFamily: font.sansSemibold,
                       // On the fill, this MUST be the paired on-colour, not an
                       // ink token — see tokens.ts on why a single fixed choice
@@ -341,7 +341,7 @@ export function SpendTrend({
             }}
           >
             {ticks.map((t) => (
-              <T key={t} variant="caption" style={{ fontSize: 10, textAlign: "right" }} numberOfLines={1}>
+              <T key={t} variant="caption" style={{ fontSize: typeScale.axis, textAlign: "right" }} numberOfLines={1}>
                 {axisTick(t)}
               </T>
             ))}
@@ -407,11 +407,11 @@ export function SpendTrend({
             />
 
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
-              <T variant="caption" style={{ fontSize: 10 }}>{series[0]!.date.slice(5, 10)}</T>
-              <T variant="caption" style={{ fontSize: 10 }}>
+              <T variant="caption" style={{ fontSize: typeScale.axis }}>{series[0]!.date.slice(5, 10)}</T>
+              <T variant="caption" style={{ fontSize: typeScale.axis }}>
                 {series[Math.floor(series.length / 2)]!.date.slice(5, 10)}
               </T>
-              <T variant="caption" style={{ fontSize: 10 }}>
+              <T variant="caption" style={{ fontSize: typeScale.axis }}>
                 {series[series.length - 1]!.date.slice(5, 10)}
               </T>
             </View>
@@ -494,10 +494,10 @@ export function CashflowChart({
   const header = (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm }}>
       <View style={{ flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", flex: 1, gap: 6 }}>
-        <T accessibilityRole="header" style={{ fontFamily: font.displayBold, fontSize: 18, color: ink[900] }}>
+        <T accessibilityRole="header" style={{ fontFamily: font.displayBold, fontSize: typeScale.title, color: ink[900] }}>
           {title}
         </T>
-        {subtitle ? <T style={{ fontSize: 13, color: ink[500] }}>({subtitle})</T> : null}
+        {subtitle ? <T style={{ fontSize: typeScale.label, color: ink[500] }}>({subtitle})</T> : null}
       </View>
       {action}
     </View>
@@ -543,7 +543,7 @@ export function CashflowChart({
         <View style={{ flexDirection: "row" }}>
           <View style={{ width: AXIS_WIDTH, height: H }}>
             {gridValues.map((v) => (
-              <T key={v} style={{ position: "absolute", top: y(v) - 6, right: 6, fontSize: 10, color: ink[400] }}>
+              <T key={v} style={{ position: "absolute", top: y(v) - 6, right: 6, fontSize: typeScale.axis, color: ink[400] }}>
                 {compactAxisLabel(v)}
               </T>
             ))}
@@ -590,7 +590,7 @@ export function CashflowChart({
                     numberOfLines={1}
                     style={{
                       width: 48,
-                      fontSize: 10,
+                      fontSize: typeScale.axis,
                       color: ink[400],
                       transform: [{ translateX: -12 }, { rotate: "-40deg" }],
                     }}
@@ -670,12 +670,12 @@ export function CategoryChange({
           return (
             <View key={row.categoryName} style={{ marginBottom: i === rows.length - 1 ? 0 : space.sm }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm }}>
-                <T style={{ fontSize: 13, color: ink[800], flex: 1 }} numberOfLines={1}>
+                <T style={{ fontSize: typeScale.label, color: ink[800], flex: 1 }} numberOfLines={1}>
                   {row.categoryName}
                 </T>
                 <T
                   style={{
-                    fontSize: 13,
+                    fontSize: typeScale.label,
                     color: flat ? ink[500] : up ? statusText.serious : statusText.good,
                   }}
                 >
@@ -767,7 +767,7 @@ export function CoverageColumns({
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: space.sm }}>
         <View style={{ flex: 1 }} />
         <View style={{ width: 14, height: 0, borderTopWidth: 1.5, borderStyle: "dashed", borderTopColor: statusText.warning }} />
-        <T variant="caption" style={{ fontSize: 10 }}>Target: {formatMoney(target)}</T>
+        <T variant="caption" style={{ fontSize: typeScale.axis }}>Target: {formatMoney(target)}</T>
       </View>
 
       <View
@@ -783,7 +783,7 @@ export function CoverageColumns({
             <T
               key={t}
               variant="caption"
-              style={{ fontSize: 10, textAlign: "right", marginTop: -5 }}
+              style={{ fontSize: typeScale.axis, textAlign: "right", marginTop: -5 }}
               numberOfLines={1}
             >
               {axisTick(t)}
@@ -825,11 +825,11 @@ export function CoverageColumns({
           />
         </Svg>
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
-          <T variant="caption" style={{ fontSize: 10 }}>{rows[0]!.date.slice(5, 10)}</T>
-          <T variant="caption" style={{ fontSize: 10, color: ink[600] }}>
+          <T variant="caption" style={{ fontSize: typeScale.axis }}>{rows[0]!.date.slice(5, 10)}</T>
+          <T variant="caption" style={{ fontSize: typeScale.axis, color: ink[600] }}>
             {met} of {rows.length} days met it
           </T>
-          <T variant="caption" style={{ fontSize: 10 }}>{rows[rows.length - 1]!.date.slice(5, 10)}</T>
+          <T variant="caption" style={{ fontSize: typeScale.axis }}>{rows[rows.length - 1]!.date.slice(5, 10)}</T>
         </View>
         </View>
       </View>
@@ -965,7 +965,7 @@ export function DonutChart({
           {slices.map((slice) => (
             <View key={slice.name} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: slice.color }} />
-              <T style={{ flex: 1, fontSize: 12, color: ink[700] }} numberOfLines={1}>
+              <T style={{ flex: 1, fontSize: typeScale.caption, color: ink[700] }} numberOfLines={1}>
                 {slice.name}
               </T>
               <T variant="caption" style={{ color: ink[600] }}>
@@ -1035,13 +1035,13 @@ export function CategoryComparison({
         {rows.map((row, i) => (
           <View key={row.categoryName} style={{ marginBottom: i === rows.length - 1 ? 0 : space.md }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.sm }}>
-              <T style={{ fontSize: 13, color: ink[800], flex: 1 }} numberOfLines={1}>
+              <T style={{ fontSize: typeScale.label, color: ink[800], flex: 1 }} numberOfLines={1}>
                 {row.categoryName}
               </T>
               {row.percentChange !== null ? (
                 <T
                   style={{
-                    fontSize: 12,
+                    fontSize: typeScale.caption,
                     color:
                       Math.abs(row.percentChange) < 0.5
                         ? ink[500]
@@ -1073,7 +1073,7 @@ export function CategoryComparison({
                 <Svg width="100%" height={7} viewBox="0 0 100 7" preserveAspectRatio="none" style={{ flex: 1 }}>
                   <Path d={barPath(0, 0, Math.max((row.current / max) * 100, 0.5), 7, 3.5, true)} fill={brand[600]} />
                 </Svg>
-                <T style={{ width: 74, textAlign: "right", fontSize: 12, color: ink[800] }}>
+                <T style={{ width: 74, textAlign: "right", fontSize: typeScale.caption, color: ink[800] }}>
                   {formatMoney(row.current)}
                 </T>
               </View>

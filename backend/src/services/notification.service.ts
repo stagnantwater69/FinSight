@@ -12,7 +12,18 @@ export const NOTIFICATION_TYPES = {
   POSSIBLE_DUPLICATE: "Possible Duplicate",
   LARGE_EXPENSE_FLAG: "Large Expense Flag",
   NEEDS_REVIEW: "Needs Review",
+  ANOMALY_FINDING: "Anomaly Finding",
 } as const;
+
+/**
+ * The most notifications one request will return.
+ *
+ * Set far above what anyone reads and far below what an old account holds, so
+ * it never truncates something a person was looking for and never hands a
+ * client an unbounded list. If this ever starts truncating in practice, the
+ * answer is pagination rather than a bigger number.
+ */
+const NOTIFICATION_LIST_LIMIT = 500;
 
 function toDTO(notification: Notification) {
   return {
@@ -51,6 +62,20 @@ export async function listNotifications(userId: number, businessProfileId?: numb
   const notifications = await prisma.notification.findMany({
     where: { userId, businessProfileId },
     orderBy: { dateCreated: "desc" },
+    /*
+     * A CEILING, not pagination.
+     *
+     * This grows for the life of the account — every duplicate warning, every
+     * large-expense flag — and it was returning all of it, to the client, in
+     * one response. An owner three years in would have been handed thousands of
+     * rows to render a list nobody scrolls past the first screen of.
+     *
+     * Newest-first, so what is dropped is the oldest, and it is a LIST rather
+     * than a total: nothing here is summed, so a cap cannot make a figure
+     * wrong. That is the distinction that decides where these are safe — see
+     * the note in docs/DEPLOYMENT-HARDENING-PLAN.md §3.3.
+     */
+    take: NOTIFICATION_LIST_LIMIT,
   });
   return notifications.map(toDTO);
 }

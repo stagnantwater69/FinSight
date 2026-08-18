@@ -31,6 +31,8 @@ export interface SearchFilters {
   keyword?: string;
   source?: SalesRecordSource;
   importBatchId?: number;
+  take?: number;
+  cursor?: { date: Date; id: number; mode: "same-type" | "include-date" | "exclude-date" };
 }
 
 function toDTO(record: SalesReferenceRecord) {
@@ -166,33 +168,31 @@ export async function bulkCreateSalesRecords(
   }
 
   if (duplicatesEarlierRow.size > 0) {
+    // Grouped by target — one statement per distinct original rather than one
+    // per duplicate row. See the same block in bulkCreateExpenseRecords for why.
+    const rowsByTarget = new Map<number, number[]>();
+    for (const [rowIndex, earlierIndex] of duplicatesEarlierRow) {
+      const targetId = created[earlierIndex]!.id;
+      const bucket = rowsByTarget.get(targetId);
+      if (bucket) bucket.push(created[rowIndex]!.id);
+      else rowsByTarget.set(targetId, [created[rowIndex]!.id]);
+    }
+
     await prisma.$transaction(
-      [...duplicatesEarlierRow].map(([rowIndex, earlierIndex]) =>
-        prisma.salesReferenceRecord.update({
-          where: { id: created[rowIndex]!.id },
-          data: { duplicateOfRecordId: created[earlierIndex]!.id },
+      [...rowsByTarget].map(([targetId, ids]) =>
+        prisma.salesReferenceRecord.updateMany({
+          where: { id: { in: ids } },
+          data: { duplicateOfRecordId: targetId },
         }),
       ),
     );
   }
 
-  // Sales duplicates carry no expenseRecordId — the column only ever points at
-  // an expense record, exactly as the single-record path leaves it unset.
-  const notifications = data.flatMap((d, i) =>
-    d.duplicateStatus === "Flagged"
-      ? [
-          {
-            userId,
-            businessProfileId,
-            type: NOTIFICATION_TYPES.POSSIBLE_DUPLICATE,
-            message: `Possible duplicate: "${rows[i]!.description}" (PHP ${rows[i]!.amount}) on ${rows[i]!.date}`.slice(0, 255),
-          },
-        ]
-      : [],
-  );
-  if (notifications.length > 0) {
-    await prisma.notification.createMany({ data: notifications });
-  }
+  /*
+   * NO PER-RECORD NOTIFICATIONS HERE — see the note in bulkCreateExpenseRecords.
+   * The import's own summary notification covers the whole batch, and the
+   * flagged rows are reachable through the review queue.
+   */
 
   return created.map(toDTO);
 }
@@ -309,18 +309,32 @@ export async function bulkResolveSalesDuplicates(
 export async function searchSalesRecords(userId: number, filters: SearchFilters) {
   await requireOwnedBusinessProfile(userId, filters.businessProfileId);
 
+  const cursorWhere = !filters.cursor
+    ? undefined
+    : filters.cursor.mode === "include-date"
+      ? { date: { lte: filters.cursor.date } }
+      : filters.cursor.mode === "exclude-date"
+        ? { date: { lt: filters.cursor.date } }
+        : { OR: [{ date: { lt: filters.cursor.date } }, { date: filters.cursor.date, id: { lt: filters.cursor.id } }] };
+
   const records = await prisma.salesReferenceRecord.findMany({
     where: {
       businessProfileId: filters.businessProfileId,
       source: filters.source,
       importBatchId: filters.importBatchId,
-      date: {
-        gte: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
-        lte: filters.dateTo ? new Date(filters.dateTo) : undefined,
-      },
+      AND: [
+        {
+          date: {
+            gte: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
+            lte: filters.dateTo ? new Date(filters.dateTo) : undefined,
+          },
+        },
+        ...(cursorWhere ? [cursorWhere] : []),
+      ],
       description: filters.keyword ? { contains: filters.keyword, mode: "insensitive" } : undefined,
     },
-    orderBy: { date: "desc" },
+    orderBy: [{ date: "desc" }, { id: "desc" }],
+    take: filters.take,
   });
 
   return records.map(toDTO);

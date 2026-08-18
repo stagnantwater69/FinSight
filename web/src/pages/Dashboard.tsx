@@ -13,14 +13,25 @@ import { EmptyState, SetupProgress } from "../components/EmptyState";
 import { ButtonLink } from "../components/Button";
 import { formatMoney } from "../components/Money";
 import { DonutChart } from "../components/DonutChart";
-import { AiCard, KpiCard, Kw, Panel, PageHead, Pill } from "../components/ui";
+import { AiCard, Callout, KpiCard, Kw, Panel, PageHead, Pill } from "../components/ui";
 import { IconArrowRight } from "../components/icons";
 import type { DashboardSummary, ExpenseBehavior } from "../lib/types";
 
+/**
+ * `days: 0` is "All time" — the server drops the date filter entirely rather
+ * than widening it (see ALL_TIME_PERIOD in dashboard.service.ts).
+ *
+ * It exists because the other three are all lookback windows of a month or
+ * less, and CSV import now invites owners to bring in YEARS of history. Without
+ * it, a business whose records end more than 30 days ago has no setting on this
+ * page that can see a single one of them — which is exactly what happened to a
+ * 21,097-row import of 2023-2025 data.
+ */
 const PERIOD_OPTIONS = [
   { label: "Today", days: 1 },
   { label: "This week", days: 7 },
   { label: "This month", days: 30 },
+  { label: "All time", days: 0 },
 ];
 
 export function Dashboard() {
@@ -83,10 +94,61 @@ export function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
 
-  if (!selected) return null;
+  /*
+   * No business yet — which now only happens to someone who chose "Skip for
+   * now" during setup, since everyone else is redirected into the wizard by
+   * RequireBusinessProfile.
+   *
+   * This used to `return null`, so the first screen a new owner ever saw was a
+   * blank page with no explanation and no way forward. Resuming setup is the
+   * only useful thing to offer here, so that is the only thing offered.
+   */
+  if (!selected) {
+    return (
+      <div>
+        <PageHead title="Welcome to FinSight" subtitle="One short step and your dashboard comes to life." />
+        <EmptyState
+          title="Finish setting up your business"
+          icon="◎"
+          action={<ButtonLink to="/onboarding" variant="primary">Continue setup</ButtonLink>}
+        >
+          FinSight needs your business name and a few figures before it can work out your sales
+          target, track your recovery or flag large expenses. Anything you already typed was kept.
+        </EmptyState>
+      </div>
+    );
+  }
 
-  const hasAnyRecords =
-    !!summary && (summary.overview.totalExpenses > 0 || summary.overview.totalSalesReference > 0);
+  /*
+   * "Has this business ever recorded anything" — NOT "did it record anything
+   * in the selected period".
+   *
+   * These were the same expression, read off the period-scoped overview, and
+   * the difference is not academic: an owner who imported two years of history
+   * saw "Record your first expense or sale" still unticked, because none of
+   * their 21,097 records fell inside the last 30 days. The checklist told them
+   * the import had failed. It had not.
+   *
+   * Falls back to the period figures when an older server sends no `lifetime`,
+   * which is the previous behaviour rather than a blank.
+   */
+  const hasAnyRecords = summary?.lifetime
+    ? summary.lifetime.recordCount > 0
+    : !!summary && (summary.overview.totalExpenses > 0 || summary.overview.totalSalesReference > 0);
+
+  /**
+   * Records exist, just none of them in this window.
+   *
+   * Worth calling out precisely because everything else on the page is
+   * correctly empty: an owner cannot tell "no activity lately" from "my import
+   * did not work", and silence gets read as the second one.
+   */
+  const periodIsEmpty =
+    !!summary &&
+    hasAnyRecords &&
+    summary.overview.totalExpenses === 0 &&
+    summary.overview.totalSalesReference === 0;
+  const latestRecordDate = summary?.lifetime?.latestRecordDate ?? null;
 
   // ---- values the KPI row and the summary card read -----------------------
   // All derived from `summary`, which the server computed. Nothing here
@@ -182,6 +244,57 @@ export function Dashboard() {
             { label: "Record your first expense or sale", done: hasAnyRecords },
           ]}
         />
+      ) : null}
+
+      {/*
+        Above the panels, because it explains all of them at once.
+
+        Placed here rather than inside each empty chart for the reason the
+        panels are grouped at all: three separate "no data" messages describe a
+        symptom three times, while one line at the top gives the cause and a way
+        out. The date is the whole value of it — "no records in this period" is
+        just as opaque as the empty charts; "your most recent record is 31 Jul
+        2025" tells the owner their import landed and where to look.
+      */}
+      {!loading && periodIsEmpty ? (
+        <div className="mb-6">
+          <Callout tone="info">
+            <b className="font-semibold">
+              No records in {PERIOD_OPTIONS.find((o) => o.days === periodDays)?.label.toLowerCase() ?? "this period"}
+              , but this business has {summary!.lifetime!.recordCount.toLocaleString()} in total.
+            </b>{" "}
+            {latestRecordDate ? (
+              <>
+                The most recent one is dated{" "}
+                <span className="figure font-semibold text-ink-700">
+                  {/* UTC, like every other date rendering here: these are
+                      date-only columns stored at midnight UTC, and formatting
+                      them in local time shows the previous day west of it. */}
+                  {new Date(latestRecordDate).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    timeZone: "UTC",
+                  })}
+                </span>
+                . Your imported history is safe — this page is only looking at the period selected
+                above.{" "}
+              </>
+            ) : null}
+            {/*
+              The fix, not a signpost to somewhere else. Sending the owner to
+              Records answered "is my data there?" but left the dashboard —
+              the page with the actual insights — permanently blank for them.
+            */}
+            <button
+              type="button"
+              onClick={() => setPeriodDays(0)}
+              className="tap-inline font-semibold text-brand-700 underline underline-offset-2"
+            >
+              Show all time →
+            </button>
+          </Callout>
+        </div>
       ) : null}
 
       {error ? (

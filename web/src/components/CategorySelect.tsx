@@ -13,9 +13,11 @@ interface Props {
    * app: the label had no htmlFor and this component rendered no matching id.
    */
   id?: string;
+  /** Lets an enclosing form show its own validation once the field is left. */
+  onBlur?: () => void;
 }
 
-export function CategorySelect({ value, onChange, id }: Props) {
+export function CategorySelect({ value, onChange, id, onBlur }: Props) {
   const { categories, createCategory, loading } = useExpenseCategories();
   const toast = useToast();
   const [creating, setCreating] = useState(false);
@@ -102,6 +104,7 @@ export function CategorySelect({ value, onChange, id }: Props) {
       id={id}
       required
       value={value}
+      onBlur={onBlur}
       onChange={(e) => {
         if (e.target.value === "__new__") {
           setCreating(true);

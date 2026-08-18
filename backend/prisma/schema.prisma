@@ -164,36 +164,143 @@ enum SalesRecordSource {
   @@map("SalesRecordSource")
 }
 
+enum AnomalyFindingType {
+  AMOUNT_OUTLIER
+  POSSIBLE_DUPLICATE
+  VELOCITY_ANOMALY
+  RECURRING_CHANGE
+  TREND_CHANGE
+  BEHAVIORAL_NOVELTY
+
+  @@map("AnomalyFindingType")
+}
+
+enum AnomalyFindingSeverity {
+  LOW
+  MEDIUM
+  HIGH
+
+  @@map("AnomalyFindingSeverity")
+}
+
+enum AnomalyFindingStatus {
+  OPEN
+  CONFIRMED
+  DISMISSED
+  RESOLVED
+  SUPERSEDED
+
+  @@map("AnomalyFindingStatus")
+}
+
+enum AnomalyFindingFeedback {
+  CONFIRMED_UNUSUAL
+  EXPECTED_TRANSACTION
+  DUPLICATE
+  INCORRECT_MATCH
+  NO_LONGER_RELEVANT
+
+  @@map("AnomalyFindingFeedback")
+}
+
+enum RecurringPatternStatus {
+  CANDIDATE
+  CONFIRMED
+  DISMISSED
+  DISABLED
+
+  @@map("RecurringPatternStatus")
+}
+
+enum AnalysisJobKind {
+  TRANSACTION
+  PROFILE_REFRESH
+
+  @@map("AnalysisJobKind")
+}
+
+enum AnalysisJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
+
+  @@map("AnalysisJobStatus")
+}
+
+// [ADDED] The account lifecycle, as an enum rather than the dictionary's free
+// text. User_Status was a VarChar(50) defaulting to 'Active' that nothing ever
+// wrote and only the profile response ever read — so it looked like an access
+// control and was not one. Every transition below is now enforced in
+// accountLifecycle.service.ts and checked in requireAuth.
+//
+//   PENDING_VERIFICATION — registered, email not yet proven. No session, no API.
+//   ACTIVE               — the only state that may hold a session.
+//   SUSPENDED            — access revoked, data intact. Support-reversible.
+//   DELETION_PENDING     — deletion requested; the background job is draining it.
+enum AccountStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DELETION_PENDING
+
+  @@map("AccountStatus")
+}
+
+// [ADDED] How far a deletion has irreversibly progressed. Recorded BEFORE each
+// stage runs, so a crash resumes at the stage that was in flight rather than
+// replaying one that already destroyed something.
+enum AccountDeletionStage {
+  REQUESTED
+  STORAGE_CLEARED
+  AUTH_DELETED
+
+  @@map("AccountDeletionStage")
+}
+
 model User {
-  id          Int      @id @default(autoincrement()) @map("User_ID")
-  authId      String   @unique @map("User_AuthID") @db.Uuid
-  firstName   String   @map("User_FirstName") @db.VarChar(100)
-  middleName  String?  @map("User_MiddleName") @db.VarChar(100)
-  lastName    String   @map("User_LastName") @db.VarChar(100)
-  email       String   @unique @map("User_Email") @db.VarChar(150)
-  phoneNumber String?  @map("User_PhoneNumber") @db.VarChar(20)
-  status      String   @default("Active") @map("User_Status") @db.VarChar(50)
-  avatarUrl   String?  @map("User_AvatarURL") @db.VarChar(500) // [ADDED] see schema header note
-  createdAt   DateTime @default(now()) @map("User_CreatedAt")
+  id          Int           @id @default(autoincrement()) @map("User_ID")
+  authId      String        @unique @map("User_AuthID") @db.Uuid
+  firstName   String        @map("User_FirstName") @db.VarChar(100)
+  middleName  String?       @map("User_MiddleName") @db.VarChar(100)
+  lastName    String        @map("User_LastName") @db.VarChar(100)
+  // Stored lowercase. Supabase Auth lowercases addresses on its side, and a
+  // case-sensitive unique column here would otherwise drift out of step with
+  // the identity it is supposed to mirror. Normalized in the Zod schemas so
+  // there is exactly one place it can be forgotten.
+  email       String        @unique @map("User_Email") @db.VarChar(150)
+  phoneNumber String?       @map("User_PhoneNumber") @db.VarChar(20)
+  status      AccountStatus @default(ACTIVE) @map("User_Status")
+  avatarUrl   String?       @map("User_AvatarURL") @db.VarChar(500) // [ADDED] see schema header note
+  createdAt   DateTime      @default(now()) @map("User_CreatedAt")
+
+  // [ADDED] Deletion bookkeeping. Null on every account that has not asked to
+  // be deleted; see accountDeletion.service.ts for how the job drains them.
+  deletionRequestedAt DateTime?             @map("User_DeletionRequestedAt")
+  deletionStage       AccountDeletionStage? @map("User_DeletionStage")
+  deletionAttempts    Int                   @default(0) @map("User_DeletionAttempts")
+  deletionLastError   String?               @map("User_DeletionLastError") @db.VarChar(500)
 
   businessProfiles BusinessProfile[]
   notifications    Notification[]
   aiInteractions   AIInteraction[]
 
+  // The deletion worker claims the oldest unfinished request on every pass.
+  @@index([status, deletionRequestedAt], map: "User_DeletionQueue_idx")
   @@map("User")
 }
 
 model BusinessProfile {
-  id                           Int      @id @default(autoincrement()) @map("BusinessProfile_ID")
-  userId                       Int      @map("User_ID")
-  name                         String   @map("BusinessProfile_Name") @db.VarChar(150)
-  type                         String   @map("BusinessProfile_Type") @db.VarChar(100)
-  availableFunds               Decimal  @map("BusinessProfile_AvailableFunds") @db.Decimal(12, 2)
-  expectedMonthlyExpenses      Decimal  @map("BusinessProfile_ExpectedMonthlyExpenses") @db.Decimal(12, 2)
-  operatingDays                Int      @map("BusinessProfile_OperatingDays")
-  largeExpenseThresholdPercent Decimal  @default(20) @map("BusinessProfile_LargeExpenseThresholdPercent") @db.Decimal(5, 2) // [ADDED] see schema header note
-  logoUrl                      String?  @map("BusinessProfile_LogoURL") @db.VarChar(500) // [ADDED] see schema header note
-  createdAt                    DateTime @default(now()) @map("BusinessProfile_CreatedAt")
+  id                           Int       @id @default(autoincrement()) @map("BusinessProfile_ID")
+  userId                       Int       @map("User_ID")
+  name                         String    @map("BusinessProfile_Name") @db.VarChar(150)
+  type                         String    @map("BusinessProfile_Type") @db.VarChar(100)
+  availableFunds               Decimal   @map("BusinessProfile_AvailableFunds") @db.Decimal(12, 2)
+  expectedMonthlyExpenses      Decimal   @map("BusinessProfile_ExpectedMonthlyExpenses") @db.Decimal(12, 2)
+  operatingDays                Int       @map("BusinessProfile_OperatingDays")
+  largeExpenseThresholdPercent Decimal   @default(20) @map("BusinessProfile_LargeExpenseThresholdPercent") @db.Decimal(5, 2) // [ADDED] see schema header note
+  logoUrl                      String?   @map("BusinessProfile_LogoURL") @db.VarChar(500) // [ADDED] see schema header note
+  createdAt                    DateTime  @default(now()) @map("BusinessProfile_CreatedAt")
   // [ADDED] Soft delete. Null = active. Archiving hides a profile from the
   // switcher without touching its records, insights or AI history. A hard
   // delete would cascade and destroy the owner's entire financial history for
@@ -209,6 +316,10 @@ model BusinessProfile {
   csvImportBatches      CSVImportBatch[]
   aiInteractions        AIInteraction[]
   notifications         Notification[]
+  anomalyFindings       AnomalyFinding[]
+  categoryStatistics    CategoryStatistics[]
+  recurringPatterns     RecurringPattern[]
+  analysisJobs          AnalysisJob[]
 
   @@index([userId])
   @@map("BusinessProfile")
@@ -221,9 +332,11 @@ model ExpenseCategory {
   description       String?  @map("Category_Description") @db.VarChar(255)
   createdAt         DateTime @default(now()) @map("Category_CreatedAt")
 
-  businessProfile  BusinessProfile   @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
-  expenseRecords   ExpenseRecord[]
-  receiptScanItems ReceiptScanItem[]
+  businessProfile   BusinessProfile      @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  expenseRecords    ExpenseRecord[]
+  receiptScanItems  ReceiptScanItem[]
+  statistics        CategoryStatistics[]
+  recurringPatterns RecurringPattern[]
 
   @@index([businessProfileId])
   @@map("ExpenseCategory")
@@ -250,20 +363,132 @@ model ExpenseRecord {
   largeExpenseFlag    Boolean             @default(false) @map("ExpenseRecord_LargeExpenseFlag")
   createdAt           DateTime            @default(now()) @map("ExpenseRecord_CreatedAt")
 
-  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
-  category        ExpenseCategory @relation(fields: [categoryId], references: [id])
-  receiptScan     ReceiptScan?    @relation(fields: [receiptScanId], references: [id])
-  importBatch     CSVImportBatch? @relation(fields: [importBatchId], references: [id])
-  duplicateOf     ExpenseRecord?  @relation("ExpenseRecordDuplicates", fields: [duplicateOfRecordId], references: [id])
-  duplicates      ExpenseRecord[] @relation("ExpenseRecordDuplicates")
+  businessProfile BusinessProfile   @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  category        ExpenseCategory   @relation(fields: [categoryId], references: [id])
+  receiptScan     ReceiptScan?      @relation(fields: [receiptScanId], references: [id])
+  importBatch     CSVImportBatch?   @relation(fields: [importBatchId], references: [id])
+  duplicateOf     ExpenseRecord?    @relation("ExpenseRecordDuplicates", fields: [duplicateOfRecordId], references: [id])
+  duplicates      ExpenseRecord[]   @relation("ExpenseRecordDuplicates")
   notifications   Notification[]
   receiptItems    ReceiptScanItem[]
+  anomalyFindings AnomalyFinding[]
+  analysisJobs    AnalysisJob[]
 
   @@index([businessProfileId])
   @@index([categoryId])
   @@index([importBatchId])
   @@index([receiptScanId])
+  @@index([duplicateOfRecordId])
+  @@index([businessProfileId, date, id])
   @@map("ExpenseRecord")
+}
+
+model AnomalyFinding {
+  id                Int                     @id @default(autoincrement()) @map("AnomalyFinding_ID")
+  businessProfileId Int                     @map("BusinessProfile_ID")
+  expenseRecordId   Int?                    @map("ExpenseRecord_ID")
+  fingerprint       String                  @map("AnomalyFinding_Fingerprint") @db.VarChar(191)
+  type              AnomalyFindingType      @map("AnomalyFinding_Type")
+  method            String                  @map("AnomalyFinding_Method") @db.VarChar(100)
+  severity          AnomalyFindingSeverity  @map("AnomalyFinding_Severity")
+  score             Decimal?                @map("AnomalyFinding_Score") @db.Decimal(12, 6)
+  title             String                  @map("AnomalyFinding_Title") @db.VarChar(180)
+  reasons           Json                    @map("AnomalyFinding_Reasons")
+  metadata          Json?                   @map("AnomalyFinding_Metadata")
+  detectorVersion   String                  @map("AnomalyFinding_DetectorVersion") @db.VarChar(50)
+  status            AnomalyFindingStatus    @default(OPEN) @map("AnomalyFinding_Status")
+  feedback          AnomalyFindingFeedback? @map("AnomalyFinding_Feedback")
+  detectedAt        DateTime                @default(now()) @map("AnomalyFinding_DetectedAt")
+  reviewedAt        DateTime?               @map("AnomalyFinding_ReviewedAt")
+  updatedAt         DateTime                @updatedAt @map("AnomalyFinding_UpdatedAt")
+
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  expenseRecord   ExpenseRecord?  @relation(fields: [expenseRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([businessProfileId, fingerprint])
+  @@index([businessProfileId, status, detectedAt])
+  @@index([businessProfileId, type, detectedAt])
+  @@index([expenseRecordId])
+  @@map("AnomalyFinding")
+}
+
+model CategoryStatistics {
+  id                Int      @id @default(autoincrement()) @map("CategoryStatistics_ID")
+  businessProfileId Int      @map("BusinessProfile_ID")
+  categoryId        Int      @map("Category_ID")
+  windowDays        Int      @map("CategoryStatistics_WindowDays")
+  windowStart       DateTime @map("CategoryStatistics_WindowStart") @db.Date
+  windowEnd         DateTime @map("CategoryStatistics_WindowEnd") @db.Date
+  recordCount       Int      @map("CategoryStatistics_RecordCount")
+  sum               Decimal  @map("CategoryStatistics_Sum") @db.Decimal(18, 2)
+  sumOfSquares      Decimal  @map("CategoryStatistics_SumOfSquares") @db.Decimal(24, 2)
+  mean              Decimal  @map("CategoryStatistics_Mean") @db.Decimal(18, 6)
+  standardDeviation Decimal  @map("CategoryStatistics_StandardDeviation") @db.Decimal(18, 6)
+  q1                Decimal  @map("CategoryStatistics_Q1") @db.Decimal(18, 6)
+  q3                Decimal  @map("CategoryStatistics_Q3") @db.Decimal(18, 6)
+  minimum           Decimal? @map("CategoryStatistics_Minimum") @db.Decimal(18, 2)
+  maximum           Decimal? @map("CategoryStatistics_Maximum") @db.Decimal(18, 2)
+  calculatedAt      DateTime @default(now()) @map("CategoryStatistics_CalculatedAt")
+  updatedAt         DateTime @updatedAt @map("CategoryStatistics_UpdatedAt")
+
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  category        ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, windowDays])
+  @@index([businessProfileId, windowDays])
+  @@map("CategoryStatistics")
+}
+
+model RecurringPattern {
+  id                Int                    @id @default(autoincrement()) @map("RecurringPattern_ID")
+  businessProfileId Int                    @map("BusinessProfile_ID")
+  categoryId        Int                    @map("Category_ID")
+  normalizedKey     String                 @map("RecurringPattern_NormalizedKey") @db.VarChar(64)
+  vendor            String?                @map("RecurringPattern_Vendor") @db.VarChar(150)
+  description       String                 @map("RecurringPattern_Description") @db.VarChar(255)
+  intervalDays      Int                    @map("RecurringPattern_IntervalDays")
+  expectedAmount    Decimal                @map("RecurringPattern_ExpectedAmount") @db.Decimal(18, 2)
+  amountTolerance   Decimal                @map("RecurringPattern_AmountTolerance") @db.Decimal(8, 6)
+  confidence        Decimal                @map("RecurringPattern_Confidence") @db.Decimal(8, 6)
+  observationCount  Int                    @map("RecurringPattern_ObservationCount")
+  lastOccurrence    DateTime               @map("RecurringPattern_LastOccurrence") @db.Date
+  nextExpectedDate  DateTime               @map("RecurringPattern_NextExpectedDate") @db.Date
+  status            RecurringPatternStatus @default(CANDIDATE) @map("RecurringPattern_Status")
+  createdAt         DateTime               @default(now()) @map("RecurringPattern_CreatedAt")
+  updatedAt         DateTime               @updatedAt @map("RecurringPattern_UpdatedAt")
+
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  category        ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([businessProfileId, normalizedKey])
+  @@index([businessProfileId, status, nextExpectedDate])
+  @@index([categoryId])
+  @@map("RecurringPattern")
+}
+
+model AnalysisJob {
+  id                  Int               @id @default(autoincrement()) @map("AnalysisJob_ID")
+  businessProfileId   Int               @map("BusinessProfile_ID")
+  expenseRecordId     Int?              @map("ExpenseRecord_ID")
+  idempotencyKey      String            @unique @map("AnalysisJob_IdempotencyKey") @db.VarChar(191)
+  kind                AnalysisJobKind   @map("AnalysisJob_Kind")
+  status              AnalysisJobStatus @default(PENDING) @map("AnalysisJob_Status")
+  attemptCount        Int               @default(0) @map("AnalysisJob_AttemptCount")
+  nextAttemptAt       DateTime          @default(now()) @map("AnalysisJob_NextAttemptAt")
+  processingStartedAt DateTime?         @map("AnalysisJob_ProcessingStartedAt")
+  heartbeatAt         DateTime?         @map("AnalysisJob_HeartbeatAt")
+  workerId            String?           @map("AnalysisJob_WorkerID") @db.VarChar(100)
+  lastError           String?           @map("AnalysisJob_LastError") @db.VarChar(1000)
+  createdAt           DateTime          @default(now()) @map("AnalysisJob_CreatedAt")
+  updatedAt           DateTime          @updatedAt @map("AnalysisJob_UpdatedAt")
+
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  expenseRecord   ExpenseRecord?  @relation(fields: [expenseRecordId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt, heartbeatAt])
+  @@index([businessProfileId, kind])
+  @@index([expenseRecordId])
+  @@map("AnalysisJob")
 }
 
 model SalesReferenceRecord {
@@ -286,44 +511,53 @@ model SalesReferenceRecord {
 
   @@index([businessProfileId])
   @@index([importBatchId])
+  @@index([duplicateOfRecordId])
+  @@index([businessProfileId, date, id])
   @@map("SalesReferenceRecord")
 }
 
 model ReceiptScan {
-  id                   Int       @id @default(autoincrement()) @map("ReceiptScan_ID")
-  businessProfileId    Int?      @map("BusinessProfile_ID") // [ADDED] see schema header note
-  imageFile            String    @map("ReceiptScan_ImageFile") @db.VarChar(255)
-  extractedDate        DateTime? @map("ReceiptScan_ExtractedDate") @db.Date
-  extractedVendor      String?   @map("ReceiptScan_ExtractedVendor") @db.VarChar(150)
-  extractedDescription String?   @map("ReceiptScan_ExtractedDescription") @db.VarChar(255)
-  extractedAmount      Decimal?  @map("ReceiptScan_ExtractedAmount") @db.Decimal(12, 2)
-  confirmationStatus   String    @default("Pending") @map("ReceiptScan_ConfirmationStatus") @db.VarChar(50)
+  id                      Int       @id @default(autoincrement()) @map("ReceiptScan_ID")
+  businessProfileId       Int?      @map("BusinessProfile_ID") // [ADDED] see schema header note
+  imageFile               String    @map("ReceiptScan_ImageFile") @db.VarChar(255)
+  extractedDate           DateTime? @map("ReceiptScan_ExtractedDate") @db.Date
+  extractedVendor         String?   @map("ReceiptScan_ExtractedVendor") @db.VarChar(150)
+  extractedDescription    String?   @map("ReceiptScan_ExtractedDescription") @db.VarChar(255)
+  extractedAmount         Decimal?  @map("ReceiptScan_ExtractedAmount") @db.Decimal(12, 2)
+  confirmationStatus      String    @default("Pending") @map("ReceiptScan_ConfirmationStatus") @db.VarChar(50)
   /// [ADDED] see schema header note 15. How far the READ has got:
   /// "Processing" | "Complete" | "Failed". Deliberately separate from
   /// confirmationStatus, which is about the OWNER's decision afterwards —
   /// conflating them would make "still being read" and "read, awaiting the
   /// owner" the same state, and they need different screens.
-  processingStatus     String    @default("Processing") @map("ReceiptScan_ProcessingStatus") @db.VarChar(50)
+  processingStatus        String    @default("Processing") @map("ReceiptScan_ProcessingStatus") @db.VarChar(50)
   /// Why the read failed, for the owner. Null unless processingStatus is
   /// "Failed".
-  processingError      String?   @map("ReceiptScan_ProcessingError") @db.VarChar(500)
-  rawText              String?   @map("ReceiptScan_RawText") @db.Text // [ADDED] see schema header note 10
+  processingError         String?   @map("ReceiptScan_ProcessingError") @db.VarChar(500)
+  /// Durable worker metadata. A worker owns a scan only while its heartbeat
+  /// is fresh; after a crash another worker can safely reclaim the same row.
+  processingAttemptCount  Int       @default(0) @map("ReceiptScan_ProcessingAttemptCount")
+  processingStartedAt     DateTime? @map("ReceiptScan_ProcessingStartedAt")
+  processingHeartbeatAt   DateTime? @map("ReceiptScan_ProcessingHeartbeatAt")
+  nextProcessingAttemptAt DateTime  @default(now()) @map("ReceiptScan_NextProcessingAttemptAt")
+  processingWorkerId      String?   @map("ReceiptScan_ProcessingWorkerID") @db.VarChar(100)
+  rawText                 String?   @map("ReceiptScan_RawText") @db.Text // [ADDED] see schema header note 10
   /// True when the deterministic OCR parse came back empty and a vision model
   /// was asked to interpret the photo instead. The confirm screen says so
   /// plainly — these values were guessed from an image, not read off text,
   /// and the owner is told to check them harder than usual.
-  visionAssisted       Boolean   @default(false) @map("ReceiptScan_VisionAssisted")
+  visionAssisted          Boolean   @default(false) @map("ReceiptScan_VisionAssisted")
   /// How sure the OCR engine was about this page overall, 0-100. Null on
   /// scans read before this was recorded, and on vision-assisted reads, where
   /// the figure would describe text tesseract could not read anyway.
-  ocrConfidence        Int?      @map("ReceiptScan_OcrConfidence")
+  ocrConfidence           Int?      @map("ReceiptScan_OcrConfidence")
   /// [ADDED] see schema header note 17. How sure OCR was about the VENDOR and
   /// the TOTAL specifically, 0-100 — the per-field figures ocrConfidence
   /// cannot give, and the ones calibration needs to say whether a confidence
   /// score predicts a wrong answer for that particular field.
-  vendorConfidence     Int?      @map("ReceiptScan_VendorConfidence")
-  amountConfidence     Int?      @map("ReceiptScan_AmountConfidence")
-  createdAt            DateTime  @default(now()) @map("ReceiptScan_CreatedAt")
+  vendorConfidence        Int?      @map("ReceiptScan_VendorConfidence")
+  amountConfidence        Int?      @map("ReceiptScan_AmountConfidence")
+  createdAt               DateTime  @default(now()) @map("ReceiptScan_CreatedAt")
 
   businessProfile BusinessProfile?         @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
   expenseRecords  ExpenseRecord[]
@@ -332,6 +566,7 @@ model ReceiptScan {
   corrections     ReceiptFieldCorrection[]
 
   @@index([businessProfileId])
+  @@index([processingStatus, nextProcessingAttemptAt, processingHeartbeatAt])
   @@map("ReceiptScan")
 }
 
@@ -339,18 +574,18 @@ model ReceiptScan {
 /// owner photographed them — including the first, so a single-photo receipt
 /// (still the common case) and a five-page one are read the same way.
 model ReceiptScanPage {
-  id            Int     @id @default(autoincrement()) @map("ReceiptScanPage_ID")
-  receiptScanId Int     @map("ReceiptScan_ID")
-  pageNumber    Int     @map("ReceiptScanPage_Number")
-  imageFile     String  @map("ReceiptScanPage_ImageFile") @db.VarChar(255)
+  id                Int      @id @default(autoincrement()) @map("ReceiptScanPage_ID")
+  receiptScanId     Int      @map("ReceiptScan_ID")
+  pageNumber        Int      @map("ReceiptScanPage_Number")
+  imageFile         String   @map("ReceiptScanPage_ImageFile") @db.VarChar(255)
   /// This page's own OCR text. ReceiptScan.rawText holds all pages
   /// concatenated in order — the shape every parser already reads — so this
   /// is kept only for per-page re-processing (a retaken page 2 must not force
   /// re-reading pages 1 and 3), not as the primary text store.
-  rawText       String? @map("ReceiptScanPage_RawText") @db.Text
+  rawText           String?  @map("ReceiptScanPage_RawText") @db.Text
   /// This page's own OCR confidence, for a per-page "this one looks rough"
   /// signal. ReceiptScan.ocrConfidence remains the whole-scan figure.
-  ocrConfidence Int?    @map("ReceiptScanPage_OcrConfidence")
+  ocrConfidence     Int?     @map("ReceiptScanPage_OcrConfidence")
   /// How readable the photograph itself was — see lib/imageQuality.
   ///
   /// STORED, where it deliberately was not before. The old reasoning was that
@@ -374,23 +609,23 @@ model ReceiptScanPage {
 
 /// [ADDED] see schema header note 11
 model ReceiptScanItem {
-  id              Int      @id @default(autoincrement()) @map("ReceiptScanItem_ID")
-  receiptScanId   Int      @map("ReceiptScan_ID")
-  categoryId      Int?     @map("Category_ID")
-  expenseRecordId Int?     @map("ExpenseRecord_ID")
+  id                    Int      @id @default(autoincrement()) @map("ReceiptScanItem_ID")
+  receiptScanId         Int      @map("ReceiptScan_ID")
+  categoryId            Int?     @map("Category_ID")
+  expenseRecordId       Int?     @map("ExpenseRecord_ID")
   /// Position on the receipt, so the review screen can show items in the
   /// order they were printed rather than in insertion order.
-  lineNumber      Int      @map("ReceiptScanItem_LineNumber")
-  name            String   @map("ReceiptScanItem_Name") @db.VarChar(255)
+  lineNumber            Int      @map("ReceiptScanItem_LineNumber")
+  name                  String   @map("ReceiptScanItem_Name") @db.VarChar(255)
   /// Null when the receipt prints no quantity column, which is common on
   /// small sari-sari store receipts. Not the same as a quantity of 1.
-  quantity        Decimal? @map("ReceiptScanItem_Quantity") @db.Decimal(10, 2)
-  unitPrice       Decimal? @map("ReceiptScanItem_UnitPrice") @db.Decimal(12, 2)
+  quantity              Decimal? @map("ReceiptScanItem_Quantity") @db.Decimal(10, 2)
+  unitPrice             Decimal? @map("ReceiptScanItem_UnitPrice") @db.Decimal(12, 2)
   /// The line's own total, which is what the category subtotals sum.
-  amount          Decimal  @map("ReceiptScanItem_Amount") @db.Decimal(12, 2)
+  amount                Decimal  @map("ReceiptScanItem_Amount") @db.Decimal(12, 2)
   /// True when the owner typed this line in on the confirm screen rather
   /// than OCR reading it off the image. See schema header note 12.
-  addedByOwner    Boolean  @default(false) @map("ReceiptScanItem_AddedByOwner")
+  addedByOwner          Boolean  @default(false) @map("ReceiptScanItem_AddedByOwner")
   /// A category name the AI proposed when NOTHING on the business's existing
   /// list fit this item. Only ever a suggestion for the owner to accept or
   /// ignore — never auto-created, because a category the owner never asked
@@ -398,25 +633,39 @@ model ReceiptScanItem {
   /// "never invent a category" rule exists to prevent. Null when the item
   /// matched an existing category, when the model declined to propose one,
   /// or when it was unreachable.
-  suggestedCategoryName String? @map("ReceiptScanItem_SuggestedCategoryName") @db.VarChar(100)
+  suggestedCategoryName String?  @map("ReceiptScanItem_SuggestedCategoryName") @db.VarChar(100)
   /// True when a vision model produced this line because the deterministic
   /// parser could read no items at all. Parallel to addedByOwner: both exist
   /// so the claim "FinSight read this off your receipt" is never quietly
   /// stretched to cover a line it did not read that way.
-  extractedByVision Boolean @default(false) @map("ReceiptScanItem_ExtractedByVision")
+  extractedByVision     Boolean  @default(false) @map("ReceiptScanItem_ExtractedByVision")
   /// How sure the OCR engine was about this line's AMOUNT, 0-100 — the field
   /// the books actually depend on. Null when it was derived rather than read.
-  amountConfidence  Int?    @map("ReceiptScanItem_AmountConfidence")
-  createdAt       DateTime @default(now()) @map("ReceiptScanItem_CreatedAt")
+  amountConfidence      Int?     @map("ReceiptScanItem_AmountConfidence")
+  createdAt             DateTime @default(now()) @map("ReceiptScanItem_CreatedAt")
 
   receiptScan   ReceiptScan      @relation(fields: [receiptScanId], references: [id], onDelete: Cascade)
   category      ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   expenseRecord ExpenseRecord?   @relation(fields: [expenseRecordId], references: [id], onDelete: SetNull)
 
+  @@unique([receiptScanId, lineNumber])
   @@index([receiptScanId])
   @@index([expenseRecordId])
   @@index([categoryId])
   @@map("ReceiptScanItem")
+}
+
+/// Persistent fixed-window counters used for costly/API-abuse limits. They
+/// live in Postgres so limits do not reset on a deploy or multiply when the
+/// backend is scaled horizontally.
+model ApiRateLimit {
+  key         String   @id @map("ApiRateLimit_Key") @db.VarChar(255)
+  windowStart DateTime @map("ApiRateLimit_WindowStart")
+  count       Int      @default(0) @map("ApiRateLimit_Count")
+  expiresAt   DateTime @map("ApiRateLimit_ExpiresAt")
+
+  @@index([expiresAt])
+  @@map("ApiRateLimit")
 }
 
 /// [ADDED] see schema header note 16. One row per field the owner reviewed on

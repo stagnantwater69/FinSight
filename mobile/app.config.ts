@@ -36,8 +36,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: "./assets/android-icon-foreground.png",
       backgroundColor: "#0e655c",
     },
-    // Camera is requested at runtime by expo-image-picker; declaring it here
-    // keeps the manifest honest about what the app can do.
+    // Camera is requested at runtime by expo-camera (the receipt scanner) and
+    // by expo-image-picker (the gallery fallback); declaring it here keeps the
+    // manifest honest about what the app can do.
     permissions: ["CAMERA", "READ_EXTERNAL_STORAGE"],
   },
   ios: {
@@ -70,6 +71,33 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         photosPermission: "FinSight can read a receipt from a photo you have already taken.",
         cameraPermission: "FinSight uses the camera so you can photograph a receipt instead of typing it in.",
+        /*
+         * This plugin adds RECORD_AUDIO to the Android manifest unless it is
+         * told not to, and it has been doing so since it was added — a
+         * bookkeeping app that has never recorded a second of audio was
+         * shipping a microphone permission. `false` both skips it and BLOCKS
+         * it, so no other plugin can put it back.
+         */
+        microphonePermission: false,
+      },
+    ],
+    /*
+     * The receipt scanner's own camera.
+     *
+     * `microphonePermission: false` because nothing here records video or
+     * sound — a still photograph of a receipt is the entire feature — and
+     * leaving the default on would put a microphone permission in the
+     * manifest of a bookkeeping app for no reason anyone could defend.
+     */
+    [
+      "expo-camera",
+      {
+        cameraPermission: "FinSight uses the camera so you can photograph a receipt instead of typing it in.",
+        recordAudioAndroid: false,
+        microphonePermission: false,
+        // Nothing in FinSight scans barcodes, and leaving this on ships the
+        // scanning support in the APK regardless.
+        barcodeScannerEnabled: false,
       },
     ],
   ],

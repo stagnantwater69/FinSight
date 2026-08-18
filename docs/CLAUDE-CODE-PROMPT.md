@@ -58,6 +58,23 @@ scoped to one `businessProfileId` at a time.
 | AI model / analysis | Isolation Forest, Z-score / IQR (statistical baseline), Google ML Kit OCR, Tesseract OCR, Scikit-learn |
 | Future (not in current scope) | iOS platform, offline synchronization |
 
+> **Divergence on record — OCR (8 August 2026).** The two "Google ML Kit OCR"
+> entries above are what the manuscript specified; they are **not** what was
+> built, and the table is left unedited so the difference stays visible rather
+> than being quietly reconciled.
+>
+> ML Kit's on-device OCR needs native modules that do not run in Expo Go, so
+> adopting it would have meant a development-build or bare-workflow migration.
+> OCR runs **server-side on Tesseract** instead — already built, and
+> accuracy-measured on a real corpus. The same constraint later decided
+> receipt edge detection, which also runs server-side.
+>
+> **The manuscript must be corrected to match**, not the other way round.
+> Claiming ML Kit, on-device OCR, or offline OCR would be false. See
+> `docs/receipt-camera.md` §2 for the full list of claims to avoid and wording
+> that is accurate, and `mobile/src/screens/RecordsScreens.tsx`
+> (`ScanReceiptScreen`) for the decision in situ.
+
 **Analysis engine rule:** new business profiles with limited transaction
 history use the **Z-score/IQR statistical baseline**. Only once a profile
 accumulates sufficient historical records does it graduate to

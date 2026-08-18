@@ -1,10 +1,14 @@
 import { prisma } from "../config/prisma";
 import { ApiError } from "../middleware/error.middleware";
 import { requireOwnedBusinessProfile } from "../lib/ownership";
-import { uploadReceiptImage } from "./storage.service";
+import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
+import { downloadReceiptImage, uploadReceiptImage } from "./storage.service";
 import {
   confidenceForValue,
   extractReceipt,
+  findPageSeams,
+  joinPagesWithoutSeams,
   looksLikeDuplicatePage,
   looksLikeMultipleReceipts,
   overallConfidence,
@@ -26,7 +30,8 @@ import {
   recordDeletedLine,
   snapshotItemCategories,
 } from "./extractionFeedback.service";
-import type { ReceiptScan, ReceiptScanItem, ReceiptScanPage } from "@prisma/client";
+import type { Prisma, ReceiptScan, ReceiptScanItem, ReceiptScanPage } from "@prisma/client";
+import { logger } from "../config/logger";
 
 /** One photographed page of a receipt, as it arrives from the upload. */
 export interface UploadPage {
@@ -44,6 +49,13 @@ interface UploadInput {
   businessProfileId: number;
   pages: UploadPage[];
 }
+
+const RECEIPT_WORKER_ID = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
+const RECEIPT_LEASE_MS = 2 * 60 * 1000;
+const MAX_PROCESSING_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [15_000, 60_000, 5 * 60_000] as const;
+
+class ReceiptLeaseLostError extends Error {}
 
 export interface ReceiptSplit {
   categoryId: number;
@@ -129,6 +141,25 @@ function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = [], pages: ReceiptS
     }
   }
 
+  /*
+   * Sections that begin where the previous one ended — the overlap the camera
+   * asked the owner to leave.
+   *
+   * Derived here from the same stored rawText, for the same reason
+   * duplicatePages is: the evidence is already persisted, and a column would
+   * be a second copy of an answer computable from the first with the usual
+   * risk of the two disagreeing.
+   *
+   * ADVISORY ONLY, and it says something different from duplicatePages.
+   * A duplicate page is a MISTAKE — the same page photographed twice. A seam
+   * is the feature working: it is how the owner was told to photograph a long
+   * receipt. This exists so the confirm screen can explain why two similar
+   * lines appear near a section boundary, not to accuse anyone of anything.
+   * Whether the overlapping lines were counted once or twice is settled by
+   * arithmetic during processing, not here.
+   */
+  const overlappingPages = findPageSeams(ordered.map((p) => p.rawText ?? "")).map((s) => s.pageNumber);
+
   const pageQualities = ordered.map((p) =>
     p.tooBlurredToTrust === null
       ? null
@@ -158,6 +189,8 @@ function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = [], pages: ReceiptS
     processingStatus: scan.processingStatus,
     /** Why the read failed. Null unless processingStatus is "Failed". */
     processingError: scan.processingError,
+    processingAttemptCount: scan.processingAttemptCount,
+    nextProcessingAttemptAt: scan.processingStatus === "Processing" ? scan.nextProcessingAttemptAt : null,
     createdAt: scan.createdAt,
     /**
      * Every page's own readability, in page order — page 1 included.
@@ -172,6 +205,13 @@ function toDTO(scan: ReceiptScan, items: ReceiptScanItem[] = [], pages: ReceiptS
     captureQuality: pageQualities[0] ?? null,
     /** 1-indexed pages that read as the same page photographed twice. */
     duplicatePages,
+    /**
+     * 1-indexed pages whose first lines repeat the previous page's last ones.
+     *
+     * Expected, not a fault: it is the overlap the capture guide asks for on
+     * a long receipt. Empty on a single-section scan.
+     */
+    overlappingPages,
     /**
      * True when the deterministic parse failed and a model interpreted the
      * photo instead. The confirm screen warns on this — values guessed from
@@ -432,8 +472,8 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
    * there is no unhandled rejection to guard against; the `.catch` is belt
    * and braces for a genuinely unexpected throw before its own try block.
    */
-  void processScan(scan.id, input).catch((err) => {
-    console.error(`[receipt-scan] background processing threw for scan=${scan.id}:`, err);
+  void claimAndProcessScan(scan.id, input).catch((err) => {
+    logger.error({ err }, `[receipt-scan] background processing threw for scan=${scan.id}`);
   });
 
   return toDTO(scan, [], scan.pages);
@@ -449,14 +489,21 @@ export async function uploadAndScan(userId: number, input: UploadInput) {
  * why the whole body sits inside one try/catch rather than letting individual
  * steps propagate.
  *
- * In-process rather than on a queue: this project runs one backend container
- * and has no Redis (see rateLimit.middleware.ts, which documents the same
- * boundary for the same reason). The known cost is that a restart mid-read
- * strands a scan in "Processing" — accepted, because re-scanning is cheap and
- * a durable job store is a large piece of infrastructure to add for a failure
- * mode a "Rescan" button already covers.
+ * The row itself is the queue. A conditional update claims a short lease, so
+ * multiple backend instances cannot process the same scan and a restart can
+ * reclaim work after the heartbeat expires. The first attempt may reuse the
+ * request's buffers; every recovery attempt reconstructs them from Storage.
  */
-async function processScan(scanId: number, input: UploadInput): Promise<void> {
+async function processScan(scanId: number, input: UploadInput, attempt: number): Promise<void> {
+  // OCR on one difficult photo can outlast the normal scheduler interval.
+  // Refresh independently of page boundaries so another replica never
+  // mistakes a healthy long-running read for an abandoned lease.
+  const heartbeatTimer = setInterval(() => {
+    void heartbeatScan(scanId, attempt).catch((error) =>
+      logger.error({ err: error }, `[receipt-scan] heartbeat failed for scan=${scanId}`),
+    );
+  }, 30_000);
+  heartbeatTimer.unref();
   try {
     // extractReceipt rather than extractText: the same read, but keeping the
     // per-word confidences tesseract reports so the confirm screen can say
@@ -465,6 +512,7 @@ async function processScan(scanId: number, input: UploadInput): Promise<void> {
     const ocrResults: OcrResult[] = [];
     for (const page of input.pages) {
       ocrResults.push(await extractReceipt(page.buffer));
+      await heartbeatScan(scanId, attempt);
     }
 
     /*
@@ -482,7 +530,46 @@ async function processScan(scanId: number, input: UploadInput): Promise<void> {
     const combinedText = ocrResults.map((r) => r.text).join("\n");
     const combinedLines = ocrResults.flatMap((r) => r.lines);
     const parsed = parseReceiptFields(combinedText);
-    const deterministicItems = parseLineItems(combinedText);
+
+    /*
+     * OVERLAP BETWEEN SECTIONS, and why removing it needs permission.
+     *
+     * The camera asks for 15-25% overlap between the sections of a long
+     * receipt so the owner can see where to continue photographing. Those
+     * repeated lines are read twice, and concatenating page text in order
+     * therefore counts a handful of items twice on a receipt captured that
+     * way.
+     *
+     * The obvious fix — find the repeat, drop it — is a heuristic deciding
+     * which money lines survive, and this codebase already fixed the rule for
+     * that situation one function down at rescueWithVision: a competing
+     * reading replaces the deterministic one "only on an OBJECTIVE test,
+     * never a preference." The objective test here is the receipt's own
+     * printed total. If the plain reading fails to account for it and the
+     * de-overlapped reading does, that is arithmetic agreeing with the paper,
+     * not a judgement that one reading looks tidier.
+     *
+     * Where BOTH readings fail to reconcile there is no evidence the removal
+     * helped, so the plain reading stands and the gap surfaces on the confirm
+     * screen as it always has — the owner sees every line and decides. That
+     * is the financial-safety direction: a duplicate the owner can see and
+     * delete beats a real purchase this deleted quietly.
+     *
+     * `combinedText` — the full, unedited concatenation — is what gets stored
+     * as rawText regardless, so the audit trail never loses lines this chose
+     * not to count.
+     */
+    const plainItems = parseLineItems(combinedText);
+    const seamFreeText = joinPagesWithoutSeams(ocrResults.map((r) => r.text));
+    const plainReconciliation = reconcileItems(combinedText, plainItems, parsed.amount);
+
+    let deterministicItems = plainItems;
+    if (!plainReconciliation.reconciled && seamFreeText !== combinedText) {
+      const seamFreeItems = parseLineItems(seamFreeText);
+      if (reconcileItems(seamFreeText, seamFreeItems, parsed.amount).reconciled) {
+        deterministicItems = seamFreeItems;
+      }
+    }
 
     // The worst page, not the average — see rescueWithVision's own note.
     const worstPageConfidence = Math.min(...ocrResults.map((r) => overallConfidence(r)));
@@ -494,6 +581,7 @@ async function processScan(scanId: number, input: UploadInput): Promise<void> {
     // WHICH page came out blurry rather than "something about this did".
     const pageQualities = await Promise.all(input.pages.map((p) => assessImageQuality(p.buffer)));
 
+    await heartbeatScan(scanId, attempt);
     await prisma.receiptScan.update({
       where: { id: scanId },
       data: {
@@ -535,6 +623,7 @@ async function processScan(scanId: number, input: UploadInput): Promise<void> {
       });
     }
 
+    await heartbeatScan(scanId, attempt);
     await persistCategorisedItems(
       input.businessProfileId,
       scanId,
@@ -546,29 +635,147 @@ async function processScan(scanId: number, input: UploadInput): Promise<void> {
 
     // Last, so a client that sees "Complete" is guaranteed to find the fields
     // and items already written rather than racing them.
-    await prisma.receiptScan.update({
-      where: { id: scanId },
-      data: { processingStatus: "Complete" },
+    const completed = await prisma.receiptScan.updateMany({
+      where: { id: scanId, processingWorkerId: RECEIPT_WORKER_ID, processingAttemptCount: attempt },
+      data: {
+        processingStatus: "Complete",
+        processingError: null,
+        processingWorkerId: null,
+        processingHeartbeatAt: null,
+      },
     });
+    if (completed.count !== 1) throw new ReceiptLeaseLostError(`Receipt scan ${scanId} lease was reclaimed`);
   } catch (err) {
-    console.error(`[receipt-scan] processing failed for scan=${scanId}:`, err);
-    await prisma.receiptScan
-      .update({
-        where: { id: scanId },
-        data: {
-          processingStatus: "Failed",
-          // Truncated to the column width. The owner is told the read failed
-          // and offered a rescan; the full error is in the server log.
-          processingError: (err instanceof Error ? err.message : "The receipt could not be read").slice(0, 500),
-        },
-      })
-      .catch((updateErr) => {
-        // Nothing further to try — the scan stays "Processing" and the client
-        // eventually offers a rescan, which is the same recovery a restart
-        // mid-read leaves behind.
-        console.error(`[receipt-scan] could not record failure for scan=${scanId}:`, updateErr);
-      });
+    // A newer worker owns the row now. The stale worker must not overwrite its
+    // state with either a success or failure from an expired lease.
+    if (err instanceof ReceiptLeaseLostError) return;
+    logger.error({ err }, `[receipt-scan] processing failed for scan=${scanId}`);
+    await recordProcessingFailure(scanId, attempt, err);
+  } finally {
+    clearInterval(heartbeatTimer);
   }
+}
+
+async function recordProcessingFailure(scanId: number, attempt: number, err: unknown): Promise<void> {
+  const retryable = attempt < MAX_PROCESSING_ATTEMPTS;
+  await prisma.receiptScan.updateMany({
+    where: { id: scanId, processingWorkerId: RECEIPT_WORKER_ID, processingAttemptCount: attempt },
+    data: {
+      processingStatus: retryable ? "Processing" : "Failed",
+      processingWorkerId: null,
+      processingHeartbeatAt: null,
+      nextProcessingAttemptAt: new Date(
+        Date.now() + RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)]!,
+      ),
+      processingError: (err instanceof Error ? err.message : "The receipt could not be read").slice(0, 500),
+    },
+  });
+}
+
+async function heartbeatScan(scanId: number, attempt: number): Promise<void> {
+  const updated = await prisma.receiptScan.updateMany({
+    where: {
+      id: scanId,
+      processingStatus: "Processing",
+      processingWorkerId: RECEIPT_WORKER_ID,
+      processingAttemptCount: attempt,
+    },
+    data: { processingHeartbeatAt: new Date() },
+  });
+  if (updated.count !== 1) throw new ReceiptLeaseLostError(`Receipt scan ${scanId} lease was reclaimed`);
+}
+
+async function storedInput(scanId: number, attempt: number): Promise<UploadInput> {
+  const scan = await prisma.receiptScan.findUnique({
+    where: { id: scanId },
+    include: { pages: { orderBy: { pageNumber: "asc" } } },
+  });
+  if (!scan?.businessProfileId || scan.pages.length === 0) {
+    throw new Error("The stored receipt pages are unavailable");
+  }
+  const pages: UploadPage[] = [];
+  for (const page of scan.pages) {
+    const ext = page.imageFile.split(".").pop()?.toLowerCase();
+    const mimetype = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+    pages.push({
+      buffer: await downloadReceiptImage(page.imageFile),
+      mimetype,
+      originalname: `page-${page.pageNumber}.${ext ?? "jpg"}`,
+    });
+    await heartbeatScan(scanId, attempt);
+  }
+  return { businessProfileId: scan.businessProfileId, pages };
+}
+
+/** Atomically lease one eligible scan. The conditional update is the race guard. */
+async function claimScan(scanId?: number): Promise<{ id: number; attempt: number } | null> {
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - RECEIPT_LEASE_MS);
+  const eligible: Prisma.ReceiptScanWhereInput = {
+    processingStatus: "Processing",
+    nextProcessingAttemptAt: { lte: now },
+    OR: [{ processingWorkerId: null }, { processingHeartbeatAt: null }, { processingHeartbeatAt: { lt: staleBefore } }],
+  };
+  const candidate = await prisma.receiptScan.findFirst({
+    where: { ...(scanId ? { id: scanId } : {}), ...eligible },
+    orderBy: [{ nextProcessingAttemptAt: "asc" }, { id: "asc" }],
+    select: { id: true, processingAttemptCount: true },
+  });
+  if (!candidate) return null;
+  const claimed = await prisma.receiptScan.updateMany({
+    where: { id: candidate.id, ...eligible },
+    data: {
+      processingWorkerId: RECEIPT_WORKER_ID,
+      processingStartedAt: now,
+      processingHeartbeatAt: now,
+      processingAttemptCount: { increment: 1 },
+    },
+  });
+  return claimed.count === 1 ? { id: candidate.id, attempt: candidate.processingAttemptCount + 1 } : null;
+}
+
+async function claimAndProcessScan(scanId?: number, initialInput?: UploadInput): Promise<boolean> {
+  const claimed = await claimScan(scanId);
+  if (!claimed) return false;
+  let input: UploadInput;
+  try {
+    input = initialInput ?? (await storedInput(claimed.id, claimed.attempt));
+  } catch (err) {
+    if (err instanceof ReceiptLeaseLostError) return true;
+    logger.error({ err }, `[receipt-scan] could not restore scan=${claimed.id} from Storage`);
+    await recordProcessingFailure(claimed.id, claimed.attempt, err);
+    return true;
+  }
+  await processScan(claimed.id, input, claimed.attempt);
+  return true;
+}
+
+/** Runs at most one durable job; the server scheduler calls this repeatedly. */
+export async function runReceiptWorkerOnce(): Promise<boolean> {
+  return claimAndProcessScan();
+}
+
+/** Owner-triggered recovery after automatic attempts have been exhausted. */
+export async function retryScan(userId: number, scanId: number) {
+  const scan = await prisma.receiptScan.findFirst({
+    where: { id: scanId, businessProfile: { userId } },
+    select: { id: true, processingStatus: true },
+  });
+  if (!scan) throw new ApiError(404, "Receipt scan not found");
+  if (scan.processingStatus !== "Failed") throw new ApiError(409, "Only a failed receipt scan can be retried");
+  await prisma.receiptScan.update({
+    where: { id: scanId },
+    data: {
+      processingStatus: "Processing",
+      processingError: null,
+      processingAttemptCount: 0,
+      processingWorkerId: null,
+      processingHeartbeatAt: null,
+      nextProcessingAttemptAt: new Date(),
+    },
+  });
+  void claimAndProcessScan(scanId).catch((err) => logger.error({ err }, `[receipt-scan] manual retry failed scan=${scanId}`));
+  return getScan(userId, scanId);
 }
 
 /**
@@ -888,6 +1095,8 @@ async function persistCategorisedItems(
   /** Per-item OCR confidence, positionally aligned with parsedItems. */
   amountConfidences: (number | null)[] = [],
 ): Promise<ReceiptScanItem[]> {
+  // A recovered attempt replaces any partial result left by the prior worker.
+  await prisma.receiptScanItem.deleteMany({ where: { receiptScanId } });
   if (parsedItems.length === 0) return [];
 
   const categories = await prisma.expenseCategory.findMany({
@@ -911,7 +1120,7 @@ async function persistCategorisedItems(
       { vendorName: vendor, priorChoices: await recentCategoryChoices(businessProfileId) },
     );
   } catch (err) {
-    console.error("Item categorisation failed; storing items uncategorised:", err);
+    logger.error({ err }, "Item categorisation failed; storing items uncategorised");
   }
 
   const idByName = new Map(assignable.map((c) => [c.name.toLowerCase(), c.id]));

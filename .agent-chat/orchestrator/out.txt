@@ -1,0 +1,1 @@
+[ready] orchestrator: this pane talks directly to me (the lead session) — ask anything.

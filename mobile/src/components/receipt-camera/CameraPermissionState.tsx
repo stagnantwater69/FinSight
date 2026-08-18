@@ -1,7 +1,7 @@
 import { ActivityIndicator, Linking, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Button, T } from "../ui";
-import { brand, ink, space } from "../../theme/tokens";
+import { brand, ink, space, typeScale } from "../../theme/tokens";
 
 /**
  * What the camera screen shows when there is no camera to show.
@@ -35,7 +35,7 @@ export function CameraPermissionState({
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: ink[900] }}>
         <ActivityIndicator color={brand[400]} />
-        <T style={{ color: "rgba(255,255,255,0.7)", marginTop: space.md, fontSize: 13 }}>
+        <T style={{ color: "rgba(255,255,255,0.7)", marginTop: space.md, fontSize: typeScale.label }}>
           Opening the camera…
         </T>
       </View>

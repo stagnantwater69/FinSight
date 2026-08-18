@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ACCENT, brand, font, ink, paper, radius, space, status, statusText, TAP } from "../theme/tokens";
+import { ACCENT, brand, font, ink, paper, radius, space, status, statusText, TAP, typeScale } from "../theme/tokens";
 import { formatMoney, type AlertKind } from "../lib/money";
 import * as haptics from "../lib/haptics";
 
@@ -53,12 +53,12 @@ type Variant = "titleLg" | "title" | "heading" | "body" | "label" | "caption";
  * the display face stops at `title`.
  */
 const TEXT_VARIANTS: Record<Variant, TextStyle> = {
-  titleLg: { fontFamily: font.displayBold, fontSize: 26, color: brand[900] },
-  title: { fontFamily: font.displayBold, fontSize: 18, color: brand[900] },
-  heading: { fontFamily: font.sansSemibold, fontSize: 15, color: ink[700] },
-  body: { fontFamily: font.sans, fontSize: 15, color: ink[700], lineHeight: 22 },
-  label: { fontFamily: font.sansMedium, fontSize: 13, color: ink[500] },
-  caption: { fontFamily: font.sans, fontSize: 12, color: ink[500] },
+  titleLg: { fontFamily: font.displayBold, fontSize: typeScale.titleLg, color: brand[900] },
+  title: { fontFamily: font.displayBold, fontSize: typeScale.title, color: brand[900] },
+  heading: { fontFamily: font.sansSemibold, fontSize: typeScale.body, color: ink[700] },
+  body: { fontFamily: font.sans, fontSize: typeScale.body, color: ink[700], lineHeight: 22 },
+  label: { fontFamily: font.sansMedium, fontSize: typeScale.label, color: ink[500] },
+  caption: { fontFamily: font.sans, fontSize: typeScale.caption, color: ink[500] },
 };
 
 export function T({
@@ -87,7 +87,7 @@ export function Money({
   // route to formatMoney's decimal and bare forms, which money.test.ts covers.
   decimals = false,
   bare = false,
-  size = 15,
+  size = typeScale.body,
   color = ink[900],
   weight = "medium",
   style,
@@ -161,10 +161,20 @@ export function Button({
         style,
       ]}
     >
+      {/*
+        The label is capped at one line. A button that wraps reads as a broken
+        layout rather than a longer label, and when two sit side by side in a
+        row it drags the whole row taller than its neighbour. Nothing is at
+        risk of being clipped: the longest title in the app measures 213px
+        against a 262px budget on the narrowest screen supported, so the cap
+        only ever catches a label already too long to belong on a button.
+      */}
       {loading ? (
         <ActivityIndicator color={fg} />
       ) : (
-        <Text style={{ fontFamily: font.sansSemibold, fontSize: 15, color: fg }}>{title}</Text>
+        <Text numberOfLines={1} style={{ fontFamily: font.sansSemibold, fontSize: typeScale.body, color: fg }}>
+          {title}
+        </Text>
       )}
     </Pressable>
   );
@@ -279,7 +289,7 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
             // underneath it.
             paddingRight: isPassword && hasText ? 48 : space.md,
             paddingVertical: space.sm,
-            fontSize: 15,
+            fontSize: typeScale.body,
             color: ink[900],
             backgroundColor: paper.DEFAULT,
           }}
@@ -324,8 +334,8 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
           accessibilityLiveRegion="polite"
           style={{ flexDirection: "row", gap: 5, marginTop: 5, alignItems: "flex-start" }}
         >
-          <T style={{ fontSize: 11, color: statusText.critical }}>⚠</T>
-          <T style={{ flex: 1, fontSize: 12, lineHeight: 17, color: statusText.critical }}>{error}</T>
+          <T style={{ fontSize: typeScale.micro, color: statusText.critical }}>⚠</T>
+          <T style={{ flex: 1, fontSize: typeScale.caption, lineHeight: 17, color: statusText.critical }}>{error}</T>
         </View>
       ) : null}
     </View>
@@ -385,7 +395,7 @@ export function Checkbox({
         {checked ? <Ionicons name="checkmark" size={14} color="#ffffff" /> : null}
       </View>
       <View style={{ flex: 1 }}>
-        <T style={{ fontSize: 14, color: ink[700] }}>{label}</T>
+        <T style={{ fontSize: typeScale.bodySm, color: ink[700] }}>{label}</T>
         {hint ? (
           <T variant="caption" style={{ marginTop: 2 }}>
             {hint}
@@ -479,7 +489,7 @@ export function CategorySelect<Option extends { id: number; name: string }>({
           numberOfLines={1}
           style={{
             flex: 1,
-            fontSize: 14,
+            fontSize: typeScale.bodySm,
             // An unset category is not a placeholder to be styled away — it is
             // the thing standing between the owner and saving, so it is
             // written in the colour the rest of the app uses for "needs you".
@@ -558,7 +568,7 @@ export function SelectChip({
         },
       ]}
     >
-      <T style={{ fontSize: 12, color: selected ? "#fff" : ink[700] }}>{label}</T>
+      <T style={{ fontSize: typeScale.caption, color: selected ? "#fff" : ink[700] }}>{label}</T>
     </Pressable>
   );
 }
@@ -631,7 +641,7 @@ export function SegmentedControl<Value extends string | number>({
             {option.icon ? (
               <Ionicons name={option.icon} size={14} color={selected ? "#fff" : ink[500]} />
             ) : null}
-            <T style={{ fontSize: 13, color: selected ? "#fff" : ink[600] }}>{option.label}</T>
+            <T style={{ fontSize: typeScale.label, color: selected ? "#fff" : ink[600] }}>{option.label}</T>
           </Pressable>
         );
       })}
@@ -747,7 +757,7 @@ export function OptionSheet<Option extends { id: number | string; name: string }
                     backgroundColor: pressed ? paper[100] : isSelected ? brand[50] : paper.DEFAULT,
                   })}
                 >
-                  <T style={{ flex: 1, fontSize: 15, color: isSelected ? brand[900] : ink[800] }}>
+                  <T style={{ flex: 1, fontSize: typeScale.body, color: isSelected ? brand[900] : ink[800] }}>
                     {option.name}
                   </T>
                   {/* A tick as well as the tint — never colour alone. */}
@@ -922,7 +932,7 @@ export function ConfirmSheet({
             {title}
           </T>
           {body ? (
-            <T style={{ fontSize: 14, color: ink[600], textAlign: "center", marginTop: 6, lineHeight: 20 }}>
+            <T style={{ fontSize: typeScale.bodySm, color: ink[600], textAlign: "center", marginTop: 6, lineHeight: 20 }}>
               {body}
             </T>
           ) : null}
@@ -1021,13 +1031,13 @@ export function Alert({
       <View style={styles.alertBody}>
         <View style={{ flexDirection: "row", gap: space.sm }}>
           <View style={[styles.glyph, { backgroundColor: spec.ink }]}>
-            <Text style={{ color: "#fff", fontSize: 11, fontFamily: font.sansSemibold }}>{spec.glyph}</Text>
+            <Text style={{ color: "#fff", fontSize: typeScale.micro, fontFamily: font.sansSemibold }}>{spec.glyph}</Text>
           </View>
           <View style={{ flex: 1 }}>
             <T variant="label" style={{ color: spec.ink, textTransform: "uppercase", letterSpacing: 0.3 }}>
               {label ?? spec.label}
             </T>
-            <T style={{ fontSize: 14, marginTop: 2 }}>{children}</T>
+            <T style={{ fontSize: typeScale.bodySm, marginTop: 2 }}>{children}</T>
             {meta ? <T variant="caption" style={{ marginTop: 2 }}>{meta}</T> : null}
           </View>
         </View>
@@ -1040,7 +1050,7 @@ export function AlertBadge({ kind, label }: { kind: AlertKind; label?: string })
   const spec = ALERT_SPEC[kind];
   return (
     <View style={[styles.badge, { backgroundColor: spec.ink }]}>
-      <Text style={{ color: "#fff", fontSize: 11, fontFamily: font.sansMedium }}>
+      <Text style={{ color: "#fff", fontSize: typeScale.micro, fontFamily: font.sansMedium }}>
         {spec.glyph} {label ?? spec.label}
       </Text>
     </View>
@@ -1079,7 +1089,7 @@ export function EmptyState({
         {title}
       </T>
       {body ? (
-        <T style={{ marginTop: space.sm, textAlign: "center", color: ink[500], fontSize: 14 }}>{body}</T>
+        <T style={{ marginTop: space.sm, textAlign: "center", color: ink[500], fontSize: typeScale.bodySm }}>{body}</T>
       ) : null}
       {action ? <View style={{ marginTop: space.lg, alignSelf: "stretch" }}>{action}</View> : null}
     </Card>
@@ -1092,7 +1102,7 @@ export function SetupProgress({ steps }: { steps: { label: string; done: boolean
   if (done === steps.length) return null;
   return (
     <View style={styles.progress}>
-      <T variant="label" style={{ color: brand[900], fontFamily: font.sansSemibold, fontSize: 14 }}>
+      <T variant="label" style={{ color: brand[900], fontFamily: font.sansSemibold, fontSize: typeScale.bodySm }}>
         {done} of {steps.length} steps to your first insight
       </T>
       <View style={{ flexDirection: "row", gap: 6, marginTop: space.sm }}>
@@ -1105,7 +1115,7 @@ export function SetupProgress({ steps }: { steps: { label: string; done: boolean
       </View>
       <View style={{ marginTop: space.md, gap: 6 }}>
         {steps.map((s) => (
-          <T key={s.label} style={{ fontSize: 13, color: s.done ? ink[400] : ink[700] }}>
+          <T key={s.label} style={{ fontSize: typeScale.label, color: s.done ? ink[400] : ink[700] }}>
             {s.done ? "✓ " : "○ "}
             {s.label}
           </T>
@@ -1152,8 +1162,8 @@ export function Callout({
         padding: space.md,
       }}
     >
-      <Text style={{ color: spec.ink, fontSize: 13, fontFamily: font.sansSemibold }}>{spec.glyph}</Text>
-      <T style={{ flex: 1, fontSize: 13, lineHeight: 19, color: spec.ink }}>{children}</T>
+      <Text style={{ color: spec.ink, fontSize: typeScale.label, fontFamily: font.sansSemibold }}>{spec.glyph}</Text>
+      <T style={{ flex: 1, fontSize: typeScale.label, lineHeight: 19, color: spec.ink }}>{children}</T>
     </View>
   );
 }
@@ -1161,7 +1171,7 @@ export function Callout({
 export function ErrorNote({ children }: { children: ReactNode }) {
   return (
     <View style={styles.errorNote}>
-      <T style={{ color: "#991b1b", fontSize: 14 }}>{children}</T>
+      <T style={{ color: "#991b1b", fontSize: typeScale.bodySm }}>{children}</T>
     </View>
   );
 }

@@ -28,8 +28,9 @@ import { Button, ErrorNote, T } from "./ui";
 import { api, errorMessage } from "../lib/api";
 import * as haptics from "../lib/haptics";
 import { useReducedMotion } from "../lib/useReducedMotion";
-import { brand, font, ink, paper, radius, space, TAP } from "../theme/tokens";
+import { brand, font, ink, paper, radius, space, TAP, typeScale } from "../theme/tokens";
 import type { AIInteraction, AskResponse, InteractionModule } from "../lib/types";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 /**
  * Ask FinSight — a full-screen modal per module.
@@ -295,7 +296,7 @@ export function AskFinSight({
           </View>
 
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <T style={{ color: "#fff", fontFamily: font.sansSemibold, fontSize: 16, flex: 1 }}>✦ {copy.title}</T>
+            <T style={{ color: "#fff", fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg, flex: 1 }}>✦ {copy.title}</T>
             <Pressable
               onPress={close}
               accessibilityRole="button"
@@ -306,7 +307,7 @@ export function AskFinSight({
               <T style={{ color: "#fff", fontSize: 22 }}>×</T>
             </Pressable>
           </View>
-          <T style={{ color: brand[50], fontSize: 12, marginTop: space.sm, lineHeight: 18 }}>{copy.scope}</T>
+          <T style={{ color: brand[50], fontSize: typeScale.caption, marginTop: space.sm, lineHeight: 18 }}>{copy.scope}</T>
         </View>
 
         <KeyboardAvoidingView
@@ -370,7 +371,7 @@ export function AskFinSight({
                           paddingHorizontal: space.md,
                         }}
                       >
-                        <T style={{ color: brand[700], fontSize: 13 }}>{s}</T>
+                        <T style={{ color: brand[700], fontSize: typeScale.label }}>{s}</T>
                       </Pressable>
                     ))}
                   </View>
@@ -401,7 +402,7 @@ export function AskFinSight({
               onChangeText={setInput}
               placeholder="Ask about your numbers…"
               placeholderTextColor={ink[400]}
-              maxLength={500}
+              maxLength={FIELD_LIMITS.aiQuestion}
               onSubmitEditing={() => send(input)}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
@@ -421,7 +422,7 @@ export function AskFinSight({
                 borderColor: inputFocused ? brand[600] : ink[200],
                 borderRadius: radius.full,
                 paddingHorizontal: space.md,
-                fontSize: 15,
+                fontSize: typeScale.body,
                 color: ink[900],
               }}
             />
@@ -448,7 +449,7 @@ function Bubble({ from, children }: { from: "ai" | "user"; children: React.React
           paddingVertical: space.sm,
         }}
       >
-        <T style={{ color: isUser ? "#fff" : ink[700], fontSize: 14, lineHeight: 20 }}>{children}</T>
+        <T style={{ color: isUser ? "#fff" : ink[700], fontSize: typeScale.bodySm, lineHeight: 20 }}>{children}</T>
       </View>
     </View>
   );

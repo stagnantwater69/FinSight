@@ -10,6 +10,7 @@ import { Card, PageHead } from "../components/ui";
 import { Field, FormError, TextInput } from "../components/Field";
 import { IconArrowRight, IconSearch } from "../components/icons";
 import type { ExpenseCategory } from "../lib/types";
+import { FIELD_LIMITS } from "../lib/fieldLimits";
 
 /**
  * Expense categories.
@@ -156,7 +157,7 @@ export function Categories() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                maxLength={100}
+                maxLength={FIELD_LIMITS.categoryName}
                 autoFocus
                 placeholder="e.g. Rent, Supplies, Utilities"
               />
@@ -165,7 +166,7 @@ export function Categories() {
               <TextInput
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                maxLength={255}
+                maxLength={FIELD_LIMITS.categoryDescription}
                 placeholder="What belongs in here"
               />
             </Field>

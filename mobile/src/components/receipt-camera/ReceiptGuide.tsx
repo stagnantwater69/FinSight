@@ -1,6 +1,6 @@
 import { Image, useWindowDimensions, View } from "react-native";
 import { T } from "../ui";
-import { brand, font } from "../../theme/tokens";
+import { brand, font, typeScale } from "../../theme/tokens";
 import { guideRect, overlapGuideHeight } from "../../lib/receiptCapture";
 
 /**
@@ -124,7 +124,7 @@ export function GuideInstruction({ text }: { text: string }) {
     <T
       style={{
         color: "rgba(255,255,255,0.94)",
-        fontSize: 13,
+        fontSize: typeScale.label,
         lineHeight: 19,
         fontFamily: font.sansMedium,
         textAlign: "center",

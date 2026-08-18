@@ -4,11 +4,18 @@ import * as csvImportService from "../services/csvImport.service";
 import { ApiError } from "../middleware/error.middleware";
 
 const columnMappingSchema = z.object({
-  date: z.string().min(1),
-  description: z.string().min(1),
-  amount: z.string().min(1),
-  category: z.string().min(1).optional(),
-  vendor: z.string().min(1).optional(),
+  date: z.string().min(1).max(255),
+  description: z.string().min(1).max(255),
+  amount: z.string().min(1).max(255),
+  // Capped like every other string in a request body. These are COLUMN NAMES
+  // matched against the uploaded file's header row, not content — an over-long
+  // one would simply fail to match rather than reach a column — but an
+  // unbounded string in a body is an unbounded string, and the neighbouring
+  // corrections schema already caps every one of its fields.
+  category: z.string().min(1).max(255).optional(),
+  vendor: z.string().min(1).max(255).optional(),
+  /** The sale/expense column, for a mixed import using the column strategy. */
+  recordType: z.string().min(1).max(255).optional(),
 });
 
 /**
@@ -47,9 +54,16 @@ function jsonField<T extends z.ZodTypeAny>(name: string, shape: T) {
     .pipe(shape);
 }
 
-const confirmSchema = z.object({
+/*
+ * EXPORTED for the contract tests, the same reason auth.controller.ts exports
+ * its schemas: the clients' `maxLength` attributes are checked against the REAL
+ * rule here rather than against a copy of it.
+ */
+export const confirmSchema = z.object({
   businessProfileId: z.coerce.number().int().positive(),
-  recordType: z.enum(["expense", "sales"]),
+  recordType: z.enum(["expense", "sales", "mixed"]),
+  /** How a "mixed" file says which row is which. See lib/recordTypeDetection.ts. */
+  mixedStrategy: z.enum(["column", "sign"]).optional(),
   title: z.string().min(1).max(150),
   columnMapping: jsonField("columnMapping", columnMappingSchema),
   corrections: jsonField("corrections", correctionsSchema).optional(),
@@ -98,9 +112,25 @@ export async function confirm(req: Request, res: Response) {
     throw new ApiError(400, "columnMapping.category is required for expense imports");
   }
 
+  /*
+   * A mixed file has to say HOW it is mixed, and the two strategies need
+   * different things. Refused here rather than defaulted: guessing a strategy
+   * is guessing which rows are money in and which are money out, and getting
+   * that silently wrong is the one outcome this whole feature must not produce.
+   */
+  if (input.recordType === "mixed") {
+    if (!input.mixedStrategy) {
+      throw new ApiError(400, "mixedStrategy is required when recordType is mixed");
+    }
+    if (input.mixedStrategy === "column" && !input.columnMapping.recordType) {
+      throw new ApiError(400, "columnMapping.recordType is required for the column strategy");
+    }
+  }
+
   const result = await csvImportService.confirmImport(req.user!.id, {
     businessProfileId: input.businessProfileId,
     recordType: input.recordType,
+    mixedStrategy: input.mixedStrategy,
     title: input.title,
     buffer: req.file.buffer,
     originalname: req.file.originalname,

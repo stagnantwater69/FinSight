@@ -13,7 +13,7 @@ import {
 } from "../lib/greetingPlayback";
 import { pickHeadline } from "../lib/homeInsight";
 import { useReducedMotion } from "../lib/useReducedMotion";
-import { brand, font, ink, radius, space, statusText } from "../theme/tokens";
+import { brand, font, ink, radius, space, statusText, typeScale } from "../theme/tokens";
 import type { DashboardSummary } from "../lib/types";
 
 /**
@@ -301,7 +301,7 @@ export function GreetingHero({ summary }: { summary: DashboardSummary | null }) 
             Fin
           </T>
           {headline ? (
-            <T style={{ fontSize: 13, lineHeight: 19, marginTop: 2, color: tone.ink }}>{headline.text}</T>
+            <T style={{ fontSize: typeScale.label, lineHeight: 19, marginTop: 2, color: tone.ink }}>{headline.text}</T>
           ) : (
             /*
               The panel keeps its shape while the figures load rather than

@@ -701,9 +701,13 @@ export function ScanReceipt() {
    * the caller's existing error path then shows the reason and leaves the
    * owner on the picker, which is the same outcome any other failed scan has.
    */
-  async function pollUntilRead(initial: ScanResult): Promise<ScanResult> {
+  async function pollUntilRead(initial: ScanResult, mayRetry = true): Promise<ScanResult> {
     if (initial.processingStatus && initial.processingStatus !== "Processing") {
       if (initial.processingStatus === "Failed") {
+        if (mayRetry) {
+          const { data: retried } = await api.post<ScanResult>(`/records/receipts/${initial.id}/retry`);
+          return pollUntilRead(retried, false);
+        }
         throw new Error(initial.processingError ?? "This receipt could not be read. Try scanning it again.");
       }
       return initial;
@@ -714,15 +718,19 @@ export function ScanReceipt() {
       await new Promise((resolve) => setTimeout(resolve, SCAN_POLL_INTERVAL_MS));
       const { data } = await api.get<ScanResult>(`/records/receipts/${initial.id}`);
       if (data.processingStatus === "Failed") {
+        if (mayRetry) {
+          const { data: retried } = await api.post<ScanResult>(`/records/receipts/${initial.id}/retry`);
+          return pollUntilRead(retried, false);
+        }
         throw new Error(data.processingError ?? "This receipt could not be read. Try scanning it again.");
       }
       if (data.processingStatus === "Complete") return data;
     }
     /*
      * A scan that never finishes is a real possibility, not a hypothetical:
-     * the read runs in the server process, so a restart mid-read strands it on
-     * "Processing" with nothing left to finish it. Giving up with a message
-     * that names the remedy is better than polling forever behind a spinner.
+     * the durable worker may be recovering from a provider outage. Giving up
+     * visibly is better than polling forever behind a spinner; the server
+     * keeps the queued scan and can still finish it after this screen stops.
      */
     throw new Error("This receipt is taking longer than expected to read. Try scanning it again.");
   }

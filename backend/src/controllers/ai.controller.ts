@@ -2,7 +2,13 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import * as aiService from "../services/ai.service";
 
-const askSchema = z.object({
+/*
+ * EXPORTED for the contract tests, the same reason auth.controller.ts exports
+ * its schemas: the clients' `maxLength` attributes are checked against the REAL
+ * rule here rather than against a copy of it, so a widened column cannot leave
+ * a form quietly truncating what the API would have accepted.
+ */
+export const askSchema = z.object({
   businessProfileId: z.number().int().positive(),
   module: z.enum(aiService.INTERACTION_MODULES),
   question: z.string().min(1).max(500),

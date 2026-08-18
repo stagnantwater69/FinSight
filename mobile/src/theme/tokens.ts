@@ -160,6 +160,38 @@ export const font = {
   monoSemibold: "IBMPlexMono_600SemiBold",
 } as const;
 
+/**
+ * Type sizes. `radius` and `space` have been tokens for a long time; type size
+ * was the one dimension still written as a bare number everywhere, which is how
+ * the app drifted to sixteen distinct sizes including 10.5, 11.5, 12.5 and 13.5.
+ *
+ * These names are roles, not a geometric ramp — they were read off what the app
+ * already does rather than invented. `bodySm` is the most-used size in the whole
+ * codebase (33 sites): the supporting copy under a heading, one step below
+ * `body`. It had no variant, which is exactly why it was always a raw 14.
+ *
+ * NOT in here, deliberately:
+ *   - Glyph sizes (the 20 and 22 on `×` close controls, 9 on a page badge).
+ *     Those size an icon, not text, and borrowing a type name for them would
+ *     make the scale mean two things.
+ *   - The receipt-camera overlay's fractional sizes. That text sits on live
+ *     video and was tuned as a set; snapping it to this scale would trade
+ *     legibility where it matters most for tidiness.
+ * Both are flagged by scripts/check-type-tokens.mjs rather than silently
+ * allowed — see the allowlist there.
+ */
+export const typeScale = {
+  axis: 10, // chart axes only; below the floor for anything a user must read
+  micro: 11, // badges, pills, dense chrome
+  caption: 12,
+  label: 13,
+  bodySm: 14,
+  body: 15,
+  bodyLg: 16,
+  title: 18,
+  titleLg: 26,
+} as const;
+
 export const radius = { sm: 8, md: 12, lg: 16, xl: 20, full: 999 } as const;
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 } as const;
 

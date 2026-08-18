@@ -103,6 +103,25 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !API_BASE_URL) {
   );
 }
 
+/**
+ * A throwaway client for the password-reset screen, and nowhere else.
+ *
+ * The token in a reset deep link is a real credential — enough to change the
+ * password on the account — so it must be usable for that one operation and
+ * then be gone. Nothing here persists: the token never reaches the keystore, an
+ * abandoned reset leaves nothing behind, and a session that was already stored
+ * (someone else still signed in on a shared phone) is untouched.
+ */
+export function createRecoveryClient() {
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     // On web (Expo's react-native-web target, used for layout verification)
