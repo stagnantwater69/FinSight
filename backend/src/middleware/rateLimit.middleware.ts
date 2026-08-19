@@ -231,6 +231,20 @@ export const LIMITS = {
   // the edge detection nobody depends on. Same size, same reasoning — one
   // pass over an image already in memory, no OCR, no write.
   EDGE_DETECT_BURST: { name: "edge-detect-burst", limit: 40, windowMs: 60_000 },
+  /*
+   * CSV import. Both endpoints parse an up-to-5MB file in memory, and confirm
+   * additionally writes to Storage and can enqueue tens of thousands of rows —
+   * the second-most expensive request in the product after a receipt scan, and
+   * previously the only expensive one with no limit at all.
+   *
+   * Preview is the looser of the two because it is genuinely iterative: an
+   * owner re-uploads while sorting out which column is which, and that is the
+   * flow working as intended. Confirm is the one that writes, and nobody
+   * legitimately confirms ten imports a minute.
+   */
+  CSV_PREVIEW_BURST: { name: "csv-preview-burst", limit: 20, windowMs: 60_000 },
+  CSV_CONFIRM_BURST: { name: "csv-confirm-burst", limit: 10, windowMs: 60_000 },
+  CSV_CONFIRM_HOURLY: { name: "csv-confirm-hourly", limit: 60, windowMs: 60 * 60_000 },
   ASK_BURST: { name: "ai-ask-burst", limit: 20, windowMs: 60_000 },
   ASK_HOURLY: { name: "ai-ask-hourly", limit: 200, windowMs: 60 * 60_000 },
   SUGGEST_CATEGORY: { name: "ai-suggest-category", limit: 60, windowMs: 60_000 },

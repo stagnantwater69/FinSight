@@ -37,6 +37,25 @@ export async function enqueueExpenseAnalyses(businessProfileId: number, expenseR
   });
 }
 
+/**
+ * One coalesced PROFILE_REFRESH for a single profile, keyed by UTC day.
+ *
+ * Exists for bulk writes — a committed CSV import changes category statistics,
+ * recurring patterns and trends all at once, and waiting for the hourly
+ * scheduler would leave Insights describing the pre-import books for up to an
+ * hour. The daily idempotency key means ten imports in one day still cost one
+ * refresh; the upsert's update arm re-arms a job that already ran today, the
+ * same way enqueueExpenseAnalysis re-arms a completed transaction job.
+ */
+export async function enqueueProfileRefresh(businessProfileId: number, today = utcToday()) {
+  const date = today.toISOString().slice(0, 10);
+  return prisma.analysisJob.upsert({
+    where: { idempotencyKey: `profile:${businessProfileId}:${date}` },
+    create: { businessProfileId, idempotencyKey: `profile:${businessProfileId}:${date}`, kind: AnalysisJobKind.PROFILE_REFRESH },
+    update: { status: AnalysisJobStatus.PENDING, attemptCount: 0, nextAttemptAt: new Date(), lastError: null },
+  });
+}
+
 export async function enqueueDailyProfileAnalyses(today = utcToday()) {
   const profiles = await prisma.businessProfile.findMany({ where: { archivedAt: null }, select: { id: true } });
   const date = today.toISOString().slice(0, 10);
