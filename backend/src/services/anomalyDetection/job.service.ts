@@ -7,6 +7,7 @@ import { detectAmountOutlierForExpense } from "./amountOutlier.service";
 import { detectBehavioralNoveltyForExpense } from "./behavioralNovelty.service";
 import { refreshOwnedCategoryStatistics } from "./categoryStatistics.service";
 import { meetsNotificationSeverity, RUNTIME_DETECTION_CONFIG } from "./config";
+import { refreshIsolationForestFindings } from "./isolationForest.service";
 import { detectNearDuplicateForExpense } from "./nearDuplicate.service";
 import { refreshRecurringPatterns } from "./recurring.service";
 import { refreshTrendFindings } from "./trend.service";
@@ -119,6 +120,14 @@ async function processJob(job: ClaimedJob) {
   await refreshOwnedCategoryStatistics(profile.userId, job.businessProfileId);
   await refreshRecurringPatterns(profile.userId, job.businessProfileId, RUNTIME_DETECTION_CONFIG);
   await refreshTrendFindings(profile.userId, job.businessProfileId, utcToday(), RUNTIME_DETECTION_CONFIG);
+  // Shadow-only ML pass, last: it reads the same bounded history the refreshers
+  // just summarised, writes only SHADOW findings, and fails open — a dead
+  // sidecar must not fail the job the deterministic refreshers completed.
+  try {
+    await refreshIsolationForestFindings(profile.userId, job.businessProfileId, RUNTIME_DETECTION_CONFIG);
+  } catch (error) {
+    logger.warn({ err: error, businessProfileId: job.businessProfileId }, "isolation forest shadow pass failed");
+  }
 }
 
 export async function runAnalysisWorkerOnce() {

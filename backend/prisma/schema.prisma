@@ -171,6 +171,10 @@ enum AnomalyFindingType {
   RECURRING_CHANGE
   TREND_CHANGE
   BEHAVIORAL_NOVELTY
+  // [ADDED] Multivariate ML detector (Isolation Forest). Its own member rather
+  // than reusing BEHAVIORAL_NOVELTY so summaries and the review queue can
+  // distinguish rule-based from model-based findings.
+  ML_OUTLIER
 
   @@map("AnomalyFindingType")
 }
@@ -189,6 +193,12 @@ enum AnomalyFindingStatus {
   DISMISSED
   RESOLVED
   SUPERSEDED
+  // [ADDED] Shadow-mode findings: persisted for evaluation, invisible to the
+  // owner. OPEN findings are rendered by both clients and injected into Ask
+  // FinSight context, so a detector under evaluation must use a storage-level
+  // state — never a severity trick — to stay silent. Excluded from
+  // listFindings, summaries, notifications, and AI context by construction.
+  SHADOW
 
   @@map("AnomalyFindingStatus")
 }

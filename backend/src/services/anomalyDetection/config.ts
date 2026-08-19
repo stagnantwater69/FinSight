@@ -8,6 +8,8 @@ export interface DetectionFeatureFlags {
   recurring: boolean;
   trends: boolean;
   behavioralNovelty: boolean;
+  /** Shadow-only ML detector — see isolationForest.service.ts. */
+  isolationForest: boolean;
 }
 
 export interface DetectionConfig {
@@ -31,6 +33,7 @@ export const DEFAULT_DETECTION_CONFIG: Readonly<DetectionConfig> = Object.freeze
     recurring: false,
     trends: false,
     behavioralNovelty: false,
+    isolationForest: false,
   }),
   minimumCategoryHistory: 8,
   baselineDays: 365,
@@ -76,5 +79,6 @@ export const RUNTIME_DETECTION_CONFIG = detectionConfig({
     trends: env.ANOMALY_TRENDS_ENABLED,
     behavioralNovelty: env.ANOMALY_BEHAVIORAL_NOVELTY_ENABLED,
     recurring: env.ANOMALY_RECURRING_ENABLED,
+    isolationForest: env.ANOMALY_ISOLATION_FOREST_ENABLED,
   },
 });
