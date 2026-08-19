@@ -87,6 +87,8 @@ shadow-mode results have been reviewed; a deploy should ship them all unset.
 | `ANOMALY_TRENDS_ENABLED` | `false` | Findings only |
 | `ANOMALY_BEHAVIORAL_NOVELTY_ENABLED` | `false` | Findings only |
 | `ANOMALY_RECURRING_ENABLED` | `false` | **Not findings-only** — see below |
+| `ANOMALY_ISOLATION_FOREST_ENABLED` | `false` | **Shadow-only findings**; requires the ML worker — see below |
+| `ML_WORKER_URL` | `http://127.0.0.1:8321` | The Python scoring sidecar; only read when the flag above is on |
 
 `ANOMALY_RECURRING_ENABLED` turns on recurring-expense schedule watching: the
 detector tracks expected payment dates for recurring expenses and raises
@@ -103,6 +105,38 @@ multi-cycle catch-up deadlock producing false "missing payment" alarms) still
 being fixed, so enabling it today would notify users about payments they did
 make. Flipping it on is a separate, explicit decision that needs a review of
 shadow-mode output after that fix lands — it is not covered by this runbook.
+
+**The ML worker (Isolation Forest, shadow mode)**
+
+`ANOMALY_ISOLATION_FOREST_ENABLED` runs the Isolation Forest detector in
+SHADOW mode: findings are persisted with status `SHADOW`, which the findings
+API, summaries, notifications, and Ask FinSight context all exclude — nothing
+becomes owner-visible. It exists to accumulate evaluation data (see the
+`shadow` block of `GET /insights/findings/metrics`).
+
+It requires the Python sidecar from `ml/` (setup and pins: `ml/README.md`):
+
+```bash
+python3 -m venv ml/.venv && ml/.venv/bin/pip install -r ml/requirements.txt
+ml/.venv/bin/python ml/worker/server.py --port 8321
+```
+
+- **Health:** `curl -s localhost:8321/health` → `{"status":"ok", ...versions}`.
+- **Resources:** single-threaded scoring, bounded requests (1 MB / 5,000 rows);
+  a 512 MB memory cap and one CPU are comfortable. Bind to localhost or a
+  private network only.
+- **Failure behaviour:** the backend fails OPEN. If the worker is down or slow
+  (5s timeout, circuit breaker), analysis jobs complete on the deterministic
+  detectors and a `ml worker call failed` warning is logged. The worker being
+  down never blocks record creation, imports, or analysis.
+- **Rollback:** unset the flag and restart the backend. The worker can then be
+  stopped; existing SHADOW findings remain as inert evaluation data. No model
+  artifacts exist anywhere (fit-per-request by design), so there is nothing
+  else to clean up.
+- **Promotion out of shadow mode** is a separate release decision gated on the
+  criteria in `docs/ANOMALY-DETECTION-AND-LARGE-CSV-ANALYSIS-STRATEGY.md` §6.3,
+  measured on real shadow data via `ml/experiment/` — not covered by this
+  runbook.
 
 The web build needs `VITE_API_BASE_URL` and the Supabase URL/anon key at
 **build time**, not run time — Vite inlines them. Rebuild to change them.
