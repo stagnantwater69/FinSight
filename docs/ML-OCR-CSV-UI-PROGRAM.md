@@ -35,14 +35,28 @@ Calibrated receipt-confidence bands ("Looks clear" / "Check a few fields" / "Rev
 
 ## Phased plan (rollback point per phase)
 
-| Phase | Scope | Owner | Rollback |
-|---|---|---|---|
-| 0 | Audits, baseline gate, ADRs, worktree checkpoint commit | orchestrator | n/a (read-only + checkpoint) |
-| 1 | **A** — feature contract, sidecar, shadow detector, flag `ANOMALY_ISOLATION_FOREST_ENABLED` (default false), A1 experiment harness + versioned report | ai-ocr-analytics + database | flag off; schema changes additive (enum values) |
-| 2 | **C** — import state machine, idempotent confirm, chunked inserts, calendar date parsing, category uniqueness, storage compensation, cell-limit validation, batch-coalesced analysis | database + backend-api | additive migration; `git revert` of the service change restores the old path |
-| 3 | **B** — provider-enforced response schema + Zod at the boundary, per-field evidence + machine-readable warning codes, provider/model/prompt/schema version recording, verifier gate for high-risk fields, ambiguous-date flag | ai-ocr-analytics | prompt/schema version recorded per scan; revert restores prior extractor |
-| 4 | **D** — unified web review queue with filters + audit expansion + Ask-FinSight "explain this flag"; shared confidence bands both platforms; honest staged progress; mobile CSV three-step parity (mapping, row review, corrections, vendor); crop-handle tap targets | web-frontend + mobile | UI-only; revert per surface |
-| 5 | QA/security sweep (ownership isolation, multipart/HTTP boundaries, failure injection), runbook/docs, final full gates | qa-security + devops-release | n/a |
+| Phase | Scope | Owner | Rollback | Status |
+|---|---|---|---|---|
+| 0 | Audits, baseline gate, ADRs, worktree checkpoint commit | orchestrator | n/a (read-only + checkpoint) | **done** |
+| 1 | **A** — feature contract, sidecar, shadow detector, flag `ANOMALY_ISOLATION_FOREST_ENABLED` (default false), A1 experiment harness + versioned report | ai-ocr-analytics + database | flag off; schema changes additive (enum values) | **done** |
+| 2 | **C** — import state machine, idempotent confirm, chunked inserts, calendar date parsing, category uniqueness, storage compensation, cell-limit validation, batch-coalesced analysis | database + backend-api | additive migration; `git revert` of the service change restores the old path | **done** |
+| 3 | **B** — provider-enforced response schema + Zod at the boundary, per-field evidence + machine-readable warning codes, provider/model/prompt/schema version recording, verifier gate for high-risk fields, ambiguous-date flag | ai-ocr-analytics | prompt/schema version recorded per scan; revert restores prior extractor | **done** |
+| 4 | **D** — unified web review queue with filters + audit expansion + Ask-FinSight "explain this flag"; shared confidence bands both platforms; honest staged progress; mobile CSV three-step parity (mapping, row review, corrections, vendor); crop-handle tap targets | web-frontend + mobile | UI-only; revert per surface | in progress |
+| 5 | QA/security sweep (ownership isolation, multipart/HTTP boundaries, failure injection), runbook/docs, final full gates | qa-security + devops-release | n/a | backend done; final gate pending Phase 4 |
+
+## Backend result (phases 1–3, 5-backend)
+
+Backend suite **929 → 1,032 passing** (+103), 1 environment-skip (the ML wire
+contract test, which skips visibly when `ml/.venv` is absent). Typecheck,
+production build and `prisma validate` green; 3 additive migrations apply to a
+clean database.
+
+New endpoints/flags shipped OFF or backward-compatible:
+`ANOMALY_ISOLATION_FOREST_ENABLED=false`, `ML_WORKER_URL`,
+`GET /records/csv-imports/batches/:id/status`, confirm's optional
+`idempotencyKey`/`dateFormat` (see the Phase-4 shim note in
+`csvImport.controller.ts`), and rate limits on the two CSV endpoints that
+previously had none.
 
 ## Explicitly deferred (not silently skipped)
 
