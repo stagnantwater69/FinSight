@@ -457,7 +457,7 @@ export function Dashboard() {
                   to="/records/flagged"
                   className="flex min-h-tap items-center gap-2 rounded-xl border border-paper-200 px-3.5 text-sm font-semibold text-tone-brand transition hover:border-brand-300 hover:bg-tint-brand"
                 >
-                  Review flagged records
+                  Open your review queue
                   <IconArrowRight className="ml-auto h-4 w-4" />
                 </Link>
               )}
