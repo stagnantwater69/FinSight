@@ -278,16 +278,41 @@ export interface ExpenseBehavior {
 export type AnomalyFindingStatus = "OPEN" | "CONFIRMED" | "DISMISSED" | "RESOLVED" | "SUPERSEDED";
 export type AnomalyFindingFeedback = "CONFIRMED_UNUSUAL" | "EXPECTED_TRANSACTION" | "DUPLICATE" | "INCORRECT_MATCH" | "NO_LONGER_RELEVANT";
 
+/**
+ * The detector types a finding card can be handed.
+ *
+ * ML_OUTLIER is the Isolation Forest detector's own member (ADR-1/ADR-4). It
+ * is listed because the card must render one if it ever arrives, NOT because
+ * one is expected today: that detector writes SHADOW-status findings and
+ * `listFindings` excludes SHADOW server-side, so this client never sees them
+ * until promotion out of shadow is a deliberate release decision.
+ */
+export type AnomalyFindingType =
+  | "AMOUNT_OUTLIER"
+  | "POSSIBLE_DUPLICATE"
+  | "VELOCITY_ANOMALY"
+  | "RECURRING_CHANGE"
+  | "TREND_CHANGE"
+  | "BEHAVIORAL_NOVELTY"
+  | "ML_OUTLIER";
+
 export interface AnomalyFinding {
   id: number;
   expenseRecordId: number | null;
-  type: "AMOUNT_OUTLIER" | "POSSIBLE_DUPLICATE" | "VELOCITY_ANOMALY" | "RECURRING_CHANGE" | "TREND_CHANGE" | "BEHAVIORAL_NOVELTY";
+  type: AnomalyFindingType;
   severity: "LOW" | "MEDIUM" | "HIGH";
+  /**
+   * The detector's own raw number. NEVER the primary cue on screen — ADR-4
+   * forbids showing a model score as the explanation; it only ever breaks a
+   * tie inside `findingSignalStrength`.
+   */
   score: number | null;
   title: string;
   reasons: string[];
   status: AnomalyFindingStatus;
   detectedAt: string;
+  /** What the owner already said about it, when they have said something. */
+  feedback?: AnomalyFindingFeedback | null;
 }
 
 export interface AnomalyFindingPage { items: AnomalyFinding[]; nextCursor: number | null; }

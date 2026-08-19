@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from "react
 import { Ionicons } from "@expo/vector-icons";
 import * as haptics from "../lib/haptics";
 import { useFocusEffect } from "@react-navigation/native";
-import { Alert as AlertBanner, Button, Callout, Card, DropdownPill, EmptyState, ErrorNote, Money, Screen, SegmentedControl, T } from "../components/ui";
+import { Alert as AlertBanner, Button, Callout, Card, DropdownPill, EmptyState, ErrorNote, Money, OptionSheet, Screen, SegmentedControl, T } from "../components/ui";
 import { RecoveryMeter } from "../components/RecoveryMeter";
 import { SkeletonCard } from "../components/Skeleton";
 import { CategoryChange, CategoryComparison, CoverageColumns, SpendTrend } from "../components/charts";
@@ -20,8 +20,11 @@ import {
   recurringAvailability,
   type AgendaGroupKey,
 } from "../lib/recurringAgenda";
+import { SIGNAL_COPY, findingSignalStrength } from "../lib/confidenceBands";
+import { feedbackActions, findingCategory, quickActions, type FeedbackAction } from "../lib/findingFeedback";
 import { ACCENT, brand, font, ink, paper, radius, space, status, statusText, TAP, typeScale } from "../theme/tokens";
 import type {
+  AnomalyFinding,
   AnomalyFindingPage,
   ExpenseBehavior,
   RecoveryInsight,
@@ -507,6 +510,17 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
    * sentence about the button just pressed, not about the list.
    */
   const [patternActionError, setPatternActionError] = useState<string | null>(null);
+  /** Why recording an answer to a finding failed. Same reasoning as above. */
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  /**
+   * The finding whose full answer list is open.
+   *
+   * A phone card carries the two most likely answers as buttons; the other
+   * three live behind "Something else…" in a sheet. Five buttons on a card is
+   * a wall, and dropping the three least likely would put the app back where
+   * it was — with three of five feedback values unreachable.
+   */
+  const [feedbackFor, setFeedbackFor] = useState<AnomalyFinding | null>(null);
 
   /*
    * The confirmation handed back by the recurring-payment form.
@@ -558,12 +572,33 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
     ? [...PERIODS, { label: anchorMonth.label, value: ANCHOR_PERIOD }]
     : PERIODS;
 
-  async function reviewFinding(id: number, confirmed: boolean, duplicate: boolean) {
-    await api.patch(`/insights/findings/${id}/review`, {
-      status: confirmed ? "CONFIRMED" : "DISMISSED",
-      feedback: confirmed ? (duplicate ? "DUPLICATE" : "CONFIRMED_UNUSUAL") : "EXPECTED_TRANSACTION",
-    });
-    await findingState.load();
+  /**
+   * Records what the owner actually said about a finding.
+   *
+   * ONE FUNCTION, FIVE ANSWERS. It used to take two booleans and derive the
+   * feedback from them, which is why only two of the five values were ever
+   * written from a phone: `confirmed ? (duplicate ? "DUPLICATE" :
+   * "CONFIRMED_UNUSUAL") : "EXPECTED_TRANSACTION"`. INCORRECT_MATCH — the most
+   * valuable signal the duplicate detector can get, and a different fact from
+   * "this is normal for me" — had no path at all. The status is not a separate
+   * decision either; it follows from the answer (lib/findingFeedback.ts).
+   */
+  async function reviewFinding(id: number, action: FeedbackAction) {
+    setFeedbackError(null);
+    try {
+      await api.patch(`/insights/findings/${id}/review`, {
+        status: action.status,
+        feedback: action.feedback,
+      });
+      haptics.succeeded();
+      // Echoes what they said rather than "Saved" — the list is about to lose
+      // the card, and a confirmation that does not name the answer leaves them
+      // unsure which button they hit.
+      setNotice(action.toast);
+      await findingState.load();
+    } catch (err) {
+      setFeedbackError(errorMessage(err));
+    }
   }
 
   /**
@@ -1070,14 +1105,25 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                 {!findingState.loading && (findingState.data?.items.length ?? 0) === 0 ? (
                   <T variant="caption">No findings need review.</T>
                 ) : null}
+                {feedbackError ? <ErrorNote>{feedbackError}</ErrorNote> : null}
                 <View style={{ gap: space.sm }}>
                   {findingState.data?.items.map((finding) => {
                     /*
                       A duplicate and an unusual amount are different questions
                       with different answers, so they are told apart before they
-                      are read — colour, glyph and the wording of both buttons.
+                      are read — colour, glyph and the wording of the buttons.
                     */
-                    const duplicate = finding.type === "POSSIBLE_DUPLICATE";
+                    const category = findingCategory(finding.type);
+                    const duplicate = category === "duplicate";
+                    /*
+                      How much attention the finding is asking for, in words.
+                      ADR-4: the detector's severity grade and its raw score
+                      are internal, and "HIGH" reads as an accusation — the
+                      band says what the owner should do instead. The score
+                      only ever breaks a tie inside the mapping.
+                    */
+                    const signal = SIGNAL_COPY[findingSignalStrength(finding.severity, finding.score)];
+                    const quick = quickActions(category);
                     return (
                       <View
                         key={finding.id}
@@ -1098,33 +1144,56 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
                             <T style={{ fontSize: typeScale.bodySm, color: ink[900], fontFamily: font.sansSemibold }}>
                               {finding.title}
                             </T>
-                            {finding.reasons.map((reason) => (
-                              <T
-                                key={reason}
-                                variant="caption"
-                                style={{ marginTop: 2, color: duplicate ? statusText.warning : statusText.critical }}
-                              >
-                                {reason}
+                            {/*
+                              The band, in words — never colour alone, and
+                              never the raw score.
+                            */}
+                            <T
+                              style={{
+                                marginTop: 2,
+                                fontSize: typeScale.micro,
+                                fontFamily: font.sansSemibold,
+                                color: signal.tone === "info" ? brand[700] : statusText[signal.tone],
+                              }}
+                            >
+                              {signal.label}
+                            </T>
+                            {/*
+                              WHY, capped at three. The detectors write these
+                              in the owner's own figures; a fourth line is
+                              where a card stops being read.
+                            */}
+                            {finding.reasons.slice(0, 3).map((reason) => (
+                              <T key={reason} variant="caption" style={{ marginTop: 2, color: ink[700] }}>
+                                • {reason}
                               </T>
                             ))}
+                            <T variant="caption" style={{ marginTop: 4 }}>
+                              {signal.detail}
+                            </T>
                           </View>
                         </View>
                         <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.md }}>
-                          <View style={{ flex: 1 }}>
-                            <Button
-                              title={duplicate ? "Duplicate" : "Unusual"}
-                              variant="brand"
-                              onPress={() => void reviewFinding(finding.id, true, duplicate)}
-                            />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Button
-                              title={duplicate ? "Not duplicate" : "Expected"}
-                              variant="secondary"
-                              onPress={() => void reviewFinding(finding.id, false, false)}
-                            />
-                          </View>
+                          {quick.map((action, i) => (
+                            <View key={action.feedback} style={{ flex: 1 }}>
+                              <Button
+                                title={action.label}
+                                variant={i === 0 ? "brand" : "secondary"}
+                                onPress={() => void reviewFinding(finding.id, action)}
+                              />
+                            </View>
+                          ))}
                         </View>
+                        <Pressable
+                          onPress={() => setFeedbackFor(finding)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Other answers for ${finding.title}`}
+                          style={{ minHeight: TAP, justifyContent: "center" }}
+                        >
+                          <T variant="caption" style={{ color: brand[700] }}>
+                            Something else…
+                          </T>
+                        </Pressable>
                       </View>
                     );
                   })}
@@ -1355,6 +1424,34 @@ export function ExpenseBehaviorScreen({ navigation }: any) {
       <AskFinSightFab onPress={() => setAskOpen(true)} />
 
       <AskFinSight visible={askOpen} onClose={() => setAskOpen(false)} businessProfileId={selected.id} module="Expense Insights" />
+
+      {/*
+        All five answers, in one sheet, reached from any finding card. The
+        card's two buttons are the likely ones; this is what makes the other
+        three sayable at all on a phone — and one of them, "Wrong match", is
+        the single most useful thing the duplicate detector can be told.
+
+        The existing OptionSheet rather than a new surface: the app already has
+        one bottom sheet and a second, slightly different one is exactly the
+        drift the chip consolidation exists to prevent.
+      */}
+      <OptionSheet
+        visible={feedbackFor !== null}
+        title="What was this, really?"
+        options={
+          feedbackFor
+            ? feedbackActions(findingCategory(feedbackFor.type)).map((a) => ({ id: a.feedback, name: a.label }))
+            : []
+        }
+        value={feedbackFor?.feedback ?? null}
+        onChoose={(id) => {
+          if (!feedbackFor) return;
+          const action = feedbackActions(findingCategory(feedbackFor.type)).find((a) => a.feedback === id);
+          if (action) void reviewFinding(feedbackFor.id, action);
+        }}
+        onClose={() => setFeedbackFor(null)}
+        emptyText="No answers available."
+      />
     </Screen>
   );
 }

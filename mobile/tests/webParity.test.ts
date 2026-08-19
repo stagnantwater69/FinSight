@@ -1,6 +1,8 @@
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
+import { BAND_COPY, confidenceBand, findingSignalStrength, scanConfidenceBand } from "../src/lib/confidenceBands";
+import { feedbackActions } from "../src/lib/findingFeedback";
 
 /**
  * Every page the website has, the app has — or has a written reason not to.
@@ -168,5 +170,114 @@ describe("web feature parity", () => {
     const registered = mobileScreens();
     expect(registered.has("Privacy"), "Privacy must be readable in the app, not only on the website").toBe(true);
     expect(registered.has("Terms"), "Terms must be readable in the app, not only on the website").toBe(true);
+  });
+});
+
+/**
+ * The two apps must not disagree about how trustworthy a scan is, or about
+ * what an owner just said about a flag.
+ *
+ * WHY THIS IS WORTH A TEST RATHER THAN A COMMENT: it has already happened.
+ * The same OCR percentage drove four different cutoffs — 75 to route a scan to
+ * the vision model, 80 and 60 to colour the web review screen, 75 again for a
+ * single item's amount on both clients — so one receipt could be presented as
+ * fine on a laptop and as suspect on a phone. ADR-4 in
+ * docs/ML-OCR-CSV-UI-PROGRAM.md replaced them with one mapping, and a mapping
+ * COPIED into two apps (which it is, deliberately — see tokens.ts for why the
+ * two projects share no build) is a mapping that will drift again.
+ *
+ * So this imports both implementations and runs them against each other,
+ * rather than checking that a file exists or that a comment says they match.
+ * The `existsSync` guard is only there so that whichever client lands first
+ * does not fail on the other's absence.
+ */
+const WEB_BANDS = join(__dirname, "..", "..", "web", "src", "lib", "confidenceBands.ts");
+const WEB_FINDINGS = join(__dirname, "..", "..", "web", "src", "lib", "findingPresentation.ts");
+
+describe("receipt confidence bands match web", () => {
+  it("uses the three labels ADR-4 fixed for both clients", () => {
+    expect([BAND_COPY.clear.label, BAND_COPY.check.label, BAND_COPY.review.label]).toEqual([
+      "Looks clear",
+      "Check a few fields",
+      "Review carefully",
+    ]);
+  });
+
+  it.skipIf(!existsSync(WEB_BANDS))("agrees with web's band for every reading", async () => {
+    const web = (await import(WEB_BANDS)) as typeof import("../../web/src/lib/confidenceBands");
+
+    const confidences: (number | null | undefined)[] = [null, undefined, 0, 33, 56, 59, 60, 75, 79, 80, 89, 95, 100];
+    const disagreements: string[] = [];
+    for (const confidence of confidences) {
+      for (const visionAssisted of [false, true]) {
+        const mine = confidenceBand({ confidence, visionAssisted });
+        const theirs = web.confidenceBand({ confidence, visionAssisted });
+        if (mine !== theirs) {
+          disagreements.push(`confidence=${confidence} vision=${visionAssisted}: app "${mine}" vs web "${theirs}"`);
+        }
+        // The words matter as much as the band: two clients agreeing on
+        // "check" while calling it different things is the same defect.
+        if (BAND_COPY[mine].label !== web.BAND_COPY[theirs].label) {
+          disagreements.push(`label for ${mine}: app "${BAND_COPY[mine].label}" vs web "${web.BAND_COPY[theirs].label}"`);
+        }
+      }
+    }
+    expect(
+      disagreements,
+      `The same scan would be described differently on the two clients:\n${disagreements.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it.skipIf(!existsSync(WEB_BANDS))("agrees with web's whole-scan cue", async () => {
+    const web = (await import(WEB_BANDS)) as typeof import("../../web/src/lib/confidenceBands");
+    const scans = [
+      { ocrConfidence: 95, items: [{ amountConfidence: 96 }, { amountConfidence: 30 }] },
+      { ocrConfidence: 95, visionAssisted: true, items: [] },
+      { ocrConfidence: null, items: [{ extractedByVision: true }] },
+      { ocrConfidence: 85, items: [{}, {}] },
+    ];
+    for (const scan of scans) {
+      expect(scanConfidenceBand(scan), JSON.stringify(scan)).toBe(web.scanConfidenceBand(scan));
+    }
+  });
+
+  it.skipIf(!existsSync(WEB_BANDS))("agrees with web on how strong a finding's signal is", async () => {
+    const web = (await import(WEB_BANDS)) as typeof import("../../web/src/lib/confidenceBands");
+    for (const severity of ["LOW", "MEDIUM", "HIGH"] as const) {
+      for (const score of [null, 0.1, 0.85, 0.99]) {
+        expect(findingSignalStrength(severity, score), `${severity}/${score}`).toBe(
+          web.findingSignalStrength(severity, score),
+        );
+      }
+    }
+  });
+});
+
+/**
+ * What an owner says about a finding must mean the same thing on both clients.
+ *
+ * This one is not cosmetic: the five feedback values are the labels the
+ * evaluation harness measures detector precision against. If the app writes
+ * DISMISSED where the website writes RESOLVED for the same sentence, the
+ * dataset the thresholds are set from is quietly poisoned — and nothing on
+ * either screen would look wrong.
+ */
+describe("finding feedback matches web", () => {
+  it("makes all five values reachable", () => {
+    for (const category of ["duplicate", "unusual"] as const) {
+      const feedbacks = feedbackActions(category).map((a) => a.feedback);
+      expect(new Set(feedbacks).size).toBe(5);
+      expect(feedbacks).toContain("INCORRECT_MATCH");
+      expect(feedbacks).toContain("NO_LONGER_RELEVANT");
+    }
+  });
+
+  it.skipIf(!existsSync(WEB_FINDINGS))("uses web's labels, statuses and ordering", async () => {
+    const web = (await import(WEB_FINDINGS)) as typeof import("../../web/src/lib/findingPresentation");
+    for (const category of ["duplicate", "unusual"] as const) {
+      const mine = feedbackActions(category).map(({ feedback, status, label }) => ({ feedback, status, label }));
+      const theirs = web.feedbackActions(category).map(({ feedback, status, label }) => ({ feedback, status, label }));
+      expect(mine, `feedback actions for "${category}"`).toEqual(theirs);
+    }
   });
 });

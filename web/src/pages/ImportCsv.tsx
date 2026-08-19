@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { Callout, Card, FormPage, PageHead, Tag } from "../components/ui";
 import { classifyTypeValue, parseSignedAmount, type RowRecordType } from "../lib/recordTypeDetection";
+import { parseCsvDate } from "../lib/csvDates";
 import { Button, ButtonLink } from "../components/Button";
 import { Celebration } from "../components/Confirmation";
 import { Field, FileInput, FormError, SelectInput, TextInput } from "../components/Field";
@@ -139,12 +140,24 @@ const HEADER_SYNONYMS: Record<"date" | "description" | "amount" | "category" | "
  */
 export type RowProblem = { field: MappedField; reason: string } | null;
 
-function problemWith(values: Record<MappedField, string>, needsCategory: boolean): RowProblem {
+function problemWith(
+  values: Record<MappedField, string>,
+  needsCategory: boolean,
+  dateFormat: CsvDateFormat,
+): RowProblem {
   if (!values.Description.trim()) return { field: "Description", reason: "Missing description" };
 
+  /*
+   * Parsed with the shared calendar parser, NOT `new Date(rawDate)`.
+   *
+   * The string constructor guessed month-first, parsed in browser-local time
+   * and rolled Feb 31 over into March — so this check used to pass rows the
+   * server then skipped and flag rows it would have accepted. A preview that
+   * disagrees with the import is worse than no preview: the owner "fixes" a
+   * row that was never wrong. See lib/csvDates.ts.
+   */
   const rawDate = values.Date.trim();
-  const parsed = rawDate ? new Date(rawDate) : null;
-  if (!rawDate || !parsed || Number.isNaN(parsed.getTime())) {
+  if (!rawDate || parseCsvDate(rawDate, dateFormat) === null) {
     return { field: "Date", reason: `Invalid date: "${rawDate}"` };
   }
 
@@ -917,7 +930,14 @@ export function ImportCsv() {
     const values = Object.fromEntries(
       columns.map((c) => [c.field, corrections[rowNumber]?.[c.field] ?? (c.value ? (row[c.value] ?? "") : "")]),
     ) as Record<MappedField, string>;
-    return { rowNumber, values, problem: problemWith(values, recordType === "expense") };
+    return {
+      rowNumber,
+      values,
+      // The owner's stated convention when they were asked for one, otherwise
+      // whatever the server detected from the file itself — the same answer
+      // the import will use, so the two cannot disagree.
+      problem: problemWith(values, recordType === "expense", dateFormat || (preview.detectedDateFormat ?? "iso")),
+    };
   });
   const brokenRows = mappingIsValid ? analysed.filter((r) => r.problem !== null) : [];
   const fixedCount = Object.keys(corrections).length;
