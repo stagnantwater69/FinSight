@@ -55,7 +55,7 @@ const DESTINATIONS: Destination[] = [
   { label: "Scan receipt", to: "/records/receipts/new", section: "Actions", keywords: "ocr photo camera capture" },
   { label: "Import CSV", to: "/records/csv-imports/new", section: "Actions", keywords: "upload spreadsheet excel bulk import file" },
   { label: "Add recurring payment", to: "/insights/recurring-schedules/new", section: "Actions", keywords: "recurring repeat schedule monthly weekly rent salary bill subscription due watch" },
-  { label: "Review flagged records", to: "/records/flagged", section: "Actions", keywords: "duplicates needs review large expense queue" },
+  { label: "Needs review", to: "/records/flagged", section: "Actions", keywords: "flagged duplicates needs review large expense unusual scan issue findings queue" },
   { label: "Expense categories", to: "/records/categories", section: "Management", keywords: "category tags groups organise rent supplies" },
   { label: "Business profile", to: "/business-profiles", section: "Management", keywords: "business shop branch company funds expenses operating days threshold" },
   { label: "All businesses", to: "/business-profiles/all", section: "Management", keywords: "business shop branch switch archive company list compare" },

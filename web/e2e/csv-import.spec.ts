@@ -86,4 +86,12 @@ test("validate, preview and confirm a CSV import", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Import complete" })).toBeVisible();
   await expect(page.getByText("2 records imported")).toBeVisible();
   expect(confirmedFields.raw).toContain('name="recordType"');
+  /*
+   * The replay token has to ride along on every confirm, including retries —
+   * it is what makes a second click return the SAME import instead of a second
+   * copy of the owner's records. Nothing about it is visible in the UI, which
+   * is exactly why it is asserted at the HTTP boundary here as well as in the
+   * component test.
+   */
+  expect(confirmedFields.raw).toContain('name="idempotencyKey"');
 });

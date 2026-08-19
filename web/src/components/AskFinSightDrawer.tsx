@@ -59,6 +59,26 @@ const MODULE_COPY: Record<InteractionModule, ModuleCopy> = {
     greeting:
       'Describe a planned expense in your own words and I\'ll run the real numbers. For example: "What if I spend ₱11,000 on a fridge?"',
   },
+  /*
+    The review queue's "Explain this flag" entry point. The starters are
+    questions about FinSight's own reasoning rather than about the money —
+    this drawer opens from a card the owner is already looking at, and what
+    they want is why it is there. The server's context for this module is the
+    open findings and flagged counts, so every answer is phrasing evidence
+    that already exists rather than judging a record.
+  */
+  "Records Review": {
+    title: "Ask FinSight about this flag",
+    scope:
+      "Scoped to Needs review — I can explain the comparison behind a flag. A flag is never a claim that something is wrong.",
+    starters: [
+      "Why was this flagged?",
+      "What does FinSight compare against?",
+      "How do I stop this being flagged again?",
+    ],
+    greeting:
+      "I can explain why something is in your review queue and what FinSight compared it against. What would you like to know?",
+  },
   "Recovery Target": {
     title: "Ask FinSight about recovery",
     scope: "Scoped to Recovery Target — I can explain today's gap and how the remaining target spreads across your remaining operating days.",

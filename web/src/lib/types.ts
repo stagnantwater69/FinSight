@@ -177,6 +177,45 @@ export interface CsvBatchPreview {
   totalRows: number;
 }
 
+// ============================================================
+// CSV import lifecycle (ADR-3)
+// ============================================================
+
+/** The date conventions the owner may state. "month-name" is detected only —
+ *  a month spelled out cannot be ambiguous, so it is never a choice. */
+export type CsvDateFormat = "iso" | "dmy" | "mdy" | "month-name";
+export type CsvConfirmDateFormat = "iso" | "dmy" | "mdy";
+
+/** How far the server has got WRITING an import — separate from the owner-facing
+ *  review `status`, exactly as receipt scans separate the two. */
+export type CsvProcessingStatus = "PENDING" | "PROCESSING" | "COMPLETE" | "FAILED";
+
+/** GET /records/csv-imports/batches/:batchId/status. Safe to poll — not rate limited. */
+export interface CsvImportStatus {
+  batchId: number;
+  status: string;
+  processingStatus: CsvProcessingStatus;
+  totalRows: number;
+  processedRows: number;
+  importedRows: number;
+  skippedRows: number;
+  flaggedRows: number;
+  /** Which stage failed, when it did: "upload" | "validate" | "insert" | … */
+  failureStage: string | null;
+  /**
+   * Everything the synchronous response reports that isn't an Int column,
+   * accumulated across chunks by the worker so a resumed import still adds up.
+   */
+  resultSummary: {
+    importedExpenses?: number;
+    importedSales?: number;
+    largeExpenseFlagged?: number;
+    uncategorised?: number;
+    skipped?: { row: number; reason: string }[];
+    skippedTruncated?: boolean;
+  } | null;
+}
+
 export interface ExpenseRecordInput {
   businessProfileId: number;
   categoryId: number;
@@ -338,16 +377,44 @@ export interface ExpenseBehavior {
 export type AnomalyFindingStatus = "OPEN" | "CONFIRMED" | "DISMISSED" | "RESOLVED" | "SUPERSEDED";
 export type AnomalyFindingFeedback = "CONFIRMED_UNUSUAL" | "EXPECTED_TRANSACTION" | "DUPLICATE" | "INCORRECT_MATCH" | "NO_LONGER_RELEVANT";
 
+/**
+ * The detector types the review queue can be handed.
+ *
+ * ML_OUTLIER is the Isolation Forest detector's own member (ADR-1/ADR-4). It
+ * is listed here because the queue must render one if it ever arrives, NOT
+ * because one is expected today: that detector writes SHADOW-status findings,
+ * and `listFindings` excludes SHADOW server-side, so this client never sees
+ * them until promotion out of shadow is a deliberate release decision.
+ */
+export type AnomalyFindingType =
+  | "AMOUNT_OUTLIER"
+  | "POSSIBLE_DUPLICATE"
+  | "VELOCITY_ANOMALY"
+  | "RECURRING_CHANGE"
+  | "TREND_CHANGE"
+  | "BEHAVIORAL_NOVELTY"
+  | "ML_OUTLIER";
+
+/** Whatever the detector recorded as evidence. Shapes differ per detector, so
+ *  the queue reads it defensively and never requires a particular key. */
+export type AnomalyFindingMetadata = Record<string, unknown> | null;
+
 export interface AnomalyFinding {
   id: number;
   expenseRecordId: number | null;
-  type: "AMOUNT_OUTLIER" | "POSSIBLE_DUPLICATE" | "VELOCITY_ANOMALY" | "RECURRING_CHANGE" | "TREND_CHANGE" | "BEHAVIORAL_NOVELTY";
+  type: AnomalyFindingType;
   severity: "LOW" | "MEDIUM" | "HIGH";
   score: number | null;
   title: string;
   reasons: string[];
   status: AnomalyFindingStatus;
   detectedAt: string;
+  /** The detector that produced it, e.g. "zscore-iqr". Audit view only. */
+  method?: string;
+  /** The detector's own version string. Audit view only. */
+  detectorVersion?: string;
+  metadata?: AnomalyFindingMetadata;
+  feedback?: AnomalyFindingFeedback | null;
 }
 
 export interface AnomalyFindingPage {
@@ -467,7 +534,18 @@ export interface SpendingImpact {
   resultingFunds: number;
 }
 
-export type InteractionModule = "Expense Insights" | "Spending Impact" | "Recovery Target" | "Dashboard";
+export type InteractionModule =
+  | "Expense Insights"
+  | "Spending Impact"
+  | "Recovery Target"
+  | "Dashboard"
+  /**
+   * The unified review queue's "Explain this flag" entry point. The server
+   * builds its context from the owner's OPEN findings and flagged-record
+   * counts (aiContext.service.ts) — bounded, already-calculated evidence, so
+   * the model phrases what FinSight found rather than judging records itself.
+   */
+  | "Records Review";
 
 export interface AIInteraction {
   id: number;

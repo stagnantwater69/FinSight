@@ -991,21 +991,46 @@ export function ExpenseInsight() {
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-500">
                       {finding.reasons.map((reason) => <li key={reason}>{reason}</li>)}
                     </ul>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button type="button" className="rounded-lg bg-brand-700 px-3 py-2 text-xs font-semibold text-white"
-                        onClick={() => void reviewFinding(finding.id, "CONFIRMED", finding.type === "POSSIBLE_DUPLICATE" ? "DUPLICATE" : "CONFIRMED_UNUSUAL")}>
+                    {/*
+                      Button primitives, not hand-rolled ones. These two were
+                      the last raw <button>s carrying their own colour classes:
+                      they missed the 44px tap floor every other button in the
+                      app clears, and one of them named an `edge` step that
+                      generates no CSS at all, so it silently fell back to
+                      Tailwind's hard-coded #e5e7eb — a fixed grey that ignores
+                      the theme and is wrong in Dark.
+
+                      Only two of the five feedback values are reachable here,
+                      on purpose: this panel is a SUMMARY beside the expense
+                      figures, and the full set of answers (including "wrong
+                      match", the one the duplicate detector most needs) lives
+                      on the review queue, which the link below leads to.
+                    */}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void reviewFinding(finding.id, "CONFIRMED", finding.type === "POSSIBLE_DUPLICATE" ? "DUPLICATE" : "CONFIRMED_UNUSUAL")}
+                      >
                         Confirm
-                      </button>
-                      {/* border-paper-200. The class that used to be here named
-                          a "subtle" step on the `edge` token, which defines only
-                          brand/accent/danger/info/neutral — so it generated no
-                          CSS at all and the element fell back to Tailwind's
-                          hard-coded #e5e7eb: a fixed grey that does not follow
-                          the theme and is wrong in Dark. */}
-                      <button type="button" className="rounded-lg border border-paper-200 px-3 py-2 text-xs font-semibold text-ink-600"
-                        onClick={() => void reviewFinding(finding.id, "DISMISSED", "EXPECTED_TRANSACTION")}>
+                        <span className="sr-only"> — {finding.title}</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void reviewFinding(finding.id, "DISMISSED", "EXPECTED_TRANSACTION")}
+                      >
                         Expected / dismiss
-                      </button>
+                        <span className="sr-only"> — {finding.title}</span>
+                      </Button>
+                      <Link
+                        to="/records/flagged"
+                        className="tap-inline text-xs font-medium text-brand-700 underline-offset-2 hover:underline"
+                      >
+                        More options
+                        <span className="sr-only"> for {finding.title}, on the review queue</span>
+                      </Link>
                     </div>
                   </li>
                 ))}
