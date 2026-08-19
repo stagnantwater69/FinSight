@@ -84,6 +84,14 @@ const COVERED: Record<string, string> = {
   "/insights/recovery": "RecoveryTarget",
   "/insights/spending-impact": "SpendingImpact",
   /*
+   * Web splits declaring a repeating payment from editing one; mobile serves
+   * both from a single form keyed on a `scheduleId` route param, the same way
+   * it serves new and existing business profiles from BusinessProfileForm.
+   * The capability is what has to match, not the shape of the URLs.
+   */
+  "/insights/recurring-schedules/new": "RecurringSchedule",
+  "/insights/recurring-schedules/:id/edit": "RecurringSchedule",
+  /*
    * The three-step business setup. On mobile it is not only a stack screen:
    * App.tsx renders it INSTEAD of the tabs when a signed-in owner has no
    * business yet, which is the same automatic entry the web gets from

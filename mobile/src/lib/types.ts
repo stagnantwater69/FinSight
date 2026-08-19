@@ -299,6 +299,54 @@ export interface RecurringPattern {
   category: { name: string };
 }
 
+/**
+ * Where a schedule sits relative to today, as the SERVER computed it.
+ *
+ * Never derived on the client. Web and mobile both group the agenda by this,
+ * and two independent implementations of "is it due soon" drift the moment one
+ * of them is edited — the same bill would then sit under "Due soon" on the
+ * phone and under "Later" on the laptop. One rule, one place, shipped in the
+ * payload.
+ */
+export type RecurringDueState = "OVERDUE" | "DUE_SOON" | "SCHEDULED";
+
+/**
+ * A repeating payment the OWNER declared, as opposed to `RecurringPattern`
+ * above, which is one FinSight noticed and is only ever a candidate to review.
+ *
+ * The distinction is the whole point of the two shapes existing: a pattern is
+ * an inference and carries `confidence`; a schedule is a fact, is editable,
+ * and is what the watchdog actually watches.
+ */
+export interface RecurringSchedule {
+  id: number;
+  businessProfileId: number;
+  categoryId: number;
+  categoryName: string;
+  /** What the owner calls this payment. */
+  label: string;
+  vendor: string | null;
+  intervalDays: number;
+  expectedAmount: number;
+  /** A fraction of the amount, 0..1 — how far it may move before it is a change. */
+  amountTolerance: number;
+  /**
+   * A date-only value. Serialized from a `@db.Date`, so it arrives as
+   * midnight UTC and MUST be rendered with `timeZone: "UTC"` or it shows the
+   * previous day anywhere behind UTC. See lib/recurringAgenda.ts.
+   */
+  nextDueDate: string;
+  /** Detector-maintained tracking only; the owner never sets this. */
+  lastRecordedDate: string | null;
+  /** False means paused — watched by nobody, but not deleted. */
+  isActive: boolean;
+  /** The pattern this was promoted from, when it came from one. Provenance only. */
+  sourcePatternId: number | null;
+  dueState: RecurringDueState;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DailyCoverageRow {
   date: string;
   neededTarget: number;

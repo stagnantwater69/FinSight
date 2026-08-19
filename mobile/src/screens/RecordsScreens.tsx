@@ -2257,7 +2257,11 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                                 onPress={() => removePage(p.key)}
                                 accessibilityRole="button"
                                 accessibilityLabel={`Remove page ${i + 1}`}
-                                hitSlop={8}
+                                // The visible chip stays 22px so it doesn't
+                                // swallow the thumbnail, but hitSlop brings
+                                // the actual tap target up to TAP (44px) —
+                                // 8px was 6px short even with hitSlop.
+                                hitSlop={11}
                                 style={{
                                   position: "absolute",
                                   top: 4,
@@ -2525,7 +2529,10 @@ export function ScanReceiptScreen({ navigation, route }: any) {
                           disabled={removingItemId === item.id}
                           accessibilityRole="button"
                           accessibilityLabel={`Remove ${item.name} — this was not a purchase`}
-                          hitSlop={6}
+                          // 24px visible, but the actual tap target needs to
+                          // clear TAP (44px) — 6px of hitSlop left it 8px
+                          // short.
+                          hitSlop={10}
                           style={{
                             width: 24,
                             height: 24,

@@ -363,8 +363,63 @@ export interface RecurringPattern {
   expectedAmount: number;
   confidence: number;
   nextExpectedDate: string;
-  status: "CANDIDATE" | "CONFIRMED" | "DISMISSED" | "DISABLED";
+  /**
+   * No DISABLED here on purpose. The Prisma enum still carries the value, but
+   * nothing on the server ever writes it and the review endpoint's schema now
+   * rejects it with a 400 — so a client modelling it would be offering a
+   * status the API refuses. Pausing lives on RecurringSchedule.isActive.
+   */
+  status: "CANDIDATE" | "CONFIRMED" | "DISMISSED";
   category: { name: string };
+}
+
+/**
+ * Where a schedule sits relative to today.
+ *
+ * COMPUTED ON THE SERVER (recurringSchedule.service.ts `dueStateOf`) and shipped
+ * in the payload. Web and mobile both group the agenda by this, and two
+ * independent implementations of "is it due soon" drift the moment one is
+ * edited — the same bill would then sit in "Due soon" on the phone and in
+ * "Scheduled" on the laptop. Never recompute it here.
+ */
+export type RecurringDueState = "OVERDUE" | "DUE_SOON" | "SCHEDULED";
+
+/**
+ * An owner-declared repeating payment — "I told FinSight this repeats".
+ *
+ * Distinct from RecurringPattern above, which is the detector's inference —
+ * "FinSight noticed this repeats". A pattern is a candidate to review; a
+ * schedule is editable, pausable, and is what the watchdog actually watches.
+ * Note the pattern type carries no `categoryId`, so it cannot back an edit
+ * form; this one does.
+ */
+export interface RecurringSchedule {
+  id: number;
+  businessProfileId: number;
+  categoryId: number;
+  categoryName: string;
+  /** What the owner calls this payment. */
+  label: string;
+  vendor: string | null;
+  intervalDays: number;
+  expectedAmount: number;
+  /** A fraction of the amount, 0..1 — how far it may move before it is a change. */
+  amountTolerance: number;
+  /**
+   * A date-only value. Serialized from a `@db.Date`, so it arrives as midnight
+   * UTC and MUST be rendered with `timeZone: "UTC"` or it shows the previous
+   * day anywhere behind UTC. See `formatDueDate` in components/RecurringAgenda.
+   */
+  nextDueDate: string;
+  /** Detector-maintained tracking only; the owner never sets this. */
+  lastRecordedDate: string | null;
+  /** False means paused — watched by nobody, but not deleted. */
+  isActive: boolean;
+  /** The RecurringPattern this was promoted from, if any. Provenance only. */
+  sourcePatternId: number | null;
+  dueState: RecurringDueState;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DailyCoverageRow {

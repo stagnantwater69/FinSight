@@ -59,6 +59,7 @@ import {
   RecoveryTargetScreen,
   SpendingImpactScreen,
 } from "./src/screens/InsightsScreens";
+import { RecurringScheduleScreen } from "./src/screens/RecurringScheduleScreen";
 import {
   BusinessProfileFormScreen,
   BusinessProfilesScreen,
@@ -185,6 +186,17 @@ function InsightsStack() {
       <Stack.Screen name="ExpenseBehavior" component={ExpenseBehaviorScreen} />
       <Stack.Screen name="SpendingImpact" component={SpendingImpactScreen} />
       <Stack.Screen name="RecoveryTarget" component={RecoveryTargetScreen} />
+      {/*
+        The one screen in this stack that IS pushed onto something, so it is
+        the one that keeps a header: it has a parent to go back to (the
+        Recurring tab of Expense insight), and without the native header the
+        only way out would be the hardware back button.
+      */}
+      <Stack.Screen
+        name="RecurringSchedule"
+        component={RecurringScheduleScreen}
+        options={{ headerShown: true, title: "Repeating payment" }}
+      />
     </Stack.Navigator>
   );
 }

@@ -51,6 +51,7 @@ const envSchema = z.object({
   ANOMALY_VELOCITY_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   ANOMALY_TRENDS_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   ANOMALY_BEHAVIORAL_NOVELTY_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  ANOMALY_RECURRING_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -182,14 +182,6 @@ export function SpendingImpact() {
             what-if check; nothing is saved.
           </>
         }
-        actions={
-          <AskFinSightButton
-            onClick={() => {
-              setDrawerQuestion(undefined);
-              setDrawerOpen(true);
-            }}
-          />
-        }
       />
 
       <InsightsTabs />
@@ -398,16 +390,17 @@ export function SpendingImpact() {
                   </button>
                 }
               >
-                If you spend <Kw>{formatMoney(data.plannedAmount)}</Kw>
+                If you spend <Kw><span className="figure">{formatMoney(data.plannedAmount)}</span></Kw>
                 {description ? ` on ${description}` : ""}, your available business funds may{" "}
                 {data.funds.after < data.funds.before ? "decrease" : "increase"} from{" "}
-                <Kw>{formatMoney(data.funds.before)}</Kw> to <Kw>{formatMoney(data.funds.after)}</Kw>. This
+                <Kw><span className="figure">{formatMoney(data.funds.before)}</span></Kw> to{" "}
+                <Kw><span className="figure">{formatMoney(data.funds.after)}</span></Kw>. This
                 would use about <Kw>{percentText(data)}</Kw> of your funds — a <Kw>{data.impactBand}</Kw>.{" "}
                 {data.periodExpenses.before > 0 ? (
                   <>
                     If included this period, your recorded expenses may change from{" "}
-                    <Kw>{formatMoney(data.periodExpenses.before)}</Kw> to{" "}
-                    <Kw>{formatMoney(data.periodExpenses.after)}</Kw>.
+                    <Kw><span className="figure">{formatMoney(data.periodExpenses.before)}</span></Kw> to{" "}
+                    <Kw><span className="figure">{formatMoney(data.periodExpenses.after)}</span></Kw>.
                   </>
                 ) : null}
               </AiCard>
@@ -463,6 +456,13 @@ export function SpendingImpact() {
           </Panel>
         </div>
       ) : null}
+
+      <AskFinSightButton
+        onClick={() => {
+          setDrawerQuestion(undefined);
+          setDrawerOpen(true);
+        }}
+      />
 
       <AskFinSightDrawer
         businessProfileId={selected.id}

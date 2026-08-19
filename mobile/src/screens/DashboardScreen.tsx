@@ -62,8 +62,11 @@ function FlowCard({
       style={{
         flex: 1,
         minWidth: 150,
-        backgroundColor: isIn ? brand[50] : "#fef2f2",
-        borderColor: isIn ? brand[200] : "#fecaca",
+        // Outflow washes statusText.critical rather than a standalone red —
+        // same alpha-suffix technique ErrorNote and Button's danger variant
+        // use, so there is one critical scale in the app, not two.
+        backgroundColor: isIn ? brand[50] : statusText.critical + "12",
+        borderColor: isIn ? brand[200] : statusText.critical + "40",
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -290,7 +293,7 @@ export function DashboardScreen({ navigation }: any) {
           ) : (
             <EmptyState
               title="Finish setting up your business"
-              icon="◎"
+              image={require("../../assets/mascot/01-onboarding/emptydashboard.png")}
               body="FinSight needs your business name and a few figures before it can work out your sales target, track your recovery or flag large expenses. Anything you already typed was kept."
               action={
                 <Button

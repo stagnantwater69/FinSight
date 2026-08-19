@@ -74,6 +74,36 @@ misconfigured deploy dies immediately instead of erroring per-request later.
 | `OPENROUTER_API_KEY` | `""` | Fallback for the categoriser |
 | `TESSERACT_LANG` | `eng` | |
 
+**Anomaly-detector feature flags — all default to `false`, leave them alone:**
+
+These are read once at boot into `RUNTIME_DETECTION_CONFIG`
+(`backend/src/services/anomalyDetection/config.ts`). They are staged off until
+shadow-mode results have been reviewed; a deploy should ship them all unset.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `ANOMALY_NEAR_DUPLICATE_ENABLED` | `false` | Findings only |
+| `ANOMALY_VELOCITY_ENABLED` | `false` | Findings only |
+| `ANOMALY_TRENDS_ENABLED` | `false` | Findings only |
+| `ANOMALY_BEHAVIORAL_NOVELTY_ENABLED` | `false` | Findings only |
+| `ANOMALY_RECURRING_ENABLED` | `false` | **Not findings-only** — see below |
+
+`ANOMALY_RECURRING_ENABLED` turns on recurring-expense schedule watching: the
+detector tracks expected payment dates for recurring expenses and raises
+HIGH-severity findings when a scheduled payment has not been recorded. Because
+those findings are HIGH, they clear `notificationMinimumSeverity` and **owner
+notifications start being sent** — messages of the form "X is due 2026-04-01 and
+has not been recorded yet" will begin landing in users' notification feeds the
+first time the job runs after enable. That makes this flag a user-visible
+behaviour change, unlike the four findings-only detectors above, and it is not
+silently reversible: notifications already delivered stay delivered.
+
+Do not enable it as part of a routine deploy. There is an open P1 defect (a
+multi-cycle catch-up deadlock producing false "missing payment" alarms) still
+being fixed, so enabling it today would notify users about payments they did
+make. Flipping it on is a separate, explicit decision that needs a review of
+shadow-mode output after that fix lands — it is not covered by this runbook.
+
 The web build needs `VITE_API_BASE_URL` and the Supabase URL/anon key at
 **build time**, not run time — Vite inlines them. Rebuild to change them.
 

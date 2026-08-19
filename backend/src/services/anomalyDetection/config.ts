@@ -53,6 +53,21 @@ export function detectionConfig(overrides: Partial<DetectionConfig> = {}): Detec
   };
 }
 
+const SEVERITY_RANK = { LOW: 0, MEDIUM: 1, HIGH: 2 } as const;
+
+/**
+ * The notification gate. A finding below `notificationMinimumSeverity` is still
+ * computed and stored — it simply does not interrupt anyone.
+ *
+ * Lives here rather than in a detector so every caller reads the same rule from
+ * the same config object. Lowering `notificationMinimumSeverity` changes the
+ * noise level of every detector at once; raise an individual finding's severity
+ * instead.
+ */
+export function meetsNotificationSeverity(severity: keyof typeof SEVERITY_RANK, config: DetectionConfig): boolean {
+  return SEVERITY_RANK[severity] >= SEVERITY_RANK[config.notificationMinimumSeverity];
+}
+
 export const RUNTIME_DETECTION_CONFIG = detectionConfig({
   featureFlags: {
     ...DEFAULT_DETECTION_CONFIG.featureFlags,
@@ -60,5 +75,6 @@ export const RUNTIME_DETECTION_CONFIG = detectionConfig({
     velocity: env.ANOMALY_VELOCITY_ENABLED,
     trends: env.ANOMALY_TRENDS_ENABLED,
     behavioralNovelty: env.ANOMALY_BEHAVIORAL_NOVELTY_ENABLED,
+    recurring: env.ANOMALY_RECURRING_ENABLED,
   },
 });

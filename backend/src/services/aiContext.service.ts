@@ -15,6 +15,7 @@ import { extractScenario, type ExtractedScenario } from "../lib/scenario";
 import { utcDateKey, utcToday } from "../lib/dates";
 import { getDashboardSummary } from "./dashboard.service";
 import { getExpenseBehavior, getRecoveryInsight, loadRecoveryTargets, simulateSpendingImpact } from "./insights.service";
+import { NOTICEABLE_BAND_FRACTION } from "./analysis.service";
 
 export const INTERACTION_MODULES = ["Expense Insights", "Spending Impact", "Recovery Target", "Dashboard"] as const;
 export type InteractionModule = (typeof INTERACTION_MODULES)[number];
@@ -189,7 +190,7 @@ async function recoveryLines(userId: number, profile: BusinessProfile): Promise<
   return lines;
 }
 
-async function spendingImpactLines(
+export async function spendingImpactLines(
   userId: number,
   profile: BusinessProfile,
   scenario: ExtractedScenario
@@ -201,7 +202,7 @@ async function spendingImpactLines(
       `An expense is treated as High Impact once it exceeds ${Number(
         profile.largeExpenseThresholdPercent
       )}% of available business funds, Noticeable Impact from ${(
-        Number(profile.largeExpenseThresholdPercent) * 0.4
+        Number(profile.largeExpenseThresholdPercent) * NOTICEABLE_BAND_FRACTION
       ).toFixed(1)}% up to that, and Low Impact below.`
     );
     if (scenario.looksLikeScenario) {

@@ -66,13 +66,18 @@ stands despite the softness of the method.
 | Nginx configuration syntax | Passed (`nginx -t` against the real `nginx:1.27-alpine` image) |
 | Playwright browser E2E | One test failed on an ambiguous locator |
 
-The Playwright failure is a test-selector defect, not a login defect, and the
-mechanism is exact: `web/e2e/auth-shell.spec.ts` calls
+The Playwright failure was a test-selector defect, not a login defect, and the
+mechanism was exact: `web/e2e/auth-shell.spec.ts` calls
 `page.getByLabel("Email")`, which matches by **substring** rather than exactly.
-`Login.tsx` contains both a field labelled `"Email"` and a checkbox labelled
-`"Save my email on this device"`, so two elements match and Playwright's strict
-mode refuses to guess. The repair is `getByLabel("Email", { exact: true })` or
-`getByRole("textbox", { name: "Email" })`.
+The failure was caused by `Login.tsx` containing both a field labelled `"Email"`
+and a checkbox labelled `"Save my email on this device"`, so two elements
+matched and Playwright's strict mode refused to guess.
+
+**Status: resolved.** `Login.tsx` now labels the "remember me" control
+`"Remember me"` instead of `"Save my email on this device"`, removing the
+conflicting label. `getByLabel("Email")` is unambiguous again, and
+`e2e/auth-shell.spec.ts` passes (verified 18 August 2026:
+`npx playwright test e2e/auth-shell.spec.ts` → 1 passed).
 
 ## Recently Completed Work
 
@@ -126,8 +131,10 @@ The finished system should be evaluated by intended small-business users. The ev
 
 ### 3. Browser E2E repair and expansion
 
-The existing authentication-shell test needs an exact email-field locator (see
-*Fresh Verification Results* for the precise cause and the one-line repair). Browser coverage should then be expanded to authenticated workflows such as:
+**The email-field locator ambiguity is resolved** (see *Fresh Verification
+Results* for the precise cause and confirmation that `auth-shell.spec.ts` now
+passes). Browser coverage should still be expanded to authenticated workflows
+such as:
 
 - Business-profile creation
 - Manual expense and sales entry
@@ -155,17 +162,25 @@ The current working tree contains a large set of modified and untracked implemen
 - Calibrate edge detection and OCR against more real phone photographs.
 - Add a mobile component-rendering test harness for the custom camera.
 - Improve remaining mobile and web CSV feature parity.
-- Bound CSV import by **row count**, not only by file size. The 5 MB ceiling is
-  not a useful proxy for work: a file of narrow rows (`2026-01-05,Load,120`) is
-  roughly 25 bytes per row, so 5 MB is about 200,000 rows, each becoming an
-  expense record with its own validation, duplicate check and downstream
-  analysis. The same 5 MB of long descriptions is nearer 8,000 rows — a 25×
-  swing in work for an identical file size.
-- Add `maxLength` to the free-text inputs on both clients. The server caps every
-  one of them, so this is not a defect; it is a round trip an owner on a metered
-  connection pays to be told something the form already knew. Currently present
-  on only three inputs per client, and absent from the most-used one — the
-  expense description.
+- **Resolved:** Bound CSV import by **row count**, not only by file size. The
+  5 MB ceiling was not a useful proxy for work: a file of narrow rows
+  (`2026-01-05,Load,120`) is roughly 25 bytes per row, so 5 MB is about 200,000
+  rows, each becoming an expense record with its own validation, duplicate
+  check and downstream analysis. The same 5 MB of long descriptions is nearer
+  8,000 rows — a 25× swing in work for an identical file size.
+  `backend/src/services/csvImport.service.ts` now exports `MAX_IMPORT_ROWS`
+  (30,000), enforced in `parseCsv` before column mapping, with a documented
+  cost model for where the number comes from (verified in code, 18 August
+  2026).
+- **Resolved:** Add `maxLength` to the free-text inputs on both clients. The
+  server caps every one of them, so this was not a defect; it was a round trip
+  an owner on a metered connection paid to be told something the form already
+  knew. `maxLength={FIELD_LIMITS.recordDescription}` (or
+  `categoryDescription`) is now present on all four record forms plus the
+  category form, on both web (`AddExpense.tsx`, `EditExpense.tsx`,
+  `AddSalesRecord.tsx`, `EditSalesRecord.tsx`, `Categories.tsx`) and mobile
+  (`RecordsScreens.tsx`, `CategoriesScreen.tsx`), including the previously
+  uncovered expense description field (verified in code, 18 August 2026).
 - Verify live Gemini and OpenRouter models, quotas, timeouts, and failure handling.
 - Validate AI consent, retention, and third-party data-processing language.
 

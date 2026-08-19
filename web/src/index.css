@@ -693,6 +693,10 @@
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    /* Stagger delays go too — a `fill: both` entrance holds its hidden
+       "from" state for the whole delay, so an element staggered by 200ms
+       would flash invisible even though its animation is instant. */
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;

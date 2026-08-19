@@ -6,7 +6,7 @@ import { utcToday } from "../../lib/dates";
 import { detectAmountOutlierForExpense } from "./amountOutlier.service";
 import { detectBehavioralNoveltyForExpense } from "./behavioralNovelty.service";
 import { refreshOwnedCategoryStatistics } from "./categoryStatistics.service";
-import { RUNTIME_DETECTION_CONFIG } from "./config";
+import { meetsNotificationSeverity, RUNTIME_DETECTION_CONFIG } from "./config";
 import { detectNearDuplicateForExpense } from "./nearDuplicate.service";
 import { refreshRecurringPatterns } from "./recurring.service";
 import { refreshTrendFindings } from "./trend.service";
@@ -17,10 +17,8 @@ const WORKER_ID = `analysis-${process.pid}-${randomUUID().slice(0, 8)}`;
 const LEASE_MS = 5 * 60_000;
 const MAX_ATTEMPTS = 5;
 
-const SEVERITY_RANK = { LOW: 0, MEDIUM: 1, HIGH: 2 } as const;
-function meetsNotificationSeverity(severity: keyof typeof SEVERITY_RANK): boolean {
-  return SEVERITY_RANK[severity] >= SEVERITY_RANK[RUNTIME_DETECTION_CONFIG.notificationMinimumSeverity];
-}
+// Severity gate moved to ./config so the recurring watchdog, which emits from
+// the PROFILE_REFRESH path, applies the identical rule. Behaviour unchanged.
 
 export async function enqueueExpenseAnalysis(businessProfileId: number, expenseRecordId: number) {
   return prisma.analysisJob.upsert({
@@ -102,7 +100,7 @@ async function processJob(job: ClaimedJob) {
     ]);
     const owner = await prisma.businessProfile.findUnique({ where: { id: job.businessProfileId }, select: { userId: true } });
     for (const finding of findings.filter((value): value is NonNullable<typeof value> => value !== null)) {
-      if (!owner || !meetsNotificationSeverity(finding.severity)) continue;
+      if (!owner || !meetsNotificationSeverity(finding.severity, RUNTIME_DETECTION_CONFIG)) continue;
       const message = `${finding.title}: review this transaction in Expense Insights`.slice(0, 255);
       const exists = await prisma.notification.findFirst({
         where: { businessProfileId: job.businessProfileId, expenseRecordId: job.expenseRecordId, type: NOTIFICATION_TYPES.ANOMALY_FINDING, message },
@@ -119,7 +117,7 @@ async function processJob(job: ClaimedJob) {
   const profile = await prisma.businessProfile.findUnique({ where: { id: job.businessProfileId }, select: { userId: true } });
   if (!profile) return;
   await refreshOwnedCategoryStatistics(profile.userId, job.businessProfileId);
-  await refreshRecurringPatterns(profile.userId, job.businessProfileId);
+  await refreshRecurringPatterns(profile.userId, job.businessProfileId, RUNTIME_DETECTION_CONFIG);
   await refreshTrendFindings(profile.userId, job.businessProfileId, utcToday(), RUNTIME_DETECTION_CONFIG);
 }
 
