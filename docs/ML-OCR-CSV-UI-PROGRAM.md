@@ -41,8 +41,25 @@ Calibrated receipt-confidence bands ("Looks clear" / "Check a few fields" / "Rev
 | 1 | **A** — feature contract, sidecar, shadow detector, flag `ANOMALY_ISOLATION_FOREST_ENABLED` (default false), A1 experiment harness + versioned report | ai-ocr-analytics + database | flag off; schema changes additive (enum values) | **done** |
 | 2 | **C** — import state machine, idempotent confirm, chunked inserts, calendar date parsing, category uniqueness, storage compensation, cell-limit validation, batch-coalesced analysis | database + backend-api | additive migration; `git revert` of the service change restores the old path | **done** |
 | 3 | **B** — provider-enforced response schema + Zod at the boundary, per-field evidence + machine-readable warning codes, provider/model/prompt/schema version recording, verifier gate for high-risk fields, ambiguous-date flag | ai-ocr-analytics | prompt/schema version recorded per scan; revert restores prior extractor | **done** |
-| 4 | **D** — unified web review queue with filters + audit expansion + Ask-FinSight "explain this flag"; shared confidence bands both platforms; honest staged progress; mobile CSV three-step parity (mapping, row review, corrections, vendor); crop-handle tap targets | web-frontend + mobile | UI-only; revert per surface | in progress |
-| 5 | QA/security sweep (ownership isolation, multipart/HTTP boundaries, failure injection), runbook/docs, final full gates | qa-security + devops-release | n/a | backend done; final gate pending Phase 4 |
+| 4 | **D** — unified web review queue with filters + audit expansion + Ask-FinSight "explain this flag"; shared confidence bands both platforms; honest staged progress; mobile CSV three-step parity (mapping, row review, corrections, vendor); crop-handle tap targets | web-frontend + mobile | UI-only; revert per surface | **done** |
+| 5 | QA/security sweep (ownership isolation, multipart/HTTP boundaries, failure injection), runbook/docs, final full gates | qa-security + devops-release | n/a | **done** |
+
+## Final gate (all four projects)
+
+| Project | Result |
+|---|---|
+| Backend | 1,032 passed, 1 env-skip (66 files) · typecheck · build · `prisma validate` · 3 migrations apply clean |
+| Web | 254 passed (26 files) · typecheck · lint · build |
+| Mobile | 279 passed (25 files) · typecheck · lint · typography tokens clean |
+| ML worker | 9 passed · plus the TS↔Python wire contract test from the backend suite |
+| **Total** | **1,574 passing** (baseline 1,337, **+237**) |
+
+A defect the program found and fixed on the way: web's CSV row preview still
+ran the banned `new Date(rawDate)`, so it disagreed with the server about
+which rows were broken — flagging valid rows and passing invalid ones. Web,
+mobile and the server now share one calendar parser, and
+`mobile/tests/webParity.test.ts` imports web's actual lib so the two clients
+cannot drift apart again.
 
 ## Backend result (phases 1–3, 5-backend)
 
