@@ -238,6 +238,19 @@ enum AnalysisJobStatus {
   @@map("AnalysisJobStatus")
 }
 
+// [ADDED] CSV import machine progress (ADR-3). Deliberately the same shape as
+// AnalysisJobStatus: PENDING (accepted, not started), PROCESSING (a worker
+// holds the lease), COMPLETE (every stage committed), FAILED (attempts
+// exhausted; failureStage says where).
+enum CsvImportProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
+
+  @@map("CsvImportProcessingStatus")
+}
+
 // [ADDED] The account lifecycle, as an enum rather than the dictionary's free
 // text. User_Status was a VarChar(50) defaulting to 'Active' that nothing ever
 // wrote and only the profile response ever read — so it looked like an access
@@ -350,6 +363,13 @@ model ExpenseCategory {
   recurringPatterns  RecurringPattern[]
   recurringSchedules RecurringSchedule[]
 
+  // [ADDED] Closes the CSV-import category race: two concurrent imports that
+  // both miss the same new name in findMany used to both insert it, leaving
+  // duplicate categories the owner's spending then split across. The service
+  // still matches case-insensitively first; this constraint is the backstop
+  // that turns the race's second insert into a catchable conflict. The
+  // migration merges any pre-existing exact duplicates before adding it.
+  @@unique([businessProfileId, name])
   @@index([businessProfileId])
   @@map("ExpenseCategory")
 }
@@ -621,6 +641,21 @@ model ReceiptScan {
   /// score predicts a wrong answer for that particular field.
   vendorConfidence        Int?      @map("ReceiptScan_VendorConfidence")
   amountConfidence        Int?      @map("ReceiptScan_AmountConfidence")
+  /// [ADDED] Which code read this receipt: provider, model, prompt version,
+  /// response-schema version, parser version, preprocessing version. Null on
+  /// scans read before recording began. Without this, a model or prompt change
+  /// silently changes extraction with no way to attribute a regression.
+  extractorVersions       Json?     @map("ReceiptScan_ExtractorVersions")
+  /// [ADDED] Per-field evidence: for date/vendor/amount, the page number, the
+  /// visible source text the value was read from, the extraction source
+  /// (ocr | vision | owner), and the confidence band. What lets the review
+  /// screen say "read from page 2: 'TOTAL 1,220.00'" instead of a bare number.
+  fieldEvidence           Json?     @map("ReceiptScan_FieldEvidence")
+  /// [ADDED] Machine-readable warning codes (BLURRY_PAGE, AMBIGUOUS_DATE,
+  /// UNEXPLAINED_GAP, VISION_INTERPRETED, ...) with optional field/page
+  /// detail. The clients render prose FROM these; they had already drifted
+  /// apart by hardcoding the prose twice.
+  warnings                Json?     @map("ReceiptScan_Warnings")
   createdAt               DateTime  @default(now()) @map("ReceiptScan_CreatedAt")
 
   businessProfile BusinessProfile?         @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
@@ -706,6 +741,9 @@ model ReceiptScanItem {
   /// How sure the OCR engine was about this line's AMOUNT, 0-100 — the field
   /// the books actually depend on. Null when it was derived rather than read.
   amountConfidence      Int?     @map("ReceiptScanItem_AmountConfidence")
+  /// [ADDED] Per-line evidence mirror of ReceiptScan.fieldEvidence: page
+  /// number and the source line text this item was parsed from, when known.
+  evidence              Json?    @map("ReceiptScanItem_Evidence")
   createdAt             DateTime @default(now()) @map("ReceiptScanItem_CreatedAt")
 
   receiptScan   ReceiptScan      @relation(fields: [receiptScanId], references: [id], onDelete: Cascade)
@@ -804,15 +842,60 @@ model CSVImportBatch {
   businessProfileId Int      @map("BusinessProfile_ID")
   title             String   @map("ImportBatch_Title") @db.VarChar(150)
   uploadDate        DateTime @map("ImportBatch_UploadDate") @db.Date
-  fileReference     String   @map("ImportBatch_FileReference") @db.VarChar(255)
+  /// Nullable since the state machine landed: the batch row is now created
+  /// BEFORE the storage upload (so a failed upload cannot orphan an object
+  /// that nothing references), and the reference is filled in once the upload
+  /// succeeds.
+  fileReference     String?  @map("ImportBatch_FileReference") @db.VarChar(255)
+  /// The OWNER-facing review status ("Needs Review" | "Completed") — kept
+  /// exactly as it was. How far the MACHINE got lives in processingStatus,
+  /// the same separation ReceiptScan documents: "still importing" and
+  /// "imported, awaiting review" need different screens.
   status            String   @default("Needs Review") @map("ImportBatch_Status") @db.VarChar(50)
   createdAt         DateTime @default(now()) @map("ImportBatch_CreatedAt")
+
+  // [ADDED] Import state machine — see docs/ML-OCR-CSV-UI-PROGRAM.md ADR-3.
+  processingStatus CsvImportProcessingStatus @default(PENDING) @map("ImportBatch_ProcessingStatus")
+  /// Client-supplied idempotency key. A retry with the same key returns the
+  /// same logical import at whatever stage it reached — never a second import.
+  idempotencyKey   String?   @unique @map("ImportBatch_IdempotencyKey") @db.VarChar(100)
+  /// sha256 of the uploaded bytes: detects an accidental re-upload of the
+  /// identical file under a different key (surfaced, not blocked).
+  fileHash         String?   @map("ImportBatch_FileHash") @db.VarChar(64)
+  fileSizeBytes    Int?      @map("ImportBatch_FileSizeBytes")
+  totalRows        Int?      @map("ImportBatch_TotalRows")
+  /// Resume checkpoint: rows already validated-and-committed. A reclaimed
+  /// batch continues from here rather than starting over.
+  processedRows    Int       @default(0) @map("ImportBatch_ProcessedRows")
+  importedRows     Int       @default(0) @map("ImportBatch_ImportedRows")
+  skippedRows      Int       @default(0) @map("ImportBatch_SkippedRows")
+  flaggedRows      Int       @default(0) @map("ImportBatch_FlaggedRows")
+  /// Which stage failed ("upload" | "validate" | "insert-expenses" | ...) —
+  /// the difference between a diagnosable failure and a mystery 500.
+  failureStage     String?   @map("ImportBatch_FailureStage") @db.VarChar(50)
+  lastError        String?   @map("ImportBatch_LastError") @db.VarChar(1000)
+  attemptCount     Int       @default(0) @map("ImportBatch_AttemptCount")
+  nextAttemptAt    DateTime  @default(now()) @map("ImportBatch_NextAttemptAt")
+  heartbeatAt      DateTime? @map("ImportBatch_HeartbeatAt")
+  workerId         String?   @map("ImportBatch_WorkerID") @db.VarChar(100)
+  startedAt        DateTime? @map("ImportBatch_StartedAt")
+  completedAt      DateTime? @map("ImportBatch_CompletedAt")
+  /// Everything needed to audit or replay the import: column mapping, record
+  /// type, mixed strategy, detected delimiter/encoding, date format, parser
+  /// version, and the actor. Json because it is write-once provenance, not
+  /// something queried by column.
+  mappingMeta      Json?     @map("ImportBatch_MappingMeta")
+  /// Bounded result evidence: per-row skip/flag reasons (capped), counts by
+  /// record type. What the response body used to carry and then lose.
+  resultSummary    Json?     @map("ImportBatch_ResultSummary")
 
   businessProfile       BusinessProfile        @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
   expenseRecords        ExpenseRecord[]
   salesReferenceRecords SalesReferenceRecord[]
 
   @@index([businessProfileId])
+  // The async-import worker's claim scan, mirroring AnalysisJob's.
+  @@index([processingStatus, nextAttemptAt, heartbeatAt])
   @@map("CSVImportBatch")
 }
 

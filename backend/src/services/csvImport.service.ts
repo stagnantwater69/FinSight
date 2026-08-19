@@ -224,7 +224,7 @@ export async function previewImportBatch(userId: number, batchId: number): Promi
     where: { id: batchId, businessProfile: { userId } },
     select: { fileReference: true },
   });
-  if (!batch) return null;
+  if (!batch?.fileReference) return null;
 
   const buffer = await downloadCsvFile(batch.fileReference);
   if (!buffer) return null;

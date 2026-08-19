@@ -392,7 +392,7 @@ type RecordWithOrigin = ExpenseRecord & {
     id: number;
     title: string;
     uploadDate: Date;
-    fileReference: string;
+    fileReference: string | null;
     status: string;
   } | null;
 };
@@ -480,7 +480,7 @@ async function buildOrigin(record: RecordWithOrigin) {
        * link cannot be minted, which the panel reads as "no file to offer"
        * rather than as an error.
        */
-      fileUrl: await signedCsvFileUrl(record.importBatch.fileReference),
+      fileUrl: record.importBatch.fileReference ? await signedCsvFileUrl(record.importBatch.fileReference) : null,
       status: record.importBatch.status,
       rowCount,
     };
