@@ -25,6 +25,16 @@ export interface StoredTour {
   status: TourStatus;
   /** Index into TOUR_STEPS, saved so an interrupted tour can resume. */
   step?: number;
+  /**
+   * Replay the tour on EVERY sign-in, ignoring a completed/skipped status.
+   *
+   * The tour is otherwise a once-per-account thing, which makes it almost
+   * impossible to show to anyone: demonstrating it meant registering a new
+   * account, and checking a change to it meant clearing storage by hand. This
+   * flag is the supported way to keep it on — set from Profile, and left
+   * alone by `stop()` so finishing the tour does not quietly switch it off.
+   */
+  alwaysShow?: boolean;
 }
 
 const KEY_PREFIX = "finsight.tour.";
@@ -38,21 +48,25 @@ function keyFor(userId: number) {
 export function readTour(userId: number): StoredTour {
   try {
     const raw = window.localStorage.getItem(keyFor(userId));
-    if (!raw) return { status: "not_started" };
+    if (!raw) return { status: "not_started", alwaysShow: false };
     const parsed = JSON.parse(raw) as unknown;
     if (
       parsed &&
       typeof parsed === "object" &&
       STATUSES.includes((parsed as StoredTour).status)
     ) {
-      const { status, step } = parsed as StoredTour;
-      return { status, step: typeof step === "number" && step >= 0 ? step : undefined };
+      const { status, step, alwaysShow } = parsed as StoredTour;
+      return {
+        status,
+        step: typeof step === "number" && step >= 0 ? step : undefined,
+        alwaysShow: alwaysShow === true,
+      };
     }
-    return { status: "not_started" };
+    return { status: "not_started", alwaysShow: false };
   } catch {
     // Unreadable storage reads as "never seen the tour". The auto-start gate
     // still requires a loaded dashboard, so the worst case is an extra offer.
-    return { status: "not_started" };
+    return { status: "not_started", alwaysShow: false };
   }
 }
 
@@ -62,4 +76,15 @@ export function writeTour(userId: number, value: StoredTour) {
   } catch {
     // Intentionally ignored — see module comment.
   }
+}
+
+/**
+ * Flips the replay preference without disturbing progress.
+ *
+ * Read-modify-write rather than a whole-object write, because the caller is a
+ * settings screen that knows nothing about which step the tour reached — and
+ * overwriting `step` from there would silently restart an interrupted tour.
+ */
+export function setAlwaysShowTour(userId: number, alwaysShow: boolean) {
+  writeTour(userId, { ...readTour(userId), alwaysShow });
 }

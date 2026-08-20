@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { useBusinessProfiles } from "./BusinessProfileContext";
-import { readTour, writeTour } from "../lib/tourStorage";
+import { readTour, setAlwaysShowTour, writeTour } from "../lib/tourStorage";
 import { TOUR_STEPS } from "../components/tour/steps";
 import { TourOverlay } from "../components/tour/TourOverlay";
 
@@ -43,6 +43,9 @@ interface TourContextValue {
   stop: (status: "completed" | "skipped") => void;
   /** Rewinds to step 0 and (re)arms auto-start — the account-menu entry. */
   restart: () => void;
+  /** Replay on every sign-in, regardless of a completed/skipped status. */
+  alwaysShow: boolean;
+  setAlwaysShow: (value: boolean) => void;
 }
 
 /** Exported for tests/harnesses that drive the overlay with a hand-built value. */
@@ -60,15 +63,33 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const [active, setActive] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
+  /*
+   * Mirrored into state so the settings toggle re-renders from the same
+   * source the gate reads. Seeded per user, because the stored value is
+   * per user — a shared computer must not carry one owner's demo setting
+   * into the next owner's session.
+   */
+  const [alwaysShow, setAlwaysShowState] = useState(false);
 
   const userId = profile?.id;
   const onDashboard = location.pathname === "/dashboard";
 
-  // Persist progress on every change while active, so any interruption —
-  // reload, crash, navigation — resumes from the right step.
   useEffect(() => {
-    if (active && userId != null) writeTour(userId, { status: "in_progress", step: stepIndex });
-  }, [active, stepIndex, userId]);
+    setAlwaysShowState(userId == null ? false : readTour(userId).alwaysShow === true);
+  }, [userId]);
+
+  function setAlwaysShow(value: boolean) {
+    setAlwaysShowState(value);
+    if (userId != null) setAlwaysShowTour(userId, value);
+  }
+
+  // Persist progress on every change while active, so any interruption —
+  // reload, crash, navigation — resumes from the right step. `alwaysShow`
+  // rides along on every write below: it is a preference, not progress, and
+  // finishing or skipping the tour must never turn it off behind the owner.
+  useEffect(() => {
+    if (active && userId != null) writeTour(userId, { status: "in_progress", step: stepIndex, alwaysShow });
+  }, [active, stepIndex, userId, alwaysShow]);
 
   // Leaving the dashboard pauses the tour (status stays in_progress). The
   // targets live on that page and its chrome; a tooltip pointing at nothing
@@ -83,7 +104,10 @@ export function TourProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (active || !onDashboard || userId == null || loading || !selected) return;
     const stored = readTour(userId);
-    if (stored.status === "completed" || stored.status === "skipped") return;
+    // `alwaysShow` is the deliberate override: it exists so the tour can be
+    // demonstrated and re-checked without registering a new account, which is
+    // otherwise the only way past a terminal status.
+    if (!stored.alwaysShow && (stored.status === "completed" || stored.status === "skipped")) return;
 
     let tries = 0;
     const timer = window.setInterval(() => {
@@ -103,12 +127,12 @@ export function TourProvider({ children }: { children: ReactNode }) {
   }, [active, onDashboard, userId, loading, selected]);
 
   function stop(status: "completed" | "skipped") {
-    if (userId != null) writeTour(userId, { status, step: stepIndex });
+    if (userId != null) writeTour(userId, { status, step: stepIndex, alwaysShow });
     setActive(false);
   }
 
   function restart() {
-    if (userId != null) writeTour(userId, { status: "in_progress", step: 0 });
+    if (userId != null) writeTour(userId, { status: "in_progress", step: 0, alwaysShow });
     setStepIndex(0);
     // On the dashboard the auto-start effect would race the loaded marker;
     // activate directly when it is already there. Elsewhere the caller
@@ -127,6 +151,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
     setStepIndex,
     stop,
     restart,
+    alwaysShow,
+    setAlwaysShow,
   };
 
   return (
