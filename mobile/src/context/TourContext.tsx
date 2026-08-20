@@ -1,12 +1,5 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useAuth } from "./AuthContext";
 import { useBusinessProfiles } from "./BusinessProfileContext";
@@ -20,6 +13,20 @@ import { resumeStepIndex, shouldStartTour } from "../lib/tourGating";
 import { nextStepIndex, previousStepIndex, TOUR_STEPS } from "../components/tour/steps";
 import { stepIsOnScreen } from "../components/tour/targets";
 import { TourOverlay } from "../components/tour/TourOverlay";
+import {
+  TourContext,
+  useTourOptional,
+  type TourContextValue,
+  type TourHomeStage as HomeStage,
+} from "./tourContextValue";
+
+/*
+ * Re-exported so the several screens that read the tour keep importing it from
+ * the provider they think of it as belonging to. The context object itself
+ * lives in tourContextValue.ts to keep this file and TourOverlay off each
+ * other's import path — see the note there.
+ */
+export { useTourOptional };
 
 /**
  * The product tour's one owner.
@@ -57,40 +64,6 @@ import { TourOverlay } from "../components/tour/TourOverlay";
  * `in_progress` with its step and resumes there. completed and skipped are
  * terminal until Restart, or until "Always show the tour on login" is on.
  */
-
-interface HomeStage {
-  onHomeTab: boolean;
-  dashboardLoaded: boolean;
-}
-
-interface TourContextValue {
-  active: boolean;
-  stepIndex: number;
-  /** id of the current step, or null when no tour is running. */
-  activeStepId: string | null;
-  /** Forward over the steps whose targets are on screen; finishes at the end. */
-  next: () => void;
-  /** Backward over the same set; a no-op on the first eligible step. */
-  back: () => void;
-  stop: (status: "completed" | "skipped") => void;
-  /** Rewind to step 0 and re-arm the start gate — the More screen's entry. */
-  restart: () => void;
-  alwaysShow: boolean;
-  setAlwaysShow: (value: boolean) => void;
-  /** Home tells the provider when it is focused and its summary has landed. */
-  reportHomeStage: (stage: HomeStage) => void;
-}
-
-const TourContext = createContext<TourContextValue | null>(null);
-
-/**
- * Null-safe consumer. The provider only exists inside the signed-in navigator,
- * and several of the components that read it (the More screen, Home) are also
- * reachable in states where it does not — so nothing here may assume it.
- */
-export function useTourOptional() {
-  return useContext(TourContext);
-}
 
 export function TourProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
@@ -218,10 +191,32 @@ export function TourProvider({ children }: { children: ReactNode }) {
     reportHomeStage,
   };
 
+  /*
+   * The wrapping View is what the overlay is absolutely positioned against.
+   * The overlay used to be a Modal — a separate native window, whose origin
+   * differs from the app's by a status bar on Android, which is why every
+   * spotlight was drawn above the control it described. In the app's own tree
+   * it shares one coordinate space with everything it points at.
+   */
   return (
     <TourContext.Provider value={value}>
-      {children}
-      {active ? <TourOverlay /> : null}
+      <View style={{ flex: 1 }}>
+        {/*
+          While a step is up the app underneath is hidden from screen readers,
+          which is the half of "modal" that the overlay cannot get back by
+          drawing over things: TalkBack would otherwise walk straight past the
+          card into the dimmed dashboard behind it. `accessibilityElementsHidden`
+          is the iOS half, `importantForAccessibility` the Android one.
+        */}
+        <View
+          style={{ flex: 1 }}
+          accessibilityElementsHidden={active}
+          importantForAccessibility={active ? "no-hide-descendants" : "auto"}
+        >
+          {children}
+        </View>
+        {active ? <TourOverlay /> : null}
+      </View>
     </TourContext.Provider>
   );
 }

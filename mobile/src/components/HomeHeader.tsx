@@ -73,8 +73,8 @@ export function HomeHeader({
    * them costs a ref and `collapsable: false`; nothing else about either
    * control changes, and neither knows the tour exists beyond the key.
    */
-  const switcherTourTarget = useTourTarget("business-switcher");
-  const bellTourTarget = useTourTarget("notifications");
+  const switcherTourTarget = useTourTarget("business-switcher", { scrolls: true });
+  const bellTourTarget = useTourTarget("notifications", { scrolls: true, radius: radius.full });
 
   return (
     <View>

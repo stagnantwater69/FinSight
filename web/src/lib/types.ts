@@ -534,6 +534,63 @@ export interface SpendingImpact {
   resultingFunds: number;
 }
 
+/**
+ * Spending Impact's read of the ITEM, alongside its read of the money.
+ *
+ * `kind` is the bookkeeping question in the owner's language rather than an
+ * accountant's: something the business keeps and uses, or something used up
+ * that has to be bought again. `questions` are for the owner to answer — the
+ * server refuses any answer that crosses from asking into advising, so a card
+ * that renders is a card that only describes and asks. See
+ * backend/src/services/ai.service.ts.
+ */
+export type PurchaseKind = "asset" | "running-cost" | "mixed" | "unclear";
+
+export interface PurchaseReview {
+  kind: PurchaseKind;
+  kindReason: string;
+  businessUse: string;
+  ongoingCosts: string | null;
+  /**
+   * What to CHECK about the price — never what the price should be. The server
+   * drops anything that names a figure or calls the amount fair, cheap or
+   * steep: FinSight has no price feed, and the "is this normal for me" half is
+   * answered by `PurchasePriceContext` below, from the owner's own records.
+   */
+  priceCheck: string | null;
+  questions: string[];
+}
+
+/**
+ * The planned amount against what this owner has actually paid.
+ *
+ * Every figure here is arithmetic over their own expense records — no model
+ * sees them and no model produces them, which is why this half of the answer
+ * still stands when the AI is unreachable.
+ */
+export type PriceComparison = "no-history" | "no-amount" | "below" | "in-line" | "above" | "far-above";
+
+export interface SimilarPurchase {
+  description: string;
+  amount: number;
+  date: string;
+  categoryName: string;
+}
+
+export interface PurchasePriceContext {
+  categoryId: number | null;
+  categoryName: string | null;
+  recordCount: number;
+  /** The median, which one outlier cannot drag around. */
+  typicalAmount: number | null;
+  smallestAmount: number | null;
+  largestAmount: number | null;
+  multipleOfTypical: number | null;
+  comparison: PriceComparison;
+  similar: SimilarPurchase[];
+  windowDays: number;
+}
+
 export type InteractionModule =
   | "Expense Insights"
   | "Spending Impact"

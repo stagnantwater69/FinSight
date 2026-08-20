@@ -273,13 +273,42 @@ describe("receipt confidence bands match web", () => {
 const WEB_TOUR_STEPS = join(__dirname, "..", "..", "web", "src", "components", "tour", "steps.tsx");
 const WEB_TOUR_CONTEXT = join(__dirname, "..", "..", "web", "src", "context", "TourContext.tsx");
 
+/**
+ * THE SECOND DELIBERATE DIVERGENCE (the first is the always-show preference,
+ * pinned at the bottom of this file).
+ *
+ * The phone teaches two actions inside the "+" menu that web's sidebar
+ * Quick-add does not need explained: web's menu is a labelled list on a screen
+ * an owner can read at leisure, the phone's is a ring of unlabelled circles
+ * that appears and disappears with the step. Recording money by hand is also
+ * the only route in for an owner with no receipt and no spreadsheet.
+ *
+ * Listed here rather than allowed as "any extra step", so a step that drifts
+ * onto one client by accident still fails this file.
+ */
+const MOBILE_ONLY_STEPS = ["manual-entry", "sales-reference"];
+
 describe("product tour matches web", () => {
-  it.skipIf(!existsSync(WEB_TOUR_STEPS))("walks the same steps in the same order", async () => {
+  it.skipIf(!existsSync(WEB_TOUR_STEPS))("walks web's steps in web's order", async () => {
     const web = (await import(WEB_TOUR_STEPS)) as typeof import("../../web/src/components/tour/steps");
+    const shared = TOUR_STEPS.map((s) => s.id).filter((id) => !MOBILE_ONLY_STEPS.includes(id));
     expect(
-      TOUR_STEPS.map((s) => s.id),
+      shared,
       "Every one of web's ten steps names a feature the app has too — see steps.ts for how each target was re-pointed",
     ).toEqual(web.TOUR_STEPS.map((s) => s.id));
+  });
+
+  it.skipIf(!existsSync(WEB_TOUR_STEPS))("adds only the quick-add steps on top of them", async () => {
+    const web = (await import(WEB_TOUR_STEPS)) as typeof import("../../web/src/components/tour/steps");
+    const webIds = new Set(web.TOUR_STEPS.map((s) => s.id));
+    const extra = TOUR_STEPS.map((s) => s.id).filter((id) => !webIds.has(id));
+    expect(extra, "A step exists on the phone that web has never heard of").toEqual(
+      MOBILE_ONLY_STEPS,
+    );
+    // And they are taught where the divergence is justified: inside the menu.
+    for (const id of MOBILE_ONLY_STEPS) {
+      expect(TOUR_STEPS.find((s) => s.id === id)?.requiresQuickAdd).toBe(true);
+    }
   });
 
   it.skipIf(!existsSync(WEB_TOUR_STEPS))("says the same thing on every step", async () => {

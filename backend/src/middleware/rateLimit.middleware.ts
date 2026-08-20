@@ -249,6 +249,16 @@ export const LIMITS = {
   ASK_HOURLY: { name: "ai-ask-hourly", limit: 200, windowMs: 60 * 60_000 },
   SUGGEST_CATEGORY: { name: "ai-suggest-category", limit: 60, windowMs: 60_000 },
   /*
+   * PURCHASE_REVIEW: Spending Impact's "what is this thing, and what should I
+   * be asking about it" call. Pressed deliberately, one item at a time, and
+   * read before the next one — so it is nowhere near as chatty as
+   * SUGGEST_CATEGORY, which fires from a typing debounce. Sized for someone
+   * comparing a handful of options in one sitting, with an hourly cap because
+   * it is a billed model call and the button is easy to hold down.
+   */
+  PURCHASE_REVIEW_BURST: { name: "ai-purchase-review-burst", limit: 12, windowMs: 60_000 },
+  PURCHASE_REVIEW_HOURLY: { name: "ai-purchase-review-hourly", limit: 120, windowMs: 60 * 60_000 },
+  /*
    * THE AUTH LIMITS COME IN PAIRS, and the pairing is the point.
    *
    * The IP half bounds how much one origin can attempt. The EMAIL half bounds

@@ -7,9 +7,9 @@ import type { Ionicons } from "@expo/vector-icons";
  * TourOverlay walks this list; nothing else in the app knows the steps exist,
  * so adding, removing or reordering one is an edit to this file alone.
  *
- * THE SAME TEN STEPS AS WEB (web/src/components/tour/steps.tsx), in the same
- * order, saying the same things. Every one of the ten features exists on the
- * phone — checked against the screens, not assumed — so none was dropped. What
+ * WEB'S TEN STEPS, in web's order, saying the same things (tests/webParity
+ * pins both) — PLUS TWO the phone adds. Every one of web's ten features exists
+ * here — checked against the screens, not assumed — so none was dropped. What
  * changed is WHERE each step points, because the two apps put the same feature
  * in different places:
  *
@@ -17,13 +17,29 @@ import type { Ionicons } from "@expo/vector-icons";
  *     the business switcher in Home's header.
  *   - records / insights: web points at sidebar links, the phone at the tab
  *     bar items that reach the same screens.
- *   - receipt-scanner: web opens its Quick-add menu and points inside it. The
- *     phone's equivalent is the raised "+" in the tab bar, which IS the
- *     quick-add — so the button is the target and there is no menu to hold
- *     open (web's `requiresQuickAdd` has no counterpart here).
- *   - csv-import: pointed at Home's "Import CSV" quick action rather than at
- *     the "+" again. Importing is reachable from both, and two steps in a row
- *     spotlighting the same button reads as a tour that has got stuck.
+ *   - receipt-scanner / csv-import: web opens its Quick-add menu and points at
+ *     the item inside it. The phone does the same — `requiresQuickAdd` holds
+ *     the raised "+" menu open (App.tsx watches `activeStepId`) and the step
+ *     spotlights the Scan receipt and Import CSV circles in the arc.
+ *
+ *     These two used to point at the "+" button itself and at Home's Import
+ *     CSV tile. Both were wrong in the same way: the tour said "upload or
+ *     capture a receipt" while highlighting a button that does neither on its
+ *     own, and taught importing through a shortcut that exists on one screen
+ *     rather than through the control that is on every screen. Pointing INSIDE
+ *     the open menu shows the owner the two taps they will actually make.
+ * THE TWO MOBILE-ONLY STEPS, and why they are not drift. The "+" menu holds
+ * five actions and the tour was opening it to talk about two of them, leaving
+ * the owner looking at an arc of five circles with three unexplained — on the
+ * app's most prominent control. Web's Quick-add menu is one item in a sidebar
+ * an owner can read at leisure; a phone's is a ring of unlabelled circles that
+ * appears and disappears. So the phone teaches the two that record money by
+ * hand — an expense and a sales reference — which are also the only way in for
+ * an owner with no receipt and no spreadsheet. Categories is left out: it is a
+ * setup task rather than a daily one, and onboarding already creates the first
+ * categories. Recorded as a deliberate divergence in tests/webParity.test.ts,
+ * the same way the always-show preference is.
+ *
  *   - complete: web offers deep links ("Add a Transaction", "Scan a Receipt")
  *     as final actions. The phone finishes onto Home, where the quick actions
  *     the tour has just pointed at are one tap away — so the last card carries
@@ -59,8 +75,12 @@ export type TourTargetKey =
   | "business-switcher"
   | "dashboard-summary"
   | "tab-records"
+  /** The raised "+" itself — the probe for the two steps that open its menu. */
   | "quick-add"
-  | "quick-action-csv"
+  | "quick-add-expense"
+  | "quick-add-sales"
+  | "quick-add-scan"
+  | "quick-add-csv"
   | "tab-insights"
   | "ask-finsight"
   | "notifications";
@@ -74,6 +94,17 @@ export interface TourStep {
   body: string;
   /** Omitted → a centered card (welcome, completion). */
   target?: TourTargetKey;
+  /**
+   * Hold the "+" menu open for this step, because its target is one of the
+   * actions inside it.
+   *
+   * Eligibility is then asked of the "+" BUTTON, not of the item: the item
+   * only exists while the menu is open, and the menu only opens because this
+   * step is the active one — so probing the item would make the step skip
+   * itself before it ever got the chance to open the menu. Same reasoning as
+   * web's `requiresQuickAdd`.
+   */
+  requiresQuickAdd?: boolean;
   mascot: {
     pose: TourPose;
     /** Prop badge composited onto the pose — the situation-specific part. */
@@ -110,17 +141,37 @@ export const TOUR_STEPS: readonly TourStep[] = [
     mascot: { pose: "notepad", prop: "receipt-outline" },
   },
   {
+    id: "manual-entry",
+    title: "Record an expense by hand",
+    body: "No receipt to scan? Enter the date, amount, description, and category yourself.",
+    target: "quick-add-expense",
+    requiresQuickAdd: true,
+    mascot: { pose: "notepad", prop: "wallet-outline" },
+  },
+  {
+    id: "sales-reference",
+    title: "Add a sales reference",
+    body: "Record a sales figure you want to monitor. It is a note to yourself for tracking, not a receipt issued to a customer.",
+    target: "quick-add-sales",
+    requiresQuickAdd: true,
+    // Not `notepad` again: the step before it uses that pose, and two
+    // identical Fins in a row read as a card that failed to change.
+    mascot: { pose: "pointing", prop: "cash-outline" },
+  },
+  {
     id: "receipt-scanner",
     title: "Receipt scanner",
     body: "Upload or capture a receipt and let FinSight extract important information such as the vendor, date, and amount.",
-    target: "quick-add",
+    target: "quick-add-scan",
+    requiresQuickAdd: true,
     mascot: { pose: "clipboard", prop: "camera-outline" },
   },
   {
     id: "csv-import",
     title: "Import a spreadsheet",
     body: "Already have records in a spreadsheet? Import them in batches and review the information before saving.",
-    target: "quick-action-csv",
+    target: "quick-add-csv",
+    requiresQuickAdd: true,
     mascot: { pose: "greeting", prop: "cloud-upload-outline" },
   },
   {
@@ -153,6 +204,17 @@ export const TOUR_STEPS: readonly TourStep[] = [
 ];
 
 /**
+ * The steps that need the "+" menu held open, for the tab bar to watch.
+ *
+ * Derived from the list rather than restated there: a third quick-add step
+ * would otherwise be added here and silently never open the menu, which on a
+ * device looks exactly like a step whose target has gone missing.
+ */
+export const QUICK_ADD_STEP_IDS: readonly string[] = TOUR_STEPS.filter(
+  (step) => step.requiresQuickAdd,
+).map((step) => step.id);
+
+/**
  * Which steps can be shown right now.
  *
  * `canShow` answers "is this target on screen and measurable" — the overlay
@@ -160,6 +222,17 @@ export const TOUR_STEPS: readonly TourStep[] = [
  * step with no target is always eligible: those are the centered cards.
  */
 export type StepEligibility = (step: TourStep) => boolean;
+
+/**
+ * What has to be on screen for a step to be shown — which is not always the
+ * thing the step points at. See `requiresQuickAdd`.
+ */
+export function eligibilityTarget(step: {
+  target?: TourTargetKey;
+  requiresQuickAdd?: boolean;
+}): TourTargetKey | undefined {
+  return step.requiresQuickAdd ? "quick-add" : step.target;
+}
 
 export function eligibleStepIndexes(
   steps: readonly TourStep[],

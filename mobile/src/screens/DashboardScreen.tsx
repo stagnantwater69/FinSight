@@ -13,7 +13,7 @@ import { SpendingBreakdownCard } from "../components/SpendingBreakdownCard";
 import { SkeletonBox, SkeletonDashboard } from "../components/Skeleton";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { useTourHomeStage } from "../context/TourContext";
-import { useTourTarget } from "../components/tour/targets";
+import { useTourScrollView, useTourTarget } from "../components/tour/targets";
 import { api, errorMessage } from "../lib/api";
 import { brand, ink, paper, radius, space, statusText, TAP, typeScale } from "../theme/tokens";
 import type { CashflowGranularity, DashboardCashflow, DashboardSummary } from "../lib/types";
@@ -227,7 +227,10 @@ export function DashboardScreen({ navigation }: any) {
   useTourHomeStage(!loading && !!summary);
 
   /** The block of figures the "Dashboard overview" step points at. */
-  const summaryTourTarget = useTourTarget("dashboard-summary");
+  const summaryTourTarget = useTourTarget("dashboard-summary", { scrolls: true });
+
+  /** Lets the tour scroll this page to whatever the current step is about. */
+  const tourScroll = useTourScrollView();
 
   /*
    * Split from the cashflow fetch on purpose. They used to be one
@@ -390,9 +393,6 @@ export function DashboardScreen({ navigation }: any) {
       key: "importCsv",
       label: "Import CSV",
       icon: "cloud-upload-outline",
-      // The tour's "Import a spreadsheet" step points here rather than at the
-      // "+" button, which the step before it has just spotlighted.
-      tourTarget: "quick-action-csv",
       onPress: () => openInRecords("ImportCsv"),
     },
     {
@@ -418,6 +418,10 @@ export function DashboardScreen({ navigation }: any) {
   return (
     <Screen safeTop>
       <ScrollView
+        // Lets the product tour bring a step's target into view before the
+        // step is shown — Home is taller than the phone, and half the tour was
+        // describing things that were off screen.
+        {...tourScroll}
         // The FAB floats over this list, so the scroll has to end far enough
         // up that it can never cover the last card.
         contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxl + FAB_CLEARANCE, gap: space.lg }}

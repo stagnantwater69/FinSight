@@ -24,9 +24,9 @@ import {
 
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { BusinessProfileProvider, useBusinessProfiles } from "./src/context/BusinessProfileContext";
-import { TourProvider } from "./src/context/TourContext";
+import { TourProvider, useTourOptional } from "./src/context/TourContext";
 import { useTourTarget } from "./src/components/tour/targets";
-import type { TourTargetKey } from "./src/components/tour/steps";
+import { QUICK_ADD_STEP_IDS, type TourTargetKey } from "./src/components/tour/steps";
 import { OnboardingResumeScreen, OnboardingScreen } from "./src/screens/OnboardingScreens";
 import { readOnboarding } from "./src/lib/onboardingDraft";
 import {
@@ -279,7 +279,17 @@ function TabIcon({
   color: string;
   focused: boolean;
 }) {
-  const tourTarget = useTourTarget(TAB_TOUR_TARGETS[routeName]);
+  /*
+   * The spotlight is padded down and out to take in the LABEL as well as the
+   * glyph. What is registered here is the 22pt icon, because bottom-tabs hands
+   * out no ref to the button around it; a ring drawn tight to the icon points
+   * at half a control and reads as a misaligned overlay rather than as "this
+   * tab". The numbers are the tab item's own metrics: the icon-to-label gap
+   * plus the label's line box, and enough width for the widest of the four.
+   */
+  const tourTarget = useTourTarget(TAB_TOUR_TARGETS[routeName], {
+    pad: { top: 8, bottom: 26, left: 26, right: 26 },
+  });
   const pair = TAB_ICONS[routeName];
   return (
     <View {...tourTarget}>
@@ -307,7 +317,7 @@ function TabIcon({
 function ScanTabButton({ onPress, active }: { onPress: () => void; active: boolean }) {
   // The tour's "Receipt scanner" step points here: on a phone this raised
   // button IS the quick-add menu web spotlights.
-  const tourTarget = useTourTarget("quick-add");
+  const tourTarget = useTourTarget("quick-add", { pad: { top: 8, bottom: 8, left: 8, right: 8 }, radius: 999 });
 
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "flex-start" }}>
@@ -411,6 +421,15 @@ function MainTabs() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   /*
+   * The product tour's two Quick-add steps spotlight items inside that menu,
+   * so while one of them is the active step the menu is held open by the tour
+   * rather than by the owner. `activeStepId` is the whole of the coupling —
+   * the tab bar knows nothing else about the tour.
+   */
+  const tour = useTourOptional();
+  const tourHoldsMenu = QUICK_ADD_STEP_IDS.includes(tour?.activeStepId ?? "");
+
+  /*
    * The nested-params form, because it is the only one that crosses tabs.
    *
    * A bare `dispatch(push(screen))` after switching tabs looks cleaner and
@@ -432,6 +451,8 @@ function MainTabs() {
       key: "expense",
       label: "Expense",
       icon: "receipt-outline",
+      // The tour's "Record an expense by hand" step.
+      tourTarget: "quick-add-expense",
       color: ACCENT.fill,
       // Amber takes DARK ink, never white — measured, and the same rule the
       // primary button follows.
@@ -442,6 +463,10 @@ function MainTabs() {
       key: "sales",
       label: "Sales",
       icon: "cash-outline",
+      // And "Add a sales reference" — the two ways money is recorded without
+      // a receipt or a spreadsheet, which is why the phone teaches them and
+      // web does not have to.
+      tourTarget: "quick-add-sales",
       color: categorical[2],
       onColor: categoricalOnColor[2],
       onPress: () => openInRecords("AddSales"),
@@ -450,6 +475,9 @@ function MainTabs() {
       key: "scan",
       label: "Scan receipt",
       icon: "camera-outline",
+      // The tour's "Receipt scanner" step spotlights this circle, with the
+      // menu held open around it — see components/tour/steps.ts.
+      tourTarget: "quick-add-scan",
       // The middle of the arc, in FinSight's own green: still the action the
       // button is for, just no longer the only one it can reach.
       color: brand[700],
@@ -460,6 +488,10 @@ function MainTabs() {
       key: "csv",
       label: "Import CSV",
       icon: "cloud-upload-outline",
+      // Likewise "Import a spreadsheet", which used to point at Home's own
+      // Import CSV tile — a shortcut on one screen rather than the control the
+      // owner will find on every screen.
+      tourTarget: "quick-add-csv",
       color: categorical[0],
       onColor: categoricalOnColor[0],
       onPress: () => openInRecords("ImportCsv"),
@@ -572,7 +604,19 @@ function MainTabs() {
       <Tab.Screen name="More" component={MoreStack} />
     </Tab.Navigator>
 
-    <QuickActionMenu visible={menuOpen} actions={quickActions} onClose={() => setMenuOpen(false)} />
+    {/*
+      The two tour steps that point INSIDE this menu hold it open themselves.
+      Held open by the tour it is not the owner's menu: it ignores taps outside
+      and the back button, both of which belong to the tour while a step is up.
+      When the step moves on it closes again, restoring exactly the state the
+      owner had. Web's AppShell does the same for the same two steps.
+    */}
+    <QuickActionMenu
+      visible={menuOpen || tourHoldsMenu}
+      heldOpen={tourHoldsMenu}
+      actions={quickActions}
+      onClose={() => setMenuOpen(false)}
+    />
 
     {/*
       `statusBarTranslucent` so the preview runs edge to edge; the camera's

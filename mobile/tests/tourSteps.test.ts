@@ -2,7 +2,9 @@ import { readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import {
+  eligibilityTarget,
   eligibleStepIndexes,
+  QUICK_ADD_STEP_IDS,
   nextStepIndex,
   previousStepIndex,
   stepPosition,
@@ -29,8 +31,10 @@ const everythingVisible = () => true;
 const visible = (...keys: string[]) => (step: TourStep) => !!step.target && keys.includes(step.target);
 
 describe("tour step configuration", () => {
-  it("has the full ten-step arc, welcome first and completion last", () => {
-    expect(TOUR_STEPS.length).toBe(10);
+  it("has the full arc, welcome first and completion last", () => {
+    // Web's ten plus the two "+" menu actions the phone teaches — see the
+    // divergence note in steps.ts and the parity test that records it.
+    expect(TOUR_STEPS.length).toBe(12);
     expect(TOUR_STEPS[0]!.id).toBe("welcome");
     expect(TOUR_STEPS[0]!.target).toBeUndefined();
     expect(TOUR_STEPS.at(-1)!.id).toBe("complete");
@@ -135,7 +139,7 @@ describe("the step counter", () => {
   });
 
   it("numbers the whole arc when everything is on screen", () => {
-    expect(stepPosition(TOUR_STEPS, 4, everythingVisible)).toEqual({ position: 5, total: 10 });
+    expect(stepPosition(TOUR_STEPS, 4, everythingVisible)).toEqual({ position: 5, total: 12 });
   });
 
   /**
@@ -148,6 +152,70 @@ describe("the step counter", () => {
     const { position, total } = stepPosition(TOUR_STEPS, 3, onlyBell);
     expect(position).toBeGreaterThan(0);
     expect(total).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The two steps that point INSIDE the "+" menu.
+ *
+ * The menu only exists while one of them is the active step, because the tab
+ * bar opens it in response to exactly those two ids. So eligibility has to ask
+ * about the "+" BUTTON: asking about the item would have each step decide it
+ * cannot be shown, skip itself, and take the menu with it — a tour that can
+ * never reach the two steps that open anything.
+ */
+describe("the steps that open the quick-add menu", () => {
+  it("points each of them at an item in the menu, not at the button", () => {
+    const inMenu = TOUR_STEPS.filter((s) => s.requiresQuickAdd);
+    // In the order the arc reads left to right, which is the order the eye
+    // follows once the menu is open.
+    expect(inMenu.map((s) => s.id)).toEqual([
+      "manual-entry",
+      "sales-reference",
+      "receipt-scanner",
+      "csv-import",
+    ]);
+    expect(inMenu.map((s) => s.target)).toEqual([
+      "quick-add-expense",
+      "quick-add-sales",
+      "quick-add-scan",
+      "quick-add-csv",
+    ]);
+  });
+
+  /**
+   * The tab bar opens the menu from this list. Restating the ids there is how
+   * a new quick-add step ends up spotlighting an item inside a menu that never
+   * opens — which on a device is indistinguishable from a missing target.
+   */
+  it("hands the tab bar exactly those ids to hold the menu open for", () => {
+    expect([...QUICK_ADD_STEP_IDS]).toEqual(
+      TOUR_STEPS.filter((s) => s.requiresQuickAdd).map((s) => s.id),
+    );
+  });
+
+  it("asks about the button when deciding whether they can be shown", () => {
+    for (const step of TOUR_STEPS.filter((s) => s.requiresQuickAdd)) {
+      expect(eligibilityTarget(step)).toBe("quick-add");
+    }
+    // Every other step is judged on the thing it actually points at.
+    const records = TOUR_STEPS.find((s) => s.id === "records")!;
+    expect(eligibilityTarget(records)).toBe(records.target);
+  });
+
+  it("keeps them in the tour when only the + button is on screen", () => {
+    // What a real phone reports before the menu has been opened.
+    const menuClosed = (step: TourStep) => eligibilityTarget(step) === "quick-add";
+    const shown = eligibleStepIndexes(TOUR_STEPS, menuClosed).map((i) => TOUR_STEPS[i]!.id);
+    expect(shown).toContain("receipt-scanner");
+    expect(shown).toContain("csv-import");
+  });
+
+  it("no longer teaches importing through Home's own shortcut", () => {
+    const targets = TOUR_STEPS.map((s) => s.target);
+    expect(targets, "the CSV step must point at the menu, which is on every screen").not.toContain(
+      "quick-action-csv",
+    );
   });
 });
 

@@ -1,8 +1,6 @@
 import { Pressable, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card, T } from "./ui";
-import { useTourTarget } from "./tour/targets";
-import type { TourTargetKey } from "./tour/steps";
 import { brand, ink, radius, space, typeScale } from "../theme/tokens";
 import * as haptics from "../lib/haptics";
 
@@ -11,12 +9,6 @@ export interface QuickAction {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
-  /**
-   * Registers this tile as a product-tour target. Only the CSV import tile
-   * uses it today; the property is here rather than in a lookup table so the
-   * screen that owns the action list also owns what the tour points at.
-   */
-  tourTarget?: TourTargetKey;
 }
 
 /**
@@ -43,16 +35,14 @@ export function QuickActions({ actions }: { actions: QuickAction[] }) {
 /**
  * One tile.
  *
- * Its own component only so that `useTourTarget` can be called once per tile
- * — a hook cannot be called inside a `map` in the parent. The tile is
- * otherwise exactly what it was.
+ * The product tour used to spotlight the Import CSV tile here. It points at
+ * the "+" menu's own Import CSV action instead: the shortcut exists on Home
+ * only, while the menu is on every screen, and a tour should teach the route
+ * that always works.
  */
 function QuickActionTile({ action }: { action: QuickAction }) {
-  const tourTarget = useTourTarget(action.tourTarget);
-
   return (
     <Pressable
-      {...tourTarget}
       onPress={() => {
         haptics.tapped();
         action.onPress();

@@ -46,7 +46,9 @@ export function AskFinSightFab({ onPress }: { onPress: () => void }) {
   const bob = useRef(new Animated.Value(0)).current;
   const press = useRef(new Animated.Value(1)).current;
   const reduceMotion = useReducedMotion();
-  const tourTarget = useTourTarget("ask-finsight");
+  // Round button, round ring — a rounded square around a circle reads as a
+  // near miss rather than as a deliberate highlight.
+  const tourTarget = useTourTarget("ask-finsight", { radius: 999 });
 
   useEffect(() => {
     /*
