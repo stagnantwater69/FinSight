@@ -24,6 +24,9 @@ import {
 
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { BusinessProfileProvider, useBusinessProfiles } from "./src/context/BusinessProfileContext";
+import { TourProvider } from "./src/context/TourContext";
+import { useTourTarget } from "./src/components/tour/targets";
+import type { TourTargetKey } from "./src/components/tour/steps";
 import { OnboardingResumeScreen, OnboardingScreen } from "./src/screens/OnboardingScreens";
 import { readOnboarding } from "./src/lib/onboardingDraft";
 import {
@@ -252,6 +255,40 @@ const TAB_ICONS: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Io
 };
 
 /**
+ * The two tabs the product tour points at.
+ *
+ * REGISTERED ON THE ICON, not on the tab button. bottom-tabs renders its own
+ * button and gives no ref to it, and replacing `tabBarButton` wholesale to get
+ * one would mean re-implementing the label, the press feedback and the
+ * accessibility state that the library already gets right. The icon is inside
+ * the button, so a spotlight around it (plus the overlay's own padding) lands
+ * on the tab — see components/tour/targets.ts.
+ */
+const TAB_TOUR_TARGETS: Record<string, TourTargetKey | undefined> = {
+  Records: "tab-records",
+  Insights: "tab-insights",
+};
+
+/** A tab icon that the tour can measure. Its own component for the hook. */
+function TabIcon({
+  routeName,
+  color,
+  focused,
+}: {
+  routeName: string;
+  color: string;
+  focused: boolean;
+}) {
+  const tourTarget = useTourTarget(TAB_TOUR_TARGETS[routeName]);
+  const pair = TAB_ICONS[routeName];
+  return (
+    <View {...tourTarget}>
+      <Ionicons name={pair ? pair[focused ? 1 : 0] : "ellipse-outline"} size={22} color={color} />
+    </View>
+  );
+}
+
+/**
  * Adding something, given the middle of the bar.
  *
  * Recording what was spent and earned is what this app is FOR and the reason
@@ -268,6 +305,10 @@ const TAB_ICONS: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Io
  * rather than a fifth destination.
  */
 function ScanTabButton({ onPress, active }: { onPress: () => void; active: boolean }) {
+  // The tour's "Receipt scanner" step points here: on a phone this raised
+  // button IS the quick-add menu web spotlights.
+  const tourTarget = useTourTarget("quick-add");
+
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "flex-start" }}>
       {/*
@@ -295,6 +336,7 @@ function ScanTabButton({ onPress, active }: { onPress: () => void; active: boole
         />
       ) : null}
       <Pressable
+        {...tourTarget}
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={active ? "Close the actions menu" : "Add a record"}
@@ -458,10 +500,9 @@ function MainTabs() {
           paddingBottom: 8 + insets.bottom,
         },
         tabBarLabelStyle: { fontFamily: font.sansMedium, fontSize: 11 },
-        tabBarIcon: ({ color, focused }) => {
-          const pair = TAB_ICONS[route.name];
-          return <Ionicons name={pair ? pair[focused ? 1 : 0] : "ellipse-outline"} size={22} color={color} />;
-        },
+        tabBarIcon: ({ color, focused }) => (
+          <TabIcon routeName={route.name} color={color} focused={focused} />
+        ),
       })}
     >
       {/*
@@ -769,7 +810,20 @@ function MainOrOnboarding() {
     );
   }
 
-  return <MainTabs />;
+  /*
+   * The product tour is mounted HERE and nowhere else.
+   *
+   * Inside BusinessProfileProvider, because the start gate needs the selected
+   * business; around MainTabs rather than inside a screen, because the tour
+   * points at the tab bar as well as at Home; and past the onboarding branch
+   * above, so a brand-new owner finishes setup before being toured — the same
+   * order web uses. One mount is what makes two overlays impossible.
+   */
+  return (
+    <TourProvider>
+      <MainTabs />
+    </TourProvider>
+  );
 }
 
 export default function App() {

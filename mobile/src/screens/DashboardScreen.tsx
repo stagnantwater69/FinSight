@@ -12,6 +12,8 @@ import { AskFinSight } from "../components/AskFinSight";
 import { SpendingBreakdownCard } from "../components/SpendingBreakdownCard";
 import { SkeletonBox, SkeletonDashboard } from "../components/Skeleton";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
+import { useTourHomeStage } from "../context/TourContext";
+import { useTourTarget } from "../components/tour/targets";
 import { api, errorMessage } from "../lib/api";
 import { brand, ink, paper, radius, space, statusText, TAP, typeScale } from "../theme/tokens";
 import type { CashflowGranularity, DashboardCashflow, DashboardSummary } from "../lib/types";
@@ -215,6 +217,19 @@ export function DashboardScreen({ navigation }: any) {
   const [askOpen, setAskOpen] = useState(false);
 
   /*
+   * The product tour's start gate.
+   *
+   * Both halves are needed and neither is guessable from outside this screen:
+   * that Home is the tab being looked at, and that its figures have actually
+   * arrived. Starting on focus alone would spotlight a skeleton — see
+   * context/TourContext.tsx.
+   */
+  useTourHomeStage(!loading && !!summary);
+
+  /** The block of figures the "Dashboard overview" step points at. */
+  const summaryTourTarget = useTourTarget("dashboard-summary");
+
+  /*
    * Split from the cashflow fetch on purpose. They used to be one
    * Promise.all, which meant toggling the Daily/Monthly dropdown re-fetched
    * the summary too and dropped the whole screen back to the full skeleton
@@ -375,6 +390,9 @@ export function DashboardScreen({ navigation }: any) {
       key: "importCsv",
       label: "Import CSV",
       icon: "cloud-upload-outline",
+      // The tour's "Import a spreadsheet" step points here rather than at the
+      // "+" button, which the step before it has just spotlighted.
+      tourTarget: "quick-action-csv",
       onPress: () => openInRecords("ImportCsv"),
     },
     {
@@ -489,11 +507,20 @@ export function DashboardScreen({ navigation }: any) {
               available funds takes the primacy slot here, the figure owners
               check most.
             */}
-            <StatTile label="Available business funds" value={summary.overview.availableFunds} emphasis />
+            {/*
+              Funds, sales and expenses are one group for the tour: the
+              "Dashboard overview" step is about the figures as a set, and
+              spotlighting only the first tile would describe three things
+              while pointing at one. Grouping them costs a wrapper View with
+              the gap the ScrollView was already applying between them.
+            */}
+            <View {...summaryTourTarget} style={{ gap: space.lg }}>
+              <StatTile label="Available business funds" value={summary.overview.availableFunds} emphasis />
 
-            <View style={{ flexDirection: "row", gap: space.md }}>
-              <FlowCard label="Sales" value={summary.overview.totalSalesReference} sublabel="This month" direction="in" />
-              <FlowCard label="Expenses" value={summary.overview.totalExpenses} sublabel="This month" direction="out" />
+              <View style={{ flexDirection: "row", gap: space.md }}>
+                <FlowCard label="Sales" value={summary.overview.totalSalesReference} sublabel="This month" direction="in" />
+                <FlowCard label="Expenses" value={summary.overview.totalExpenses} sublabel="This month" direction="out" />
+              </View>
             </View>
 
             <QuickActions actions={quickActions} />

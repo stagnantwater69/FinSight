@@ -3,6 +3,8 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { BAND_COPY, confidenceBand, findingSignalStrength, scanConfidenceBand } from "../src/lib/confidenceBands";
 import { feedbackActions } from "../src/lib/findingFeedback";
+import { TOUR_STEPS } from "../src/components/tour/steps";
+import { shouldStartTour } from "../src/lib/tourGating";
 
 /**
  * Every page the website has, the app has — or has a written reason not to.
@@ -250,6 +252,97 @@ describe("receipt confidence bands match web", () => {
         );
       }
     }
+  });
+});
+
+/**
+ * The product tour must teach the same app on both clients.
+ *
+ * WHY THIS BELONGS IN THE PARITY FILE: the tour is the one surface that makes
+ * promises ABOUT the product, in sentences, to someone who has just arrived.
+ * Two clients describing the same feature differently — or one client quietly
+ * dropping a step because the phone build lacks the feature — is the same
+ * class of defect this file was written for, and it is invisible until
+ * somebody reads both tours side by side.
+ *
+ * The step CONTENT is compared literally; the TARGETS deliberately are not.
+ * Web points at CSS selectors in a sidebar, the app points at registry keys on
+ * a tab bar — the same feature reached differently, which is exactly the kind
+ * of difference COVERED above already allows for routes.
+ */
+const WEB_TOUR_STEPS = join(__dirname, "..", "..", "web", "src", "components", "tour", "steps.tsx");
+const WEB_TOUR_CONTEXT = join(__dirname, "..", "..", "web", "src", "context", "TourContext.tsx");
+
+describe("product tour matches web", () => {
+  it.skipIf(!existsSync(WEB_TOUR_STEPS))("walks the same steps in the same order", async () => {
+    const web = (await import(WEB_TOUR_STEPS)) as typeof import("../../web/src/components/tour/steps");
+    expect(
+      TOUR_STEPS.map((s) => s.id),
+      "Every one of web's ten steps names a feature the app has too — see steps.ts for how each target was re-pointed",
+    ).toEqual(web.TOUR_STEPS.map((s) => s.id));
+  });
+
+  it.skipIf(!existsSync(WEB_TOUR_STEPS))("says the same thing on every step", async () => {
+    const web = (await import(WEB_TOUR_STEPS)) as typeof import("../../web/src/components/tour/steps");
+    const drift: string[] = [];
+    for (const step of TOUR_STEPS) {
+      const theirs = web.TOUR_STEPS.find((s) => s.id === step.id);
+      if (!theirs) continue;
+      if (theirs.title !== step.title) drift.push(`${step.id} title: "${step.title}" vs "${theirs.title}"`);
+      if (theirs.body !== step.body) drift.push(`${step.id} body: "${step.body}" vs "${theirs.body}"`);
+    }
+    expect(drift, `The two tours describe the same feature differently:\n${drift.join("\n")}`).toEqual([]);
+  });
+
+  /**
+   * The gate, compared against web's conditions rather than against its code:
+   * web decides inside a React effect that cannot be imported here, so its
+   * source is read to confirm the conditions are still the ones the app's pure
+   * `shouldStartTour` was written to mirror, and then the app's function is
+   * driven through them.
+   */
+  it.skipIf(!existsSync(WEB_TOUR_CONTEXT))("refuses to start in the same situations web does", async () => {
+    const source = readFileSync(WEB_TOUR_CONTEXT, "utf8");
+    for (const condition of ['=== "completed"', '=== "skipped"', "!selected", "loading"]) {
+      expect(source, `web's start gate no longer mentions ${condition}`).toContain(condition);
+    }
+
+    const ready = {
+      status: "not_started" as const,
+      alwaysShow: false,
+      hasProfile: true,
+      dashboardLoaded: true,
+      onHomeTab: true,
+    };
+    expect(shouldStartTour(ready)).toBe(true);
+    expect(shouldStartTour({ ...ready, status: "completed" })).toBe(false);
+    expect(shouldStartTour({ ...ready, status: "skipped" })).toBe(false);
+    expect(shouldStartTour({ ...ready, hasProfile: false })).toBe(false);
+    expect(shouldStartTour({ ...ready, dashboardLoaded: false })).toBe(false);
+  });
+
+  /**
+   * ONE DELIBERATE DIVERGENCE, recorded here rather than left to be found.
+   *
+   * The app has "Always show the tour on login" (More → Preferences) and web
+   * has no such preference. It exists so the first-run experience can be shown
+   * repeatedly — a demo, a new helper behind the counter — without creating a
+   * throwaway account, which is a phone problem rather than a laptop one. It
+   * only ever LOOSENS the gate, and only the two terminal statuses; the
+   * business-profile and loaded-Home conditions are untouched by it, which is
+   * what keeps the two clients' gates the same gate.
+   */
+  it("adds only the always-show preference on top of web's rules", () => {
+    const base = {
+      alwaysShow: true,
+      hasProfile: true,
+      dashboardLoaded: true,
+      onHomeTab: true,
+    };
+    expect(shouldStartTour({ ...base, status: "completed" })).toBe(true);
+    expect(shouldStartTour({ ...base, status: "skipped" })).toBe(true);
+    expect(shouldStartTour({ ...base, status: "completed", hasProfile: false })).toBe(false);
+    expect(shouldStartTour({ ...base, status: "completed", dashboardLoaded: false })).toBe(false);
   });
 });
 
