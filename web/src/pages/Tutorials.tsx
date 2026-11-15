@@ -102,8 +102,22 @@ function VideoCard({ video }: { video: TutorialVideo }) {
     <li className="min-w-0">
       <div className="aspect-video overflow-hidden rounded-xl border border-landing-mint-light/70 bg-landing-emerald">
         {!video.youtubeId ? (
-          <div className="flex h-full items-center justify-center bg-landing-mint-pale">
-            <p className="text-xs font-semibold text-landing-green">Video coming soon</p>
+          <div className="relative flex h-full items-center justify-center bg-landing-mint-pale">
+            {hasThumbnail && (
+              <img
+                src={video.thumbnailSrc}
+                alt=""
+                width={960}
+                height={540}
+                loading="lazy"
+                decoding="async"
+                onError={() => setThumbnailFailed(true)}
+                className="absolute inset-0 h-full w-full object-contain"
+              />
+            )}
+            <p className={hasThumbnail
+              ? "absolute bottom-3 left-3 rounded-full bg-landing-emerald px-3 py-1.5 text-xs font-semibold text-white"
+              : "text-xs font-semibold text-landing-green"}>Video coming soon</p>
           </div>
         ) : playing ? (
           <iframe
