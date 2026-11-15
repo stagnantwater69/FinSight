@@ -1,4 +1,4 @@
-import { categoryFromHistory, type ConfirmedCategoryChoice } from "./categoryHistory";
+import { categoryFromHistory, categoryFromSimilarHistory, type ConfirmedCategoryChoice } from "./categoryHistory";
 import {
   findExistingCategory,
   normaliseCategoryName,
@@ -181,6 +181,11 @@ export function createImportCategoriser(input: ImportCategoriserInput) {
     const history = categoryFromHistory(input.history, description, vendor);
     if (history && assignableIds.has(history.categoryId)) {
       return { name: history.categoryName, source: "history", isNew: false, confidence: "medium" };
+    }
+
+    const similar = categoryFromSimilarHistory(input.history, description);
+    if (similar && assignableIds.has(similar.categoryId)) {
+      return { name: similar.categoryName, source: "history", isNew: false, confidence: "low" };
     }
 
     const itemNamed = productClassOf(description) !== null;

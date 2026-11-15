@@ -35,7 +35,8 @@ export type { PageSeam, Reconciliation, ReconciliationReason } from "../lib/rece
 // scan's upload date instead of always reading it day-first (lib/receiptDates).
 // v7 replaces the read total when the VAT breakdown and tender minus change
 // agree on a different figure (corroboratedTotal).
-export const PARSER_VERSION = "ocr-parser-v7";
+// v8 refuses abbreviated discount, service-charge, rounding and loyalty lines as items.
+export const PARSER_VERSION = "ocr-parser-v8";
 /**
  * v2: the downscale cap follows the SHORT edge on an elongated LANDSCAPE image
  * (a long receipt lying along the frame's long axis) instead of always the
@@ -1103,6 +1104,12 @@ const NOT_AN_ITEM = new RegExp(
     // this denylist exists to prevent: money coming off the receipt recorded
     // as money spent. Found on real-03 in the corpus, not hypothesised.
     String.raw`\b(discounts?|disc\.|less|senior|pwd|rebates?|voids?|refunds?)\b`,
+    // Register shorthand for the same lines. Bare "disc" is left alone: it is
+    // also a product ("CORNETTO DISC"), so it needs a payer or a percentage.
+    String.raw`\b(sc|promo|member|emp(loyee)?)\s*[/&]?\s*disc\b`,
+    String.raw`\bdisc\s*\d{1,3}\s*%|\d{1,3}\s*%\s*disc\b`,
+    String.raw`\b(svc|serv(ice)?)\.?\s*(chg|chrg)\b`,
+    String.raw`\b(rounding|(member|your?)\s+sav(ings?|ed)|points?\s+(earned|balance|redeemed))\b`,
     // Payment-method and authorisation lines. These carry the receipt's own
     // total, so admitting one doubles the receipt — "BDO ATM 371.00" was
     // extracted as a PHP 371 purchase on the Savemore receipt.

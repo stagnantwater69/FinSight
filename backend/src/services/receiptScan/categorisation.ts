@@ -2,7 +2,7 @@ import type { ReceiptItemEvidenceInput } from "./types";
 import { prisma } from "../../config/prisma";
 import { logger } from "../../config/logger";
 import type { Prisma, ReceiptScanItem } from "@prisma/client";
-import { categoryFromHistory, type ConfirmedCategoryChoice } from "../../lib/categoryHistory";
+import { categoryFromHistory, categoryFromSimilarHistory, type ConfirmedCategoryChoice } from "../../lib/categoryHistory";
 import { categoriseReceiptLines, type CategoryDecision } from "../../lib/itemCategoriser";
 import {
   categoryKind,
@@ -49,10 +49,11 @@ export async function ensureUncategorised(
 }
 
 /**
- * How many recent confirmed item choices are considered for an exact local
- * match. Rows are newest first, so a more recent owner correction wins.
+ * How many recent confirmed item choices are considered for a local match.
+ * Rows are newest first, so a more recent owner correction wins. 500, because
+ * one long restocking receipt is over fifty rows and 100 forgot last month.
  */
-const PRIOR_CHOICE_LOOKBACK = 100;
+const PRIOR_CHOICE_LOOKBACK = 500;
 
 /**
  * What this business has confirmed about receipt items before, newest first.
@@ -195,14 +196,15 @@ export async function persistCategorisedItems(
   const categoryByIndex = new Map<number, number>();
   const categorisationByIndex = new Map<number, ItemCategorisation>();
   parsedItems.forEach((item, index) => {
-    const match = categoryFromHistory(history, item.name, vendor);
+    const exact = categoryFromHistory(history, item.name, vendor);
+    const match = exact ?? categoryFromSimilarHistory(history, item.name);
     if (match && assignableIds.has(match.categoryId)) {
       categoryByIndex.set(index, match.categoryId);
       categorisationByIndex.set(index, {
-        confidence: "medium",
+        confidence: exact ? "medium" : "low",
         source: "history",
         kind: categoryKind(match.categoryName),
-        reason: null,
+        reason: exact ? null : "You filed this item here in another size. Check it.",
         newCategory: false,
       });
     }
