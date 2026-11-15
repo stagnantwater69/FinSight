@@ -3,7 +3,7 @@ import { prisma } from "../../config/prisma";
 import { logger } from "../../config/logger";
 import type { Prisma, ReceiptScanItem } from "@prisma/client";
 import { categoryFromHistory, categoryFromSimilarHistory, type ConfirmedCategoryChoice } from "../../lib/categoryHistory";
-import { categoriseReceiptLines, type CategoryDecision } from "../../lib/itemCategoriser";
+import { categoriseReceiptLines, filesGoodsAsStock, type CategoryDecision } from "../../lib/itemCategoriser";
 import {
   categoryKind,
   findExistingCategory,
@@ -214,7 +214,7 @@ export async function persistCategorisedItems(
   // depends on what else was bought with it — and fills what history did not.
   const decisions = categoriseReceiptLines(
     parsedItems.map((item) => ({ name: item.name, quantity: item.quantity })),
-    { businessType: profile?.type ?? null, vendor },
+    { businessType: profile?.type ?? null, vendor, stocksGoods: filesGoodsAsStock(history) },
   );
   const pending = new Map<number, CategoryDecision>();
   decisions.forEach((decision, index) => {

@@ -1,4 +1,4 @@
-import { taxonomyEntry, type ExpenseKind, type TaxonomyKey } from "./expenseTaxonomy";
+import { taxonomyEntry, taxonomyKeyForName, type ExpenseKind, type TaxonomyKey } from "./expenseTaxonomy";
 import { editDistance } from "./historyMatching";
 
 /**
@@ -25,7 +25,7 @@ import { editDistance } from "./historyMatching";
 export type ProductClass =
   | "staple_food" | "snack_drink" | "alcohol_tobacco" | "personal_care" | "household" | "cleaning" | "medicine"
   | "office_supply" | "printing" | "packaging" | "store_supply"
-  | "office_equipment" | "electronics" | "appliance" | "furniture" | "hardware"
+  | "office_equipment" | "electronics" | "appliance" | "kitchenware" | "furniture" | "hardware"
   | "fuel" | "electricity" | "water" | "telecom" | "transport" | "rent" | "bank_fee" | "license" | "tax" | "insurance"
   | "advertising" | "software" | "professional" | "repair" | "salary" | "training"
   | "clothing" | "agri_input" | "restaurant_meal" | "school" | "entertainment";
@@ -58,7 +58,8 @@ const VOCABULARY: Record<ProductClass, Vocabulary> = {
       "bear brand", "alaska", "nido", "birch tree", "anchor", "milo", "ovaltine", "nescafe", "kopiko", "great taste",
       "san mig coffee", "blend 45", "lipton", "gardenia", "reno", "spam", "hunt s", "hunts", "jolly", "carnation",
       "angel", "dari creme", "star margarine", "baguio oil", "minola", "golden fiesta", "youngs town", "jufran",
-      "mang tomas", "tender juicy", "maling", "dinorado", "sinandomeng", "marca pina", "delmonte", "eden "],
+      "mang tomas", "tender juicy", "maling", "dinorado", "sinandomeng", "marca pina", "delmonte", "eden ",
+      "koko krunch", "lm pc", "lm go", "3n1", "3in1"],
     words: ["rice", "bigas", "sugar", "asukal", "flour", "harina", "vinegar", "suka", "patis", "catsup", "ketchup",
       "soy sauce", "toyo", "banana sauce", "tomato sauce", "seasoning", "vetsin", "bouillon", "sardin", "tuna",
       "corned", "crndbeef", "cornbeef", "beef loaf", "meat loaf", "luncheon", "vienna", "sausage", "hotdog", "longganisa",
@@ -68,7 +69,7 @@ const VOCABULARY: Record<ProductClass, Vocabulary> = {
       "munggo", "garlic", "onion", "sibuyas", "tomato", "kamatis", "potato", "patatas", "carrot", "cabbage",
       "repolyo", "vegetable", "gulay", "calamansi", "butter", "margarine", "cheese", "mayonnaise", "peanut butter",
       "liver spread", "yeast", "shortening", "cooking oil", "palm oil", "canola", "coconut oil", "pepper", "paminta",
-      "sauce", "atsuete", "achuete", "quezo", "queso", "all purp"],
+      "sauce", "atsuete", "achuete", "quezo", "queso", "all purp", "fruit cocktail", "hashbrown", "hash brown"],
     // "mayo" and "mongo" are whole words: as prefixes they claim "MAYORS PERMIT" and "MONGOL PENCIL".
     exact: ["salt", "asin", "egg", "eggs", "itlog", "oil", "tea", "ham", "fish", "isda", "baboy", "manok", "beans", "corn",
       "mayo", "mongo", "sard", "chkn", "htdg", "msg", "spag", "sce"],
@@ -83,16 +84,16 @@ const VOCABULARY: Record<ProductClass, Vocabulary> = {
       "nature spring", "absolute", "summit", "zest o", "presto", "bingo", "combi", "magic flakes", "nissin wafer",
       "stik o", "chiz curls", "potato corner", "babble", "c2 ", "selecta", "nestea", "eight oclock", "chooey", "stork",
       "vitamilk", "dutch mill", "chuckie", "mogu", "monde", "fudgee", "lemon square", "marie ", "richeese", "nips ",
-      "flat tops", "potchi", "v fresh", "doublemint", "natures spring", "dingdong", "ding dong"],
+      "flat tops", "potchi", "v fresh", "doublemint", "natures spring", "dingdong", "ding dong", "ricola"],
     words: ["chips", "cracker", "crackling", "biscuit", "bisct", "cookie", "wafer", "candy", "candies", "lollipop",
       "bubble gum", "chocolate", "choco", "marshmallow", "jelly", "peanut", "popcorn", "pretzel", "snack", "pastry",
       "ice cream", "softdrink", "soft drink", "soda", "juice", "iced tea", "energy drink", "mineral water", "purified water",
       "bottled water", "mint candy", "menthol"],
-    exact: ["gum", "nuts", "cola", "drink", "drinks", "mint", "cndy", "bsct", "mnthl"],
+    exact: ["gum", "nuts", "cola", "drink", "drinks", "mint", "cndy", "bsct", "mnthl", "turon", "mismo"],
   },
   alcohol_tobacco: {
     strong: ["san miguel", "red horse", "pale pilsen", "ginebra", "emperador", "tanduay", "gilbey", "alfonso", "marlboro",
-      "fortune", "mighty", "winston", "philip morris", "hope ", "camel", "lucky strike"],
+      "fortune", "mighty", "winston", "philip morris", "hope ", "camel", "lucky strike", "kulafu"],
     words: ["beer", "brandy", "whisky", "whiskey", "vodka", "liquor", "lambanog", "cigarette", "cigar", "tobacco", "vape"],
     exact: ["gin", "rum", "wine", "yosi"],
   },
@@ -101,7 +102,7 @@ const VOCABULARY: Record<ProductClass, Vocabulary> = {
       "babyflo", "bench", "rexona", "closeup", "close up", "colgate", "hapee", "sensodyne", "creamsilk", "cream silk",
       "sunsilk", "head shoulders", "bioderm", "kojie", "likas", "casino", "green cross", "whisper", "modess", "charmee",
       "pampers", "eq diaper", "huggies", "gillette", "vaseline", "cetaphil", "axe", "grips", "gatsby", "pantene",
-      "rejoice", "clear ", "hygienix", "bluebell", "baby oil", "head and sh", "eq dry"],
+      "rejoice", "clear ", "hygienix", "bluebell", "baby oil", "head and sh", "eq dry", "crmsilk", "sunslk"],
     words: ["shampoo", "conditioner", "soap", "sabon", "body wash", "lotion", "deodorant", "deoltn", "toothpaste",
       "toothbrush", "tooth", "dental", "mouthwash", "cotton bud", "c bud", "napkin", "feminine", "diaper", "wipes",
       "baby powder", "bbypwd", "razor", "shaver", "shaving", "cologne", "perfume", "fragrance", "hair wax", "hairwax",
@@ -128,7 +129,7 @@ const VOCABULARY: Record<ProductClass, Vocabulary> = {
   medicine: {
     strong: ["biogesic", "neozep", "bioflu", "decolgen", "alaxan", "medicol", "enervon", "centrum", "solmux", "diatabs",
       "kremil", "efficascent", "vicks", "tiger balm", "katinko", "white flower", "betadine", "band aid", "ceelin",
-      "cherifer", "conzace", "stresstabs", "myra", "robitussin", "tuseran", "dolfenal", "ascof", "lagundi"],
+      "cherifer", "conzace", "stresstabs", "myra", "robitussin", "tuseran", "dolfenal", "ascof", "lagundi", "salonpas"],
     words: ["paracetamol", "ibuprofen", "mefenamic", "amoxicillin", "antibiotic", "vitamin", "ascorbic", "multivitamin",
       "capsule", "syrup", "cough", "loperamide", "antacid", "liniment", "bandage", "gauze", "first aid", "face mask",
       "thermometer", "medicine", "gamot", "ointment", "antiseptic"],
@@ -171,16 +172,22 @@ const VOCABULARY: Record<ProductClass, Vocabulary> = {
       "weighing scale", "cash register", "showcase", "grill", "juicer", "coffee maker", "vacuum"],
     exact: ["ref", "pos", "fan", "scale"],
   },
+  kitchenware: {
+    strong: ["chopping board", "food tong", "water dipper"],
+    words: ["basin", "canister", "peeler", "ladle", "strainer", "colander", "kaldero", "kawali", "frying pan", "casserole",
+      "tumbler", "pitcher", "dipper", "serving tray", "food tray"],
+    exact: ["tong", "tongs", "tray", "trays"],
+  },
   furniture: {
     words: ["table", "chair", "stool", "shelf", "shelves", "cabinet", "drawer", "display case", "bench", "desk", "sofa",
       "counter top", "rack"],
   },
   hardware: {
-    strong: ["boysen", "davies", "stanley", "makita", "bosch", "black decker"],
+    strong: ["boysen", "davies", "stanley", "makita", "bosch", "black decker", "cable tie"],
     words: ["hammer", "screwdriver", "plier", "wrench", "drill", "handsaw", "nail", "screw", "bolt", "hinge", "padlock",
       "paint", "roller", "cement", "gravel", "hollow block", "plywood", "lumber", "pipe", "pvc", "faucet",
       "wire", "electrical tape", "outlet", "circuit breaker", "ladder", "rope", "chain", "sealant", "epoxy", "sandpaper",
-      "extension cord", "tool"],
+      "extension cord", "tool", "plug"],
     exact: ["sand"],
   },
   fuel: {
@@ -319,12 +326,14 @@ function bestClass(text: string): ProductClass | null {
 const OCR_DIGIT: Record<string, string> = { "0": "o", "1": "i", "5": "s", "8": "b" };
 
 /**
- * Undoes the glyph swaps tesseract makes inside a word: "C0LGATE", "SARDlNES".
+ * Undoes the glyph swaps tesseract makes inside a word ("C0LGATE", "SARDlNES")
+ * and splits names a register ran together ("WhiteBreadRS").
  * Only tokens that are mostly letters are touched, so sizes ("155G") keep their digits.
  */
 function foldOcrSlips(raw: string): string {
   return raw
     .replace(/(?<=[A-Z])l(?=[A-Z])/g, "I")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[A-Za-z0-9]+/g, (token) => {
       const letters = token.replace(/[^A-Za-z]/g, "").length;
       return letters >= 3 && letters > token.length - letters ? token.replace(/[0158]/g, (d) => OCR_DIGIT[d]!) : token;
@@ -408,7 +417,7 @@ const VENDOR_PATTERNS: [VendorType, RegExp][] = [
   ["bookstore", /\b(national book ?store|office warehouse|expressions|book ?store|pandayan|school and office)\b/],
   ["electronics_store", /\b(abenson|anson|silicon valley|pc express|octagon|villman|appliance|electronics|gadgets|cellular)\b/],
   ["restaurant", /\b(restaurant|resto|cafe|coffee|grill|eatery|carinderia|jollibee|mcdonalds?|mcdo|chowking|greenwich|mang inasal|kfc|starbucks|pizza|burger|lechon|inasal|kitchen|diner|bistro|tea house|milk ?tea|wenphil|wendys|golden arches|red ribbon|goldilocks|bonchon|dunkin|donuts?|ramen|bake ?shop|bakery|shakeys|andoks|chooks|samgyup|food court|fast ?food|canteen)\b/],
-  ["supermarket", /\b(gaisano|savemore|save more|puregold|robinsons|shopwise|landmark|waltermart|walter mart|metro|super ?market|hyper ?market|grocery|groceries|mart|market|7 ?eleven|ministop|alfamart|lawson|all day|prince|isetann|pure gold|wholesale|marketplace|rustans|landers|mini ?mart|convenience)\b/],
+  ["supermarket", /\b(gaisano|savemore|save more|puregold|robinsons|shopwise|landmark|waltermart|walter mart|metro|super ?market|hyper ?market|grocery|groceries|mart|market|7 ?eleven|ministop|alfamart|lawson|all day|prince|isetann|pure gold|wholesale|marketplace|rustans|landers|mini ?mart|super ?mart|convenience)\b/],
 ];
 
 export function vendorTypeOf(vendor: string | null | undefined): VendorType | null {
@@ -454,6 +463,23 @@ export interface CategorisableLine {
 export interface ReceiptContext {
   businessType: string | null;
   vendor: string | null;
+  /** The owner files shop goods as stock, whatever the profile's type says. See filesGoodsAsStock. */
+  stocksGoods?: boolean;
+}
+
+/**
+ * Whether the owner's confirmed choices treat shop goods as stock: at least
+ * ten such lines, four in five of them under Inventory. A "Food business"
+ * that also runs a store files its groceries this way, and the profile's type
+ * alone would call them ingredients every time.
+ */
+export function filesGoodsAsStock(history: { description: string; categoryName: string }[]): boolean {
+  const goods = history.filter((choice) => {
+    const cls = productClassOf(choice.description);
+    return cls !== null && CONSUMER_GOODS.has(cls);
+  });
+  const stock = goods.filter((choice) => taxonomyKeyForName(choice.categoryName) === "inventory").length;
+  return goods.length >= 10 && stock / goods.length >= 0.8;
 }
 
 /**
@@ -501,6 +527,7 @@ const BUSINESS_CLASS_KEY: Partial<Record<ProductClass, TaxonomyKey>> = {
   office_equipment: "office_equipment",
   electronics: "electronics",
   appliance: "equipment",
+  kitchenware: "equipment",
   furniture: "furniture",
   hardware: "tools",
   fuel: "fuel",
@@ -605,7 +632,7 @@ function decideFromVendor(
  * owner, which is better than a confident-looking guess.
  */
 export function categoriseReceiptLines(lines: CategorisableLine[], context: ReceiptContext): (CategoryDecision | null)[] {
-  const business = businessContextOf(context.businessType);
+  const business = context.stocksGoods ? "reseller" : businessContextOf(context.businessType);
   const vendor = vendorTypeOf(context.vendor);
   const read = lines.map((line) => classify(line.name));
   const classes = read.map((line) => line.cls);

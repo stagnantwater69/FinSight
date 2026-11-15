@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { categoryFromSimilarHistory } from "../../src/lib/categoryHistory";
-import { categoriseReceiptLines, productClassOf, vendorTypeOf } from "../../src/lib/itemCategoriser";
+import { categoriseReceiptLines, filesGoodsAsStock, productClassOf, vendorTypeOf } from "../../src/lib/itemCategoriser";
 import { HELD_OUT, TUNING, type LabelledItem } from "../helpers/categorisationLabels";
 
 function score(items: LabelledItem[]) {
@@ -21,10 +21,15 @@ function score(items: LabelledItem[]) {
  * Ceilings, lowered whenever a change improves on them. Before the vocabulary
  * and OCR-tolerance work the same sets scored 56 unclassified and 2 wrong
  * (tuning), 30 unclassified and 5 wrong (held-out).
+ *
+ * Real receipts are not in the repo. Against 238 confirmed lines from one
+ * test account, scored without owner history, lines with no decision went
+ * from 60 to 7. Words were then added from those same lines, so that figure
+ * is a fit, not a held-out result.
  */
 const CEILING = {
   tuning: { unclassified: 0, wrong: 0 },
-  heldOut: { unclassified: 18, wrong: 3 },
+  heldOut: { unclassified: 17, wrong: 3 },
 };
 
 describe("item classification on the labelled sets", () => {
@@ -59,6 +64,25 @@ describe("forgiving an OCR slip", () => {
   });
 });
 
+describe("names and wares from confirmed receipts", () => {
+  it.each([
+    ["GAR WhiteBreadRS", "staple_food"],
+    ["8742 PEELER", "kitchenware"],
+    ["HX116/CFZ-15 CHOPPING BOARD", "kitchenware"],
+    ["BA09039 cable tie 75s", "hardware"],
+    ["KOKO KRUNCH 15g/288", "staple_food"],
+    ["grande", null],
+    ["RHS", null],
+  ])("reads %s as %s", (name, cls) => {
+    expect(productClassOf(name)).toBe(cls);
+  });
+
+  it("files kitchen wares as equipment", () => {
+    const [decision] = categoriseReceiptLines([{ name: "8742 PEELER", quantity: 1 }], { businessType: "Food business", vendor: null });
+    expect(decision).toMatchObject({ key: "equipment", kind: "business" });
+  });
+});
+
 describe("shops named by their operating company", () => {
   it.each([
     ["WENPHIL CORPORATION", "restaurant"],
@@ -66,9 +90,28 @@ describe("shops named by their operating company", () => {
     ["DUNKIN' DONUTS", "restaurant"],
     ["southstardrug", "pharmacy"],
     ["THE MARKETPLACE", "supermarket"],
+    ["LA NUEVA SUPERMART INC.", "supermarket"],
     ["ABC TRADING", null],
   ])("reads %s as %s", (vendor, type) => {
     expect(vendorTypeOf(vendor)).toBe(type);
+  });
+});
+
+describe("an owner who files shop goods as stock", () => {
+  const filed = (categoryName: string, count: number) =>
+    Array.from({ length: count }, (_, i) => ({ description: `LUCKY ME PANCIT CANTON ${i}`, categoryName }));
+
+  it("is recognised from ten lines, four in five under Inventory", () => {
+    expect(filesGoodsAsStock([...filed("Inventory", 8), ...filed("Raw Materials", 2)])).toBe(true);
+    expect(filesGoodsAsStock([...filed("Inventory", 7), ...filed("Raw Materials", 3)])).toBe(false);
+    expect(filesGoodsAsStock(filed("Inventory", 9))).toBe(false);
+  });
+
+  it("files a food business's groceries as stock instead of ingredients", () => {
+    const line = [{ name: "LUCKY ME PANCIT CANTON", quantity: 1 }];
+    const context = { businessType: "Food business", vendor: null };
+    expect(categoriseReceiptLines(line, context)[0]!.key).toBe("raw_materials");
+    expect(categoriseReceiptLines(line, { ...context, stocksGoods: true })[0]).toMatchObject({ key: "inventory", confidence: "low" });
   });
 });
 
