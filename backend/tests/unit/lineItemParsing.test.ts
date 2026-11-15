@@ -456,3 +456,25 @@ describe("plural summary lines are not purchases", () => {
     }
   });
 });
+
+describe("register shorthand for lines that are not purchases", () => {
+  it.each([
+    "SERVICE CHRG 45.00",
+    "SVC CHG 45.00",
+    "SC DISC 20.00",
+    "SC/PWD DISC 20.00",
+    "PROMO DISC 10.00",
+    "DISC 20% 15.00",
+    "ROUNDING ADJ 0.05",
+    "MEMBER SAVINGS 5.00",
+    "POINTS EARNED 3.00",
+  ])("does not read %s as an item", (line) => {
+    const items = parseLineItems(["MY STORE", "Rice 25kg 1050.00", line].join("\n"));
+    expect(items.map((i) => i.name)).toEqual(["Rice 25kg"]);
+  });
+
+  it("still reads a product whose name contains DISC", () => {
+    const items = parseLineItems(["MY STORE", "Rice 25kg 1050.00", "CORNETTO DISC 35.00"].join("\n"));
+    expect(items.map((i) => i.name)).toEqual(["Rice 25kg", "CORNETTO DISC"]);
+  });
+});

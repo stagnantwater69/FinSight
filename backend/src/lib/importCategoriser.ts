@@ -1,4 +1,4 @@
-import { categoryFromHistory, type ConfirmedCategoryChoice } from "./categoryHistory";
+import { categoryFromHistory, categoryFromSimilarHistory, type ConfirmedCategoryChoice } from "./categoryHistory";
 import {
   findExistingCategory,
   normaliseCategoryName,
@@ -6,7 +6,7 @@ import {
   taxonomyKeyForName,
   type TaxonomyKey,
 } from "./expenseTaxonomy";
-import { categoriseReceiptLines, productClassOf, type CategoryConfidence } from "./itemCategoriser";
+import { categoriseReceiptLines, filesGoodsAsStock, productClassOf, type CategoryConfidence } from "./itemCategoriser";
 import { DEFAULT_IMPORT_CATEGORY } from "./recordTypeDetection";
 
 /**
@@ -121,6 +121,7 @@ export function createImportCategoriser(input: ImportCategoriserInput) {
   const uncategorisedName = uncategorisedExisting?.name ?? DEFAULT_IMPORT_CATEGORY;
   const assignable = input.categories.filter((category) => !UNCATEGORISED_PATTERN.test(category.name.trim()));
   const assignableIds = new Set(assignable.map((category) => category.id));
+  const stocksGoods = filesGoodsAsStock(input.history);
 
   const existingByNorm = new Map<string, string>();
   for (const category of assignable) {
@@ -183,10 +184,15 @@ export function createImportCategoriser(input: ImportCategoriserInput) {
       return { name: history.categoryName, source: "history", isNew: false, confidence: "medium" };
     }
 
+    const similar = categoryFromSimilarHistory(input.history, description);
+    if (similar && assignableIds.has(similar.categoryId)) {
+      return { name: similar.categoryName, source: "history", isNew: false, confidence: "low" };
+    }
+
     const itemNamed = productClassOf(description) !== null;
     const decision = categoriseReceiptLines(
       [{ name: description, quantity: null }],
-      { businessType: input.businessType, vendor: vendor ?? null },
+      { businessType: input.businessType, vendor: vendor ?? null, stocksGoods },
     )[0];
     if (decision && itemNamed) return fromTaxonomy(decision.key, decision.confidence);
 

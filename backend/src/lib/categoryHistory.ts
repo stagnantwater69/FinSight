@@ -40,3 +40,21 @@ export function categoryFromHistory(history: ConfirmedCategoryChoice[], descript
     ?? matches[0];
   return match ? { categoryId: match.categoryId, categoryName: match.categoryName, source: "history" as const } : null;
 }
+
+/** The name without its sizes and pack counts: "SAFEGUARD BAR WHITE 60G" and "... 135G" share one. */
+const withoutSizes = (value: string) =>
+  value.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word && !/\d/.test(word)).join(" ");
+
+/**
+ * The category the owner has filed this product under in other sizes. Only
+ * when at least two confirmed rows share the name and every one of them agrees;
+ * a guess from one row, or from rows that disagree, is not offered.
+ */
+export function categoryFromSimilarHistory(history: ConfirmedCategoryChoice[], description: string) {
+  const key = withoutSizes(description);
+  if (key.length < 4) return null;
+  const matches = history.filter((choice) => withoutSizes(choice.description) === key);
+  const [first] = matches;
+  if (!first || matches.length < 2 || matches.some((choice) => choice.categoryId !== first.categoryId)) return null;
+  return { categoryId: first.categoryId, categoryName: first.categoryName, source: "history" as const };
+}
