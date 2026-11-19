@@ -1833,7 +1833,6 @@ function ScanReceiptForm() {
               htmlFor="date"
               required
               attention={attentionFields.includes("date")}
-              evidence={scan.fieldEvidence?.date}
               origin={originOf(date, scan.extractedDate ? scan.extractedDate.slice(0, 10) : null)}
               error={dateError}
             >
@@ -1880,7 +1879,6 @@ function ScanReceiptForm() {
               htmlFor="vendor"
               optional
               attention={attentionFields.includes("vendor")}
-              evidence={scan.fieldEvidence?.vendor}
               origin={originOf(vendor, scan.extractedVendor)}
             >
               <TextInput
@@ -1899,7 +1897,6 @@ function ScanReceiptForm() {
               htmlFor="amount"
               required
               attention={attentionFields.includes("amount")}
-              evidence={scan.fieldEvidence?.amount}
               origin={originOf(String(amount), scan.extractedAmount === null ? null : String(scan.extractedAmount))}
             >
               <MoneyInput

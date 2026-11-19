@@ -135,25 +135,3 @@ export function fieldsNeedingAttention(warnings: ReceiptWarning[]): ReceiptField
   }
   return order.filter((f) => named.has(f));
 }
-
-/**
- * The evidence line for one field, or null when there is nothing honest to
- * show.
- *
- * "Read from page 2: TOTAL 1,250.00" is the difference between a figure the
- * owner has to take on faith and one they can find on the paper in front of
- * them. A record with a page but no source text still says the page — nulls
- * are dropped rather than printed as "unknown".
- */
-export function evidenceSummary(evidence: FieldEvidence | null | undefined): string | null {
-  if (!evidence) return null;
-  const parts: string[] = [];
-  if (typeof evidence.pageNumber === "number") parts.push(`page ${evidence.pageNumber}`);
-  if (evidence.source === "vision") parts.push("interpreted from the photo");
-  else if (evidence.source === "ocr") parts.push("read from the text");
-  const where = parts.join(", ");
-  const quoted = evidence.sourceText?.trim();
-  if (!where && !quoted) return null;
-  if (!quoted) return `From ${where}.`;
-  return where ? `From ${where}: "${quoted}"` : `From: "${quoted}"`;
-}

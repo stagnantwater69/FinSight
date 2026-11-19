@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 import { Field } from "../../components/Field";
-import type { FieldEvidence } from "../../lib/receiptWarnings";
-import { EvidenceNote } from "./EvidenceNote";
 import { OriginChip } from "./OriginChip";
 import type { Origin } from "./types";
 
@@ -12,7 +10,6 @@ export function ScannedField({
   required,
   optional,
   attention,
-  evidence,
   error,
   children,
 }: {
@@ -23,8 +20,6 @@ export function ScannedField({
   optional?: boolean;
   /** True when the band said this is one of the values to look at. */
   attention?: boolean;
-  /** Where this value was read from, when the server could locate it. */
-  evidence?: FieldEvidence | null;
   /** Shown under the control and wired to it, like any Field error. */
   error?: string | null;
   children: ReactNode;
@@ -39,13 +34,8 @@ export function ScannedField({
       labelAction={<OriginChip origin={origin} />}
       wrapLabelAction
       hint={
-        attention || evidence ? (
-          <>
-            {attention ? (
-              <span className="font-medium text-tone-accent">Check this one against the receipt. </span>
-            ) : null}
-            <EvidenceNote evidence={evidence} />
-          </>
+        attention ? (
+          <span className="font-medium text-tone-accent">Check this one against the receipt.</span>
         ) : undefined
       }
     >

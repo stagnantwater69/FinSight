@@ -1,12 +1,10 @@
 import { Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Button, Field, Money, T } from "../../../components/ui";
-import { ResultDetails } from "../../../components/ResultDetails";
 import { TAP_FLOOR } from "../../../components/touchTarget";
 import { useTheme } from "../../../context/ThemeContext";
 import { BAND_COPY, confidenceBand, needsAttention } from "../../../lib/confidenceBands";
 import { categoryReviewNote } from "../../../lib/categorySuggestion";
-import { evidenceSummary } from "../../../lib/receiptWarnings";
 import { radius, space, typeScale } from "../../../theme/tokens";
 import { CategoryChips } from "./CategoryChips";
 import type { ExpenseCategory } from "../../../lib/types";
@@ -242,9 +240,6 @@ export function ScannedItemRow({
           })].label} — check this amount against the receipt
         </T>
       ) : null}
-      {/* Which printed line this came from, where the server
-          could locate it. Never invented. */}
-      {evidenceSummary(item.evidence) ? <ResultDetails label={`source for ${item.name}`}><T variant="caption">{evidenceSummary(item.evidence)}</T></ResultDetails> : null}
 
       <View style={{ marginTop: space.sm }}>
         <CategoryChips

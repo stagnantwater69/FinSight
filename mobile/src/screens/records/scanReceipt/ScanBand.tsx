@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { View } from "react-native";
 import { Card, T } from "../../../components/ui";
 import { BAND_COPY, type scanConfidenceBand } from "../../../lib/confidenceBands";
@@ -27,9 +28,7 @@ export function ScanBand({ band, fields }: { band: ReturnType<typeof scanConfide
     <Card style={{ borderColor: t.status[copy.tone] }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
         {/* A glyph and words as well as the tint — never colour alone. */}
-        <T style={{ fontSize: typeScale.label, color: tint, fontFamily: font.sansSemibold }}>
-          {band === "clear" ? "✓" : "⚠"}
-        </T>
+        <Ionicons name={band === "clear" ? "checkmark-circle-outline" : "warning-outline"} size={18} color={tint} accessibilityElementsHidden importantForAccessibility="no" />
         <T
           accessibilityRole="header"
           style={{ flex: 1, fontSize: typeScale.bodyLg, color: tint, fontFamily: font.sansSemibold }}
