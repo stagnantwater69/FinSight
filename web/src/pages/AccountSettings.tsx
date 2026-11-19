@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTourOptional, type TourContextValue } from "../context/TourContext";
 import { getErrorMessage } from "../lib/errors";
+import { setGreetingPaused, useGreetingPaused } from "../lib/greetingMotion";
 import { Card, PageHead } from "../components/ui";
 import { Button, ButtonLink } from "../components/Button";
 import { SettingSwitch } from "../components/Switch";
@@ -79,6 +80,7 @@ function GuidancePanel() {
 function MascotMessageSetting() {
   const { preferences, updatePreferences } = useAuth();
   const toast = useToast();
+  const greetingPaused = useGreetingPaused();
 
   async function toggle(next: boolean) {
     try {
@@ -102,6 +104,14 @@ function MascotMessageSetting() {
         checked={preferences.showDashboardMascotMessage}
         onChange={(next) => void toggle(next)}
       />
+      <div className="mt-3">
+        <SettingSwitch
+          label="Keep Fin still"
+          description="Fin holds a wave instead of moving."
+          checked={greetingPaused}
+          onChange={setGreetingPaused}
+        />
+      </div>
     </section>
   );
 }
@@ -247,6 +257,7 @@ function PreferenceDetailsPanel() {
           value="Remembered for this account in this browser"
         />
         <PreferenceDetail label="Theme" value="Saved only on this device" />
+        <PreferenceDetail label="Keep Fin still" value="Saved only on this device" />
       </dl>
       <ButtonLink
         to="/profile"

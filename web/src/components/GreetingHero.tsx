@@ -6,10 +6,12 @@ import { GREETING_FRAMES } from "../lib/greetingFrames";
 import {
   advanceGreetingFrame,
   GREETING_FPS,
+  GREETING_PAUSE_FRAME,
   GREETING_REST_FRAME,
   GREETING_WRAP_CROSSFADE_MS,
 } from "../lib/greetingPlayback";
 import { useReducedMotion } from "../lib/useReducedMotion";
+import { useGreetingPaused } from "../lib/greetingMotion";
 import type { DashboardSummary } from "../lib/types";
 
 /**
@@ -105,6 +107,10 @@ function preloadGreetingFrames(onReady: () => void): () => void {
  */
 function FinFlipbook({ label }: { label: string }) {
   const reduceMotion = useReducedMotion();
+  const paused = useGreetingPaused();
+  // Reduced motion keeps its calm centred pose; the Settings pause holds the closing wave.
+  const still = reduceMotion || paused;
+  const stillFrame = reduceMotion ? GREETING_REST_FRAME : GREETING_PAUSE_FRAME;
   const [visible, setVisible] = useState(() => document.visibilityState === "visible");
   const [ready, setReady] = useState(false);
   const [frame, setFrame] = useState(GREETING_REST_FRAME);
@@ -127,16 +133,17 @@ function FinFlipbook({ label }: { label: string }) {
     // Under reduced motion the other 102 frames are never shown, so they are
     // never requested either — the setting saves the download, not just the
     // movement.
-    if (reduceMotion) return;
+    if (still) return;
     return preloadGreetingFrames(() => setReady(true));
-  }, [reduceMotion]);
+  }, [still]);
 
   useEffect(() => {
     // "Reduce Motion" is usually on for a reason — a wave that repeats
     // forever is exactly what that setting exists to stop, so it holds on a
     // calm centred pose instead.
-    if (reduceMotion) {
-      setFrame(GREETING_REST_FRAME);
+    if (still) {
+      position.current = stillFrame;
+      setFrame(stillFrame);
       return;
     }
 
@@ -168,9 +175,9 @@ function FinFlipbook({ label }: { label: string }) {
     }, 1000 / GREETING_FPS);
 
     return () => clearInterval(id);
-  }, [visible, reduceMotion, ready]);
+  }, [visible, still, stillFrame, ready]);
 
-  const playing = ready && !reduceMotion;
+  const playing = ready && !still;
 
   return (
     <div

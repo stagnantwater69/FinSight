@@ -177,6 +177,21 @@ describe("Account settings", () => {
     });
   });
 
+  it("keeps Fin still on this device only, without touching the account", async () => {
+    renderPage();
+    const stillSwitch = await screen.findByRole("switch", { name: /keep fin still/i });
+    expect(stillSwitch).not.toBeChecked();
+
+    await userEvent.click(stillSwitch);
+
+    expect(stillSwitch).toBeChecked();
+    expect(window.localStorage.getItem("finsight.greetingMotion")).toBe("paused");
+    expect(patched).toEqual([]);
+
+    await userEvent.click(stillSwitch);
+    expect(window.localStorage.getItem("finsight.greetingMotion")).toBe("playing");
+  });
+
   describe("the guided tour panel", () => {
     it("writes the always-show preference through the tour", async () => {
       renderPage();
