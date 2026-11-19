@@ -68,7 +68,7 @@
     "@supabase/supabase-js": "^2.119.0",
     "cors": "^2.8.5",
     "csv-parse": "^7.0.3",
-    "dotenv": "^16.4.7",
+    "dotenv": "^18.0.10",
     "express": "^4.22.3",
     "helmet": "8.3.0",
     "multer": "^2.5.0",
