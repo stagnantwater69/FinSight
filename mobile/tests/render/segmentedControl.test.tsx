@@ -168,7 +168,7 @@ describe('SegmentedControl says what the group is for', () => {
 });
 
 describe('SegmentedControl hands its selected fill to the sliding highlight', () => {
-  const background = (segment: { props: { style: unknown } }) =>
+  const background = (segment: { props: Record<string, unknown> }) =>
     (StyleSheet.flatten(segment.props.style as Parameters<typeof StyleSheet.flatten>[0]) as { backgroundColor?: string }).backgroundColor;
 
   it('paints the selected segment itself until it has been measured, then lets the highlight draw it', async () => {
