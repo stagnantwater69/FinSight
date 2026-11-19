@@ -166,3 +166,21 @@ describe('SegmentedControl says what the group is for', () => {
     ).toBe(false);
   });
 });
+
+describe('SegmentedControl hands its selected fill to the sliding highlight', () => {
+  const background = (segment: { props: Record<string, unknown> }) =>
+    (StyleSheet.flatten(segment.props.style as Parameters<typeof StyleSheet.flatten>[0]) as { backgroundColor?: string }).backgroundColor;
+
+  it('paints the selected segment itself until it has been measured, then lets the highlight draw it', async () => {
+    const queries = await mount();
+    const [selected] = queries.getAllByRole('button');
+    expect(background(selected!)).not.toBe('transparent');
+
+    await act(async () => {
+      queries.getAllByRole('button').forEach((segment, index) =>
+        fireEvent(segment, 'layout', { nativeEvent: { layout: { x: index * 100, y: 0, width: 100, height: TAP_FLOOR } } }),
+      );
+    });
+    expect(background(queries.getAllByRole('button')[0]!)).toBe('transparent');
+  });
+});

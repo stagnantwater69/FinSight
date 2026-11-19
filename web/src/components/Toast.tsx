@@ -32,6 +32,7 @@ interface ToastAction {
 interface ToastItem extends Partial<ToastAction> {
   id: number;
   message: string;
+  leaving?: boolean;
 }
 
 type ToastFn = (message: string, action?: ToastAction) => void;
@@ -43,6 +44,8 @@ const ToastContext = createContext<ToastFn | null>(null);
 // that, and an undo the owner could not reach in time is worse than no undo.
 const PLAIN_MS = 3200;
 const ACTIONABLE_MS = 8000;
+// The fade-out runs inside the lifetime above, so a toast still leaves on time.
+const EXIT_MS = 180;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -56,7 +59,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (message, action) => {
       const id = nextId.current++;
       setToasts((prev) => [...prev, { id, message, ...action }]);
-      window.setTimeout(() => dismiss(id), action ? ACTIONABLE_MS : PLAIN_MS);
+      const lifetime = action ? ACTIONABLE_MS : PLAIN_MS;
+      window.setTimeout(
+        () => setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t))),
+        lifetime - EXIT_MS,
+      );
+      window.setTimeout(() => dismiss(id), lifetime);
     },
     [dismiss],
   );
@@ -98,7 +106,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
              * Light and Dark alike — measured on #052624: white ~19:1,
              * brand-300 ~9.5:1, accent-200 ~12:1.
              */
-            className="pointer-events-auto flex max-w-full animate-toast-in items-center gap-2.5 rounded-full bg-brand-950 py-2.5 pl-4 pr-2.5 text-sm font-medium text-white shadow-lg"
+            className={`pointer-events-auto flex max-w-full ${t.leaving ? "animate-toast-out" : "animate-toast-in"} items-center gap-2.5 rounded-full bg-brand-950 py-2.5 pl-4 pr-2.5 text-sm font-medium text-white shadow-lg`}
           >
             <span aria-hidden className="text-brand-300">
               ✓

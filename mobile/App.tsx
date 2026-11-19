@@ -90,6 +90,7 @@ import { shadowStyle } from "./src/theme/shadow";
 import type { Palette } from "./src/theme/palette";
 import { LightTheme, ThemeProvider, useTheme, useThemeControl } from "./src/context/ThemeContext";
 import { recordsTabPressAction, RECORDS_LIST_SCREEN } from "./src/lib/tabSelection";
+import { useReducedMotion } from "./src/lib/useReducedMotion";
 import { isFullscreenSubpage } from "./src/lib/subpageNavigation";
 import { returnFromOperatingSchedule } from "./src/lib/operatingScheduleNavigation";
 import { returnFromMonthEndReview } from "./src/lib/monthEndReviewNavigation";
@@ -175,6 +176,8 @@ function useScreenOptions() {
     statusBarBackgroundColor: t.surface,
     // The screen under a pushed subpage stops re-rendering until it is back on top.
     freezeOnBlur: true,
+    // A short slide with a parallax under-layer (Android); iOS keeps its native push.
+    animation: "ios_from_right",
   } as const;
 }
 
@@ -531,6 +534,7 @@ function ScanTabButton({
 
 function MainTabs() {
   const t = useTheme();
+  const reduceMotion = useReducedMotion();
   const { ACCENT, categorical, categoricalOnColor } = t;
   /**
    * The five actions the "+" offers instead of going straight to the camera.
@@ -694,6 +698,8 @@ function MainTabs() {
         headerShown: false,
         // Hidden tabs stop re-rendering when shared state (period, business, theme) changes; they catch up on focus.
         freezeOnBlur: true,
+        // Tabs are peers, not a hierarchy, so they cross-fade rather than slide.
+        animation: reduceMotion ? "none" : "fade",
         tabBarIcon: ({ color, focused }) => (
           <TabIcon
             routeName={route.name}

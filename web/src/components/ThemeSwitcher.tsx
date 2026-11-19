@@ -1,4 +1,5 @@
 import { useState, type ComponentType } from "react";
+import { usePresence } from "../lib/usePresence";
 import { THEMES, THEME_LABELS, useTheme, type Theme } from "../context/ThemeContext";
 import { useDismiss, useMenuKeys } from "../lib/hooks";
 import { IconCheck, IconMoon, IconSun, IconTheme } from "./icons";
@@ -23,6 +24,7 @@ const GLYPHS: Record<Theme, ComponentType<{ className?: string }>> = {
 export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
   const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const { ref, triggerRef } = useDismiss(open, () => setOpen(false));
   const onMenuKeys = useMenuKeys("[role='menuitemradio']");
 
@@ -49,12 +51,12 @@ export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
         ) : null}
       </button>
 
-      {open ? (
-        <div
+      {presence.mounted ? (
+        <div inert={presence.leaving} aria-hidden={presence.leaving || undefined}
           role="menu"
           aria-label="Theme"
           onKeyDown={onMenuKeys}
-          className="scroll-slim absolute right-0 top-full z-50 mt-2 max-h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] w-60 max-w-[calc(100vw-1.5rem)] animate-pop-down overflow-y-auto overscroll-contain rounded-2xl border border-paper-200 bg-paper p-1.5 shadow-lg lg:max-h-[calc(100dvh-5rem)]"
+          className={`scroll-slim absolute right-0 top-full z-50 mt-2 max-h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] w-60 max-w-[calc(100vw-1.5rem)] ${presence.leaving ? "animate-pop-out" : "animate-pop-down"} overflow-y-auto overscroll-contain rounded-2xl border border-paper-200 bg-paper p-1.5 shadow-lg lg:max-h-[calc(100dvh-5rem)]`}
         >
           <div className="px-2.5 pb-1.5 pt-2 text-xs font-bold uppercase tracking-[0.12em] text-ink-500">
             Appearance

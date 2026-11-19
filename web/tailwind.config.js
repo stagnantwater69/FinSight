@@ -279,6 +279,12 @@ export default {
           from: { opacity: "0", transform: "translateY(-4px)" },
           to: { opacity: "1", transform: "none" },
         },
+        // Dropdown/menu exit: shorter than the entrance, lifting back toward
+        // its trigger. Duration matches EXIT_MS in src/lib/usePresence.ts.
+        "pop-out": {
+          from: { opacity: "1", transform: "none" },
+          to: { opacity: "0", transform: "translateY(-4px) scale(0.98)" },
+        },
         // Page/view transition — the mockup's `fade`.
         "fade-up": {
           from: { opacity: "0", transform: "translateY(6px)" },
@@ -288,6 +294,11 @@ export default {
         "toast-in": {
           from: { opacity: "0", transform: "translateY(10px)" },
           to: { opacity: "1", transform: "none" },
+        },
+        // Toast exit: quicker than the entrance and sinking back the way it came.
+        "toast-out": {
+          from: { opacity: "1", transform: "none" },
+          to: { opacity: "0", transform: "translateY(6px) scale(0.98)" },
         },
         // Panels that slide in from the right edge — the notification centre
         // and the global-search results on mobile.
@@ -367,8 +378,10 @@ export default {
         "slide-up": "slide-up 260ms cubic-bezier(.16,1,.3,1) both",
         shimmer: "shimmer 1.6s infinite",
         "pop-down": "pop-down 160ms cubic-bezier(.16,1,.3,1) both",
+        "pop-out": "pop-out 120ms cubic-bezier(.4,0,1,1) both",
         "fade-up": "fade-up 220ms cubic-bezier(.16,1,.3,1) both",
         "toast-in": "toast-in 250ms cubic-bezier(.16,1,.3,1) both",
+        "toast-out": "toast-out 180ms cubic-bezier(.4,0,1,1) both",
         "slide-in-right": "slide-in-right 200ms cubic-bezier(.16,1,.3,1) both",
         "step-next": "step-next 360ms cubic-bezier(.16,1,.3,1) both",
         "step-back": "step-back 360ms cubic-bezier(.16,1,.3,1) both",

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RisingSheet } from "../components/RisingSheet";
 import { type TextInputInstance, ActivityIndicator, Alert as RNAlert, Image, Modal, Pressable, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -302,31 +303,33 @@ export function BusinessProfilesScreen({ navigation }: MoreScreenProps<"Business
         {archivedPanel}
         {archived === null ? <T style={{ color: t.textSecondary, fontSize: typeScale.bodySm, lineHeight: 22, marginTop: space.sm }}>Archived businesses keep their records.</T> : null}
       </ContentScrollView>
-      <Modal visible={!!detailsProfile} transparent animationType="slide" onRequestClose={() => setDetailsId(null)} statusBarTranslucent>
+      <Modal visible={!!detailsProfile} transparent animationType="fade" onRequestClose={() => setDetailsId(null)} statusBarTranslucent>
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: t.scrim }}>
-          <Pressable accessible={false} importantForAccessibility="no-hide-descendants" onPress={() => setDetailsId(null)} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }} />
-          <View accessibilityViewIsModal style={{ width: "100%", maxWidth: 720, alignSelf: "center", maxHeight: "85%", backgroundColor: t.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingBottom: insets.bottom }}>
-            <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                <T accessibilityRole="header" style={{ flex: 1, color: t.brandHeading, fontFamily: font.sansSemibold, fontSize: typeScale.title, lineHeight: 26 }}>Starting details</T>
-                <Pressable accessibilityRole="button" accessibilityLabel="Close business details" onPress={() => setDetailsId(null)} style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}><Ionicons name="close" size={22} color={t.textSecondary} accessible={false} /></Pressable>
-              </View>
-              {detailsProfile ? (
-                <>
-                  <View style={{ gap: space.xs }}><T style={{ color: t.textPrimary, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>{detailsProfile.name}</T><T variant="caption">{detailsProfile.type}</T></View>
-                  <T style={{ color: t.textSecondary, fontSize: typeScale.bodySm, lineHeight: 22 }}>These are your starting figures and record coverage, not current funds or profit.</T>
-                  <View style={{ gap: space.md }}>
-                    <RowLine label="Opening balance" value={detailsProfile.availableFunds} />
-                    <RowLine label="Starting monthly estimate" value={detailsProfile.expectedMonthlyExpenses} />
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.md }}><T variant="caption" style={{ flex: 1 }}>Operating days / month</T><T style={{ fontSize: typeScale.label }}>{detailsProfile.operatingDays}</T></View>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.md }}><T variant="caption" style={{ flex: 1 }}>Expense records complete through</T><T style={{ flexShrink: 1, textAlign: "right", fontSize: typeScale.label }}>{detailsProfile.expenseRecordsCompleteThroughMonth ? formatMonthLabel(detailsProfile.expenseRecordsCompleteThroughMonth) : "Not confirmed"}</T></View>
-                  </View>
-                  <Button title="Edit business" accessibilityLabel={`Edit ${detailsProfile.name}`} variant="secondary" disabled={busyId !== null} onPress={() => editProfile(detailsProfile)} />
-                  <Button title="Archive business" accessibilityLabel={`Archive ${detailsProfile.name}`} variant="secondary" disabled={busyId !== null} onPress={() => { setDetailsId(null); confirmArchive(detailsProfile); }} loading={busyId === detailsProfile.id} />
-                </>
-              ) : null}
-            </ScrollView>
-          </View>
+          <RisingSheet>
+            <Pressable accessible={false} importantForAccessibility="no-hide-descendants" onPress={() => setDetailsId(null)} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }} />
+            <View accessibilityViewIsModal style={{ width: "100%", maxWidth: 720, alignSelf: "center", maxHeight: "85%", backgroundColor: t.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingBottom: insets.bottom }}>
+              <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                  <T accessibilityRole="header" style={{ flex: 1, color: t.brandHeading, fontFamily: font.sansSemibold, fontSize: typeScale.title, lineHeight: 26 }}>Starting details</T>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Close business details" onPress={() => setDetailsId(null)} style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}><Ionicons name="close" size={22} color={t.textSecondary} accessible={false} /></Pressable>
+                </View>
+                {detailsProfile ? (
+                  <>
+                    <View style={{ gap: space.xs }}><T style={{ color: t.textPrimary, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>{detailsProfile.name}</T><T variant="caption">{detailsProfile.type}</T></View>
+                    <T style={{ color: t.textSecondary, fontSize: typeScale.bodySm, lineHeight: 22 }}>These are your starting figures and record coverage, not current funds or profit.</T>
+                    <View style={{ gap: space.md }}>
+                      <RowLine label="Opening balance" value={detailsProfile.availableFunds} />
+                      <RowLine label="Starting monthly estimate" value={detailsProfile.expectedMonthlyExpenses} />
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.md }}><T variant="caption" style={{ flex: 1 }}>Operating days / month</T><T style={{ fontSize: typeScale.label }}>{detailsProfile.operatingDays}</T></View>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: space.md }}><T variant="caption" style={{ flex: 1 }}>Expense records complete through</T><T style={{ flexShrink: 1, textAlign: "right", fontSize: typeScale.label }}>{detailsProfile.expenseRecordsCompleteThroughMonth ? formatMonthLabel(detailsProfile.expenseRecordsCompleteThroughMonth) : "Not confirmed"}</T></View>
+                    </View>
+                    <Button title="Edit business" accessibilityLabel={`Edit ${detailsProfile.name}`} variant="secondary" disabled={busyId !== null} onPress={() => editProfile(detailsProfile)} />
+                    <Button title="Archive business" accessibilityLabel={`Archive ${detailsProfile.name}`} variant="secondary" disabled={busyId !== null} onPress={() => { setDetailsId(null); confirmArchive(detailsProfile); }} loading={busyId === detailsProfile.id} />
+                  </>
+                ) : null}
+              </ScrollView>
+            </View>
+          </RisingSheet>
         </View>
       </Modal>
     </Screen>

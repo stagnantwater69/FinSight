@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { SlidingIndicator } from "./SlidingIndicator";
 import { Download, FileSpreadsheet, ReceiptText, type LucideIcon } from "lucide-react";
 import { Money } from "./Money";
 import { SkeletonRows } from "./Skeleton";
@@ -74,8 +75,9 @@ function TabStrip({
       role="tablist"
       aria-orientation="horizontal"
       onKeyDown={onTabKeys}
-      className="mt-3 flex gap-1 border-b border-paper-200"
+      className="relative mt-3 flex gap-1 border-b border-paper-200"
     >
+      <SlidingIndicator activeKey={active} className="border-b-2 border-brand-600" />
       {tabs.map((tab) => {
         const selected = tab.id === active;
         return (
@@ -88,10 +90,10 @@ function TabStrip({
             aria-controls={panelId}
             tabIndex={selected ? 0 : -1}
             onClick={() => onSelect(tab.id)}
-            className={`tap-inline -mb-px border-b-2 px-3 py-2 text-xs font-medium transition ${
+            className={`tap-inline relative z-10 -mb-px border-b-2 border-transparent px-3 py-2 text-xs font-medium transition ${
               selected
-                ? "border-brand-600 text-brand-700"
-                : "border-transparent text-ink-500 hover:text-ink-800"
+                ? "text-brand-700"
+                : "text-ink-500 hover:text-ink-800"
             }`}
           >
             {tab.label}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { RisingSheet } from "./RisingSheet";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -112,93 +113,95 @@ export function RecordExportSheet({ visible, onClose, businessProfileId, busines
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: t.scrim, justifyContent: "flex-end" }}>
-        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close without exporting" style={[StyleSheet.absoluteFill, { minHeight: TAP_FLOOR, minWidth: TAP_FLOOR }]} />
-        <View style={{ backgroundColor: t.surfaceRaised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.md, maxHeight: "88%" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: space.lg, paddingBottom: space.sm }}>
-            <View style={{ flex: 1 }}>
-              <T variant="heading" accessibilityRole="header" style={{ color: t.brandHeading }}>Export records</T>
-              <T variant="caption" numberOfLines={1}>{businessName}</T>
-            </View>
-            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} style={{ padding: space.xs }}>
-              <Ionicons name="close" size={20} color={t.textMuted} />
-            </Pressable>
-          </View>
-
-          <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, gap: space.lg, paddingBottom: space.md }}>
-            {loadError ? <ErrorNote>{loadError}</ErrorNote> : null}
-
-            {mode !== "filtered" ? (
-              <View style={{ gap: space.sm }}>
-                <T variant="label">Records</T>
-                <SegmentedControl accessibilityLabel="Records to export" options={[{ label: "All", value: "all" }, { label: "Expenses", value: "expense" }, { label: "Sales", value: "sales" }] as const} value={type} onChange={setType} />
+        <RisingSheet>
+          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close without exporting" style={[StyleSheet.absoluteFill, { minHeight: TAP_FLOOR, minWidth: TAP_FLOOR }]} />
+          <View style={{ backgroundColor: t.surfaceRaised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.md, maxHeight: "88%" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+              <View style={{ flex: 1 }}>
+                <T variant="heading" accessibilityRole="header" style={{ color: t.brandHeading }}>Export records</T>
+                <T variant="caption" numberOfLines={1}>{businessName}</T>
               </View>
-            ) : null}
-
-            <View style={{ gap: space.sm }}>
-              <T variant="label">Period</T>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
-                {filteredQuery ? <SelectChip label="As filtered" selected={mode === "filtered"} onPress={() => setMode("filtered")} accessibilityLabel="As filtered: the list's current filters" /> : null}
-                {QUICK.map((option) => <SelectChip key={option.mode} label={option.label} selected={mode === option.mode} onPress={() => setMode(option.mode)} />)}
-              </View>
-              {mode === "filtered" ? <T variant="caption">Uses the search, type and filters on the Records list.</T> : null}
+              <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} style={{ padding: space.xs }}>
+                <Ionicons name="close" size={20} color={t.textMuted} />
+              </Pressable>
             </View>
 
-            {mode === "months" ? (
-              counts === null ? <ActivityIndicator color={t.brandText} /> : counts.length === 0 ? <T variant="caption">No records yet.</T> : (
+            <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, gap: space.lg, paddingBottom: space.md }}>
+              {loadError ? <ErrorNote>{loadError}</ErrorNote> : null}
+
+              {mode !== "filtered" ? (
                 <View style={{ gap: space.sm }}>
-                  {years.length > 1 ? (
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
-                      {years.map((y) => <SelectChip key={y} label={y} selected={y === shownYear} onPress={() => setYear(y)} accessibilityLabel={`Show ${y}`} />)}
-                    </View>
-                  ) : null}
-                  <Checkbox
-                    label={`Whole of ${shownYear}`}
-                    checked={wholeYear}
-                    onChange={(on) => setPicked((current) => on
-                      ? [...new Set([...current, ...yearMonths.map((row) => row.month)])]
-                      : current.filter((month) => !month.startsWith(shownYear ?? "~")))}
-                  />
-                  <View style={{ borderTopWidth: 1, borderTopColor: t.border }}>
-                    {yearMonths.map((row) => {
-                      const n = countFor([row], null, type);
-                      return (
-                        <View key={row.month} style={{ borderBottomWidth: 1, borderBottomColor: t.border, paddingVertical: space.xs }}>
-                          <Checkbox
-                            label={`${monthName(row.month)} ${row.month.slice(0, 4)}`}
-                            hint={`${n.toLocaleString("en-PH")} record${n === 1 ? "" : "s"}`}
-                            checked={picked.includes(row.month)}
-                            onChange={(on) => toggleMonth(row.month, on)}
-                          />
-                        </View>
-                      );
-                    })}
-                  </View>
-                  {picked.length > 0 ? (
-                    <Pressable accessibilityRole="button" accessibilityLabel="Clear picked months" onPress={() => setPicked([])} style={{ minHeight: TAP_FLOOR, justifyContent: "center", alignSelf: "flex-start" }}>
-                      <T variant="label" style={{ color: t.brandText }}>{`Clear ${picked.length} picked`}</T>
-                    </Pressable>
-                  ) : null}
+                  <T variant="label">Records</T>
+                  <SegmentedControl accessibilityLabel="Records to export" options={[{ label: "All", value: "all" }, { label: "Expenses", value: "expense" }, { label: "Sales", value: "sales" }] as const} value={type} onChange={setType} />
                 </View>
-              )
-            ) : null}
+              ) : null}
 
-            {mode === "range" ? (
               <View style={{ gap: space.sm }}>
-                <DateField label="From" value={dateFrom} onChange={setDateFrom} today={today} />
-                <DateField label="To" value={dateTo} onChange={setDateTo} today={today} />
-                {dateFrom && dateTo && dateFrom > dateTo ? <T variant="caption" style={{ color: t.statusText.critical }}>The start date is after the end date.</T> : null}
+                <T variant="label">Period</T>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+                  {filteredQuery ? <SelectChip label="As filtered" selected={mode === "filtered"} onPress={() => setMode("filtered")} accessibilityLabel="As filtered: the list's current filters" /> : null}
+                  {QUICK.map((option) => <SelectChip key={option.mode} label={option.label} selected={mode === option.mode} onPress={() => setMode(option.mode)} />)}
+                </View>
+                {mode === "filtered" ? <T variant="caption">Uses the search, type and filters on the Records list.</T> : null}
               </View>
-            ) : null}
 
-            {tooMany ? <T variant="caption" style={{ color: t.statusText.critical }}>{`A spreadsheet holds up to ${MAX_EXPORT_ROWS.toLocaleString("en-PH")} rows. Pick fewer months.`}</T> : null}
-          </ScrollView>
+              {mode === "months" ? (
+                counts === null ? <ActivityIndicator color={t.brandText} /> : counts.length === 0 ? <T variant="caption">No records yet.</T> : (
+                  <View style={{ gap: space.sm }}>
+                    {years.length > 1 ? (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+                        {years.map((y) => <SelectChip key={y} label={y} selected={y === shownYear} onPress={() => setYear(y)} accessibilityLabel={`Show ${y}`} />)}
+                      </View>
+                    ) : null}
+                    <Checkbox
+                      label={`Whole of ${shownYear}`}
+                      checked={wholeYear}
+                      onChange={(on) => setPicked((current) => on
+                        ? [...new Set([...current, ...yearMonths.map((row) => row.month)])]
+                        : current.filter((month) => !month.startsWith(shownYear ?? "~")))}
+                    />
+                    <View style={{ borderTopWidth: 1, borderTopColor: t.border }}>
+                      {yearMonths.map((row) => {
+                        const n = countFor([row], null, type);
+                        return (
+                          <View key={row.month} style={{ borderBottomWidth: 1, borderBottomColor: t.border, paddingVertical: space.xs }}>
+                            <Checkbox
+                              label={`${monthName(row.month)} ${row.month.slice(0, 4)}`}
+                              hint={`${n.toLocaleString("en-PH")} record${n === 1 ? "" : "s"}`}
+                              checked={picked.includes(row.month)}
+                              onChange={(on) => toggleMonth(row.month, on)}
+                            />
+                          </View>
+                        );
+                      })}
+                    </View>
+                    {picked.length > 0 ? (
+                      <Pressable accessibilityRole="button" accessibilityLabel="Clear picked months" onPress={() => setPicked([])} style={{ minHeight: TAP_FLOOR, justifyContent: "center", alignSelf: "flex-start" }}>
+                        <T variant="label" style={{ color: t.brandText }}>{`Clear ${picked.length} picked`}</T>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                )
+              ) : null}
 
-          <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm }}>
-            <Button title={buttonLabel} variant="primary" disabled={!ready} onPress={submit} />
+              {mode === "range" ? (
+                <View style={{ gap: space.sm }}>
+                  <DateField label="From" value={dateFrom} onChange={setDateFrom} today={today} />
+                  <DateField label="To" value={dateTo} onChange={setDateTo} today={today} />
+                  {dateFrom && dateTo && dateFrom > dateTo ? <T variant="caption" style={{ color: t.statusText.critical }}>The start date is after the end date.</T> : null}
+                </View>
+              ) : null}
+
+              {tooMany ? <T variant="caption" style={{ color: t.statusText.critical }}>{`A spreadsheet holds up to ${MAX_EXPORT_ROWS.toLocaleString("en-PH")} rows. Pick fewer months.`}</T> : null}
+            </ScrollView>
+
+            <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm }}>
+              <Button title={buttonLabel} variant="primary" disabled={!ready} onPress={submit} />
+            </View>
           </View>
-        </View>
+        </RisingSheet>
       </View>
     </Modal>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { usePresence } from "../lib/usePresence";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
@@ -300,6 +301,7 @@ export function GlobalSearch({ className = "" }: { className?: string }) {
   }
 
   const showPanel = open && trimmed.length > 0;
+  const presence = usePresence(showPanel);
   const listboxId = `${searchId}-results`;
 
   return (
@@ -334,8 +336,8 @@ export function GlobalSearch({ className = "" }: { className?: string }) {
         </kbd>
       </div>
 
-      {showPanel ? (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 animate-pop-down overflow-hidden rounded-2xl border border-paper-200 bg-paper shadow-lg">
+      {presence.mounted ? (
+        <div inert={presence.leaving} aria-hidden={presence.leaving || undefined} className={`absolute left-0 right-0 top-full z-50 mt-2 ${presence.leaving ? "animate-pop-out" : "animate-pop-down"} overflow-hidden rounded-2xl border border-paper-200 bg-paper shadow-lg`}>
           {results.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-ink-500">
               {searching || trimmed !== debounced ? "Searching…" : searchError?.query === trimmed ? "Record search could not finish." : <>Nothing matches “{trimmed}”.</>}

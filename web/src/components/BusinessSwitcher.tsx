@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { usePresence } from "../lib/usePresence";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { useDismiss, useMenuKeys } from "../lib/hooks";
@@ -71,6 +72,7 @@ export function BusinessSwitcher({
   const location = useLocation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const { ref, triggerRef } = useDismiss(open, () => setOpen(false));
   const onMenuKeys = useMenuKeys();
 
@@ -173,12 +175,12 @@ export function BusinessSwitcher({
         </span>
       </button>
 
-      {open ? (
-        <div
+      {presence.mounted ? (
+        <div inert={presence.leaving} aria-hidden={presence.leaving || undefined}
           role="menu"
           aria-label="Business profiles"
           onKeyDown={onMenuKeys}
-          className={`absolute z-50 mt-2 w-[17rem] max-w-[calc(100vw-2rem)] animate-pop-down rounded-2xl border border-paper-200 bg-paper p-2 shadow-lg ${
+          className={`absolute z-50 mt-2 w-[17rem] max-w-[calc(100vw-2rem)] ${presence.leaving ? "animate-pop-out" : "animate-pop-down"} rounded-2xl border border-paper-200 bg-paper p-2 shadow-lg ${
             // Collapsed the rail is only 72px wide, so the menu flies out to
             // the side rather than hanging off the left edge of the screen.
             collapsed ? "left-full top-0 ml-2" : "left-0 top-full"
