@@ -20,7 +20,6 @@ function renderCard(flaggedCount: number, onReviewFlags = vi.fn()) {
       <ExpenseSummaryCard
         points={expenseSummaryPoints(summary, ctx)}
         summary={summary}
-        comparedWith="Sep 1-11"
         flaggedCount={flaggedCount}
         unusualCount={0}
         questions={[]}
@@ -34,13 +33,16 @@ function renderCard(flaggedCount: number, onReviewFlags = vi.fn()) {
 describe('ExpenseSummaryCard', () => {
   it('leads each point with a figure and keeps the full sentence as its spoken label', async () => {
     const queries = await renderCard(78);
-    expect(queries.getByText('73%')).toBeTruthy();
     expect(queries.getByText('+PHP 272')).toBeTruthy();
-    expect(queries.getByText('74%')).toBeTruthy();
-    expect(queries.getByText('less than Sep 1-11')).toBeTruthy();
     expect(queries.getByText('78')).toBeTruthy();
-    expect(queries.getByLabelText(/Rent is your highest expense category in October 2026: 72\.7% of expenses\./)).toBeTruthy();
-    expect(queries.getByLabelText(/Total spending is 74% lower than Sep 1-11\./)).toBeTruthy();
+    expect(queries.getByLabelText(/Inventory rose the most: up PHP 272 vs Sep 1-11\./)).toBeTruthy();
+  });
+
+  it('leaves the top share and total change to the donut and the hero chip', async () => {
+    const queries = await renderCard(78);
+    expect(queries.queryByText('73%')).toBeNull();
+    expect(queries.queryByText('74%')).toBeNull();
+    expect(queries.queryByLabelText(/Total spending is/)).toBeNull();
   });
 
   it('opens the flagged records from the review tile', async () => {

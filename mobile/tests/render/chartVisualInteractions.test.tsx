@@ -54,18 +54,12 @@ describe('Expense chart exploration', () => {
     await hoverChart(q, 'Category distribution', 20, 76);
     expect(queryChartReadout(q, 'Category distribution')).toBeNull();
   });
-  it('explores glance rings and summary comparison bars with named figures', async () => {
-    const q = await mount(<><ExpenseGlance summary={summary} availableFunds={2000.5} fundsLoading={false} /><ExpenseSummaryCard summary={summary} points={expenseSummaryPoints(summary, { periodText: 'in October', comparedWith: 'September', allTime: false, flaggedCount: 0, unusualCount: 0 })} comparedWith="September" flaggedCount={0} unusualCount={0} questions={[]} onAsk={vi.fn()} /></>);
+  it('explores the glance funds ring with named figures', async () => {
+    const q = await mount(<><ExpenseGlance summary={summary} availableFunds={2000.5} fundsLoading={false} /><ExpenseSummaryCard summary={summary} points={expenseSummaryPoints(summary, { periodText: 'in October', comparedWith: 'September', allTime: false, flaggedCount: 0, unusualCount: 0 })} flaggedCount={0} unusualCount={0} questions={[]} onAsk={vi.fn()} /></>);
     // The Expense tab prints these figures as text, so it offers no separate Explore link.
     expect(q.queryByRole('button', { name: /^Explore / })).toBeNull();
     await tapChart(q, 'Share of recorded funds');
     expect(chartReadout(q, 'Spending at a glance').props.accessibilityLabel).toContain('Recorded available funds: PHP 2,000.50');
-    await tapChart(q, 'Largest spending category');
-    expect(chartReadout(q, 'Spending at a glance').props.accessibilityLabel).toContain('Stock');
-    await tapChart(q, 'Largest category share');
-    expect(chartReadout(q, 'Expense summary').props.accessibilityLabel).toContain('PHP 750.25');
-    await tapChart(q, 'Summary spending comparison');
-    expect(chartReadout(q, 'Expense summary').props.accessibilityLabel).toContain('Current period: PHP 1,001.00. September: PHP 801.00');
   });
   it('does not present unavailable funds as zero', async () => {
     const missing = expenseSummaryFigures({ totals: { current: 1001, previous: 801 }, categoryTrends: chartTrends, dailyTotals: [] }, null);

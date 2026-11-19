@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render } from '@testing-library/react-native';
 import { CategoryBars, DailySpending, SpendHero, SpendingComparison } from '../../src/components/ExpenseVisuals';
-import { ExpenseCloserLook, ExpenseGlance } from '../../src/components/ExpenseSummary';
+import { ExpenseGlance } from '../../src/components/ExpenseSummary';
 import { ThemeProvider } from '../../src/context/ThemeContext';
 import { expenseSummaryFigures } from '../../src/lib/expenseSummary';
 import type { CategoryTrend } from '../../src/lib/types';
@@ -58,7 +58,7 @@ describe('Expense figures', () => {
     expect(queries.getByText('20% lower')).toBeTruthy();
     expect(queries.getByLabelText('September 2026, PHP 1,200.50')).toBeTruthy();
     expect(queries.getByLabelText('August 2026, PHP 1,500.75')).toBeTruthy();
-    expect(queries.getByText('PHP 300.25 less than August 2026')).toBeTruthy();
+    expect(queries.getByText('vs August 2026')).toBeTruthy();
     expect(queries.queryByRole('image')).toBeNull();
   });
 
@@ -68,7 +68,8 @@ describe('Expense figures', () => {
       change: 300, direction: 'up', percentChange: null, recordCount: 2,
     }]} total={1000} previousTotal={0} comparedWith="August 2026" onOpen={vi.fn()} />));
     await fireEvent.press(queries.getByRole('button', { name: 'All 1 category' }));
-    expect(queries.getByText('No earlier expenses to compare')).toBeTruthy();
+    // Nothing earlier to compare with: no change pill, and no invented percentage.
+    expect(queries.queryByText('new')).toBeNull();
     expect(queries.queryByText(/\(.*%\)/)).toBeNull();
     expect(queries.getByRole('image', { name: 'Category distribution. Stock, PHP 300.00, 30.0 percent' })).toBeTruthy();
   });
@@ -116,7 +117,7 @@ describe('Expense figures', () => {
     await fireEvent.press(queries.getByRole('button', { name: 'All 1 category' }));
     expect(queries.getByText('30.0% · 2 expenses')).toBeTruthy();
     expect(queries.getByText('PHP 300.00')).toBeTruthy();
-    expect(queries.getByText('Previous: PHP 200.00 · August 2026')).toBeTruthy();
+    expect(queries.getByText('50%')).toBeTruthy();
     expect(queries.getByRole('image', { name: 'Category distribution. Stock, PHP 300.00, 30.0 percent' })).toBeTruthy();
     await fireEvent.press(queries.getByRole('button', {
       name: 'Stock, PHP 300.00, 30.0 percent of spending, 2 expenses. Previous PHP 200.00 in August 2026. PHP 100.00 more (50%). View these records.',
@@ -165,7 +166,7 @@ describe('Spending comparisons', () => {
       <SpendingComparison total={total} previousTotal={previousTotal} period="September 2026" comparedWith="August 2026" />
     </>));
     expect(q.getByText(`25% ${description}`)).toBeTruthy();
-    expect(q.getByText(`PHP 250.00 ${direction} than August 2026`)).toBeTruthy();
+    expect(q.getByText('vs August 2026')).toBeTruthy();
     expect(q.getByLabelText(`September 2026, PHP ${total.toLocaleString('en-US')}.00`)).toBeTruthy();
     expect(q.getByLabelText('August 2026, PHP 1,000.00')).toBeTruthy();
     expect(q.queryByRole('image')).toBeNull();
@@ -187,7 +188,7 @@ describe('Spending comparisons', () => {
       <SpendingComparison total={500} previousTotal={500} period="September 2026" comparedWith="August 2026" />
     </>));
     expect(q.getByText('No change')).toBeTruthy();
-    expect(q.getByText('Same total as the previous period')).toBeTruthy();
+    expect(q.getByText('vs August 2026')).toBeTruthy();
     expect(q.getByLabelText('September 2026, PHP 500.00')).toBeTruthy();
     expect(q.getByLabelText('August 2026, PHP 500.00')).toBeTruthy();
     expect(q.queryByText(/% (higher|lower)/)).toBeNull();
@@ -202,44 +203,6 @@ describe('Spending comparisons', () => {
     expect(q.getByLabelText('Previous period, PHP 0.00')).toBeTruthy();
     expect(q.getByText('No expenses in the previous period to compare.')).toBeTruthy();
     expect(q.queryByText(/% (higher|lower)/)).toBeNull();
-  });
-});
-
-describe('Expense follow-up actions', () => {
-  it.each([0, 3])('keeps review and recurring destinations usable with %i flagged expenses', async (flaggedCount) => {
-    const onReview = vi.fn();
-    const onRecurring = vi.fn();
-    const q = await render(withTheme(<ExpenseCloserLook flaggedCount={flaggedCount} flaggedLoading={false} flaggedStale={false}
-      overdueCount={2} recurringLoading={false} recurringStale={false} onReview={onReview} onRecurring={onRecurring} />));
-    await fireEvent.press(q.getByRole('button', { name: new RegExp(`^Review flagged expenses\\. Business-wide expense flags.*${flaggedCount} flags$`) }));
-    await fireEvent.press(q.getByRole('button', { name: 'Recurring expenses. 2 overdue' }));
-    expect(onReview).toHaveBeenCalledOnce();
-    expect(onRecurring).toHaveBeenCalledOnce();
-  });
-
-  it.each([
-    { loading: true, status: 'Loading…' },
-    { loading: false, status: 'Unavailable' },
-  ])('labels unknown counts as $status instead of recorded zeros', async ({ loading, status }) => {
-    const onReview = vi.fn();
-    const onRecurring = vi.fn();
-    const q = await render(withTheme(<ExpenseCloserLook flaggedCount={null} flaggedLoading={loading} flaggedStale={false}
-      overdueCount={null} recurringLoading={loading} recurringStale={false} onReview={onReview} onRecurring={onRecurring} />));
-    await fireEvent.press(q.getByRole('button', { name: `Review flagged expenses. Business-wide expense flags. ${status}` }));
-    await fireEvent.press(q.getByRole('button', { name: new RegExp(`^Recurring expenses\\..*${status}$`) }));
-    expect(q.queryByText('0')).toBeNull();
-    expect(q.queryByText('All clear')).toBeNull();
-    expect(onReview).toHaveBeenCalledOnce();
-    expect(onRecurring).toHaveBeenCalledOnce();
-  });
-
-  it('identifies saved counts when refresh fails', async () => {
-    const q = await render(withTheme(<ExpenseCloserLook flaggedCount={3} flaggedLoading={false} flaggedStale
-      overdueCount={2} recurringLoading={false} recurringStale onReview={vi.fn()} onRecurring={vi.fn()} />));
-    expect(q.getByRole('button', { name: /^Review flagged expenses\. Business-wide expense flags.*3 flags\. Saved data$/ })).toBeTruthy();
-    expect(q.getByRole('button', { name: 'Recurring expenses. 2 overdue. Saved data' })).toBeTruthy();
-    expect(q.getByText('3')).toBeTruthy();
-    expect(q.getByText('2')).toBeTruthy();
   });
 });
 

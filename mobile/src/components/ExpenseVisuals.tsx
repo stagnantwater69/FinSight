@@ -13,6 +13,7 @@ import { formatMoney } from "../lib/money";
 import { font, radius, space, typeScale } from "../theme/tokens";
 import type { CategoryTrend, DailyExpenseTotal } from "../lib/types";
 import { GrowFill } from "./GrowFill";
+import { DeltaPill } from "./InsightsShared";
 
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function shortDate(value: string): string {
@@ -53,7 +54,8 @@ export function SpendHero({ total, recordCount, categoryCount, changePercent, ch
           <T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg, color: HERO.to }}>{changeLabel}</T>
         </View>
       ) : null}
-      <T style={{ fontSize: typeScale.bodySm, color: HERO.ink, fontVariant: ["tabular-nums"] }}>{changePercent === null ? `No expenses in ${comparedWith ?? "the previous period"} to compare.` : changeAmount === 0 ? "Same total as the previous period" : `${exact(Math.abs(changeAmount))} ${up ? "more" : "less"} than ${comparedWith ?? "the previous period"}`}</T>
+      {/* The chip carries the change; the comparison bars below carry both amounts. */}
+      <T style={{ fontSize: typeScale.bodySm, color: changePercent === null ? HERO.ink : HERO.muted }}>{changePercent === null ? `No expenses in ${comparedWith ?? "the previous period"} to compare.` : `vs ${comparedWith ?? "the previous period"}`}</T>
     </TealPanel>
   );
 }
@@ -130,13 +132,12 @@ export function DailySpending({ days }: { days: DailyExpenseTotal[] }) {
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: space.sm }}><T variant="caption">{shortDate(days[0]!.date)}</T><T variant="caption">{shortDate(days[days.length - 1]!.date)}</T></View>
           </View>
         </View>
-        <T variant="caption">{mode === "daily" ? "PHP · Dashed line: daily average · Tap a day" : "PHP · Total accumulated by each day · Tap a day"}</T>
+        <T variant="caption" style={{ fontVariant: ["tabular-nums"] }}>{mode === "daily" ? `Dashed: daily avg ${formatMoney(average)}` : "Running total by day"}</T>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, backgroundColor: t.brandSurface, borderRadius: radius.md, paddingHorizontal: space.xs, paddingVertical: space.sm }}>
           <Pressable accessibilityRole="button" accessibilityLabel="Previous day" accessibilityState={{ disabled: activeIndex === 0 }} disabled={activeIndex === 0} onPress={() => daySelection.select(activeIndex - 1)} style={({ pressed }) => ({ ...buttonStyle, opacity: activeIndex === 0 ? 0.4 : pressed ? 0.6 : 1 })}><Ionicons name="chevron-back" size={20} color={t.brandText} /></Pressable>
           <View accessibilityLiveRegion="polite" style={{ flex: 1, gap: space.xs }}><T style={{ fontSize: typeScale.bodySm, color: t.brandText }}>{`${selected ? shortDate(selected.date) : ""} · ${mode === "daily" ? "Daily spending" : "Running total"}`}</T><T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg, color: t.brandHeading, fontVariant: ["tabular-nums"] }}>{exact(values[activeIndex] ?? 0)}</T></View>
           <Pressable accessibilityRole="button" accessibilityLabel="Next day" accessibilityState={{ disabled: activeIndex === days.length - 1 }} disabled={activeIndex === days.length - 1} onPress={() => daySelection.select(activeIndex + 1)} style={({ pressed }) => ({ ...buttonStyle, opacity: activeIndex === days.length - 1 ? 0.4 : pressed ? 0.6 : 1 })}><Ionicons name="chevron-forward" size={20} color={t.brandText} /></Pressable>
         </View>
-        <T variant="caption">{`Spent on ${days.filter((day) => day.total > 0).length} of ${days.length} days · average ${formatMoney(average)} a day · highest ${shortDate(peak.date)} ${formatMoney(peak.total)}`}</T>
       </>}
     </View>
   );
@@ -224,10 +225,8 @@ export function CategoryBars({ trends, total, previousTotal, comparedWith, onOpe
           const changeText = pct === null ? "New this period" : change === 0 ? "No change" : `${exact(Math.abs(change))} ${change > 0 ? "more" : "less"} (${Math.abs(pct).toFixed(0)}%)`;
           return <Pressable key={c.categoryId} {...rankedSelection.bind(i)} accessibilityRole="button" accessibilityLabel={`${c.categoryName}, ${exact(c.current)}, ${share.toFixed(1)} percent of spending${c.recordCount === undefined ? "" : `, ${c.recordCount} expenses`}. Previous ${exact(c.previous)} in ${comparedWith ?? "the previous period"}. ${changeText}. View these records.`} onPress={() => onOpen(c.categoryId)} style={({ pressed }) => ({ minHeight: TAP_FLOOR, gap: space.sm, paddingVertical: space.md, borderBottomWidth: 1, borderBottomColor: t.border, opacity: pressed ? 0.7 : 1 })}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}><View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: i < PREVIEW ? categoryColors[i] : expense.other }} /><T style={{ flex: 1, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>{c.categoryName}</T><Ionicons name="chevron-forward" size={18} color={t.textSecondary} /></View>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: space.xs }}><T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg, fontVariant: ["tabular-nums"] }}>{exact(c.current)}</T><T variant="caption">{`${share.toFixed(1)}%${c.recordCount === undefined ? "" : ` · ${c.recordCount} expense${c.recordCount === 1 ? "" : "s"}`}`}</T></View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: space.xs }}><View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}><T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg, fontVariant: ["tabular-nums"] }}>{exact(c.current)}</T>{previousTotal === 0 && c.previous === 0 ? null : <DeltaPill percentChange={pct} direction={change > 0 ? "up" : change < 0 ? "down" : "flat"} />}</View><T variant="caption">{`${share.toFixed(1)}%${c.recordCount === undefined ? "" : ` · ${c.recordCount} expense${c.recordCount === 1 ? "" : "s"}`}`}</T></View>
             <ChartPlotPressArea selection={rankedSelection} count={rankedData.length} chartLabel={`${c.categoryName} comparison`} indexAtPoint={() => i}><View accessible={false} style={{ gap: space.xs }}><View style={{ height: 6, backgroundColor: t.surfaceStrong, borderRadius: 2 }}><GrowFill percent={c.current / comparisonMax * 100} style={{ height: 6, backgroundColor: t.brandFill, borderRadius: 2 }} /></View><View style={{ height: 6, backgroundColor: t.surfaceStrong, borderRadius: 2 }}><GrowFill percent={c.previous / comparisonMax * 100} style={{ height: 6, backgroundColor: t.textSecondary, borderRadius: 2 }} /></View></View></ChartPlotPressArea>
-            <T variant="caption">{`Previous: ${exact(c.previous)} · ${comparedWith ?? "previous period"}`}</T>
-            <T style={{ fontSize: typeScale.bodySm, fontFamily: font.sansMedium, color: change === 0 || pct === null ? t.textSecondary : change > 0 ? t.statusText.serious : t.statusText.good }}>{previousTotal === 0 && c.previous === 0 ? "No earlier expenses to compare" : changeText}</T>
           </Pressable>;
         })}
         {showAll ? <ChartValueReadout data={rankedData} selection={rankedSelection} chartLabel="Category comparison" explore={false} /> : null}

@@ -9,7 +9,7 @@ import * as haptics from "../lib/haptics";
 import { useFocusEffect } from "@react-navigation/native";
 import { Button, Callout, ErrorNote, OptionSheet, Screen, T } from "../components/ui";
 import { CategoryBars, DailySpending, SpendHero, SpendingComparison } from "../components/ExpenseVisuals";
-import { ExpenseCloserLook, ExpenseGlance, ExpenseSummaryCard } from "../components/ExpenseSummary";
+import { ExpenseGlance, ExpenseSummaryCard } from "../components/ExpenseSummary";
 import { expenseSummaryFigures, expenseSummaryPoints, expenseSummaryQuestions } from "../lib/expenseSummary";
 import { AskFinSight } from "../components/AskFinSight";
 import { InsightHeader } from "../components/InsightsShared";
@@ -771,16 +771,6 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
                 period={periodLabel(selection)}
                 comparedWith={comparedWith}
               />
-              <ExpenseCloserLook
-                flaggedCount={flaggedCountState.data?.expenses ?? null}
-                flaggedLoading={flaggedCountState.loading}
-                flaggedStale={Boolean(flaggedCountState.error)}
-                overdueCount={scheduleState.data === null || schedules === null ? null : overdueCount}
-                recurringLoading={scheduleState.loading}
-                recurringStale={Boolean(scheduleState.error)}
-                onReview={() => setSection("alerts")}
-                onRecurring={() => setSection("recurring")}
-              />
               <ExpenseGlance
                 summary={summaryFigures}
                 availableFunds={recordedFunds}
@@ -791,7 +781,6 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
                 <ExpenseSummaryCard
                   points={expenseSummaryPoints(summaryFigures, summaryContext)}
                   summary={summaryFigures}
-                  comparedWith={comparedWith}
                   flaggedCount={flaggedExpenses}
                   unusualCount={data.unusualExpenses.length}
                   questions={expenseSummaryQuestions(summaryFigures, summaryContext)}
