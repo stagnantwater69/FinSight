@@ -11,6 +11,7 @@
  */
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import type { RecordDetail, RecordItem } from "../src/lib/types";
+import { SUPPORT_EMAIL_AVAILABLE } from "../src/lib/marketingContent";
 import { loginViaUi, mockBackendSession, mockSupabaseAuth, skipTour, TEST_BUSINESS_PROFILE, TEST_CATEGORIES } from "./mocks";
 
 const MIN = 44;
@@ -318,7 +319,8 @@ test("public header resources menu, breadcrumb, contact links and footer", async
       await ledger.expectNoOverlap(breadcrumb, `breadcrumb ${width}px ${theme}`);
 
       const contactLinks = page.locator("main").locator('a[href^="mailto:"], a[href="/faqs"]').filter({ hasNotText: "FAQ Center" });
-      expect(await ledger.measure("Contact link", contactLinks, ctx)).toBe(2);
+      // The mailto link shows only once a real support address is set.
+      expect(await ledger.measure("Contact link", contactLinks, ctx)).toBe(SUPPORT_EMAIL_AVAILABLE ? 2 : 1);
       await ledger.expectNoOverlap(page.locator("main"), `contact page ${width}px ${theme}`);
 
       const footer = page.locator("footer");
@@ -346,7 +348,7 @@ test("public header resources menu, breadcrumb, contact links and footer", async
   }
   ledger.expectKinds({
     "PublicLayout breadcrumb link": 1,
-    "Contact link": 2,
+    "Contact link": SUPPORT_EMAIL_AVAILABLE ? 2 : 1,
     "PublicLayout footer link": FOOTER_LINKS.length,
     "PublicLayout resources menu item": 3,
   }, testInfo);
