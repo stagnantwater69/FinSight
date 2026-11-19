@@ -22,7 +22,7 @@ export function SkeletonBox({
 }) {
   const t = useTheme();
   const { paper } = t;
-  const opacity = useRef(new Animated.Value(DIM)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
@@ -40,10 +40,11 @@ export function SkeletonBox({
       return;
     }
 
-    // The setting can be turned off again mid-session, so start from the
-    // bottom of the pulse rather than from wherever it was parked.
-    opacity.setValue(DIM);
-    const animation = Animated.loop(
+    // Starts invisible and waits a beat: a load that finishes within it never
+    // flashes grey boxes, and a slower one fades in instead of popping.
+    // Also covers the setting being turned off again mid-session.
+    opacity.setValue(0);
+    const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, {
           toValue: BRIGHT,
@@ -57,6 +58,11 @@ export function SkeletonBox({
         }),
       ])
     );
+    const animation = Animated.sequence([
+      Animated.delay(120),
+      Animated.timing(opacity, { toValue: DIM, duration: 200, useNativeDriver: Platform.OS !== "web" }),
+      pulse,
+    ]);
     animation.start();
     return () => animation.stop();
   }, [opacity, reduceMotion]);

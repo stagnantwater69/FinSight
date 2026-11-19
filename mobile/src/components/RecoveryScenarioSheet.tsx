@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { RisingSheet } from "./RisingSheet";
 import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -103,129 +104,131 @@ export function RecoveryScenarioSheet({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={close}>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={close}>
       <Pressable
         onPress={close}
         accessibilityRole="button"
         accessibilityLabel='Close "what if" check'
         style={{ flex: 1, backgroundColor: t.scrim, justifyContent: "flex-end" }}
       >
-        {/* Swallows touches — see OptionSheet's own note in ui.tsx for why this is a View, not a Pressable. */}
-        <View
-          onStartShouldSetResponder={() => true}
-          style={{
-            backgroundColor: t.surfaceRaised,
-            borderTopLeftRadius: radius.xl,
-            borderTopRightRadius: radius.xl,
-            maxHeight: "88%",
-          }}
-        >
+        <RisingSheet>
+          {/* Swallows touches — see OptionSheet's own note in ui.tsx for why this is a View, not a Pressable. */}
           <View
+            onStartShouldSetResponder={() => true}
             style={{
-              flexDirection: "row",
-              alignItems: "flex-start",
-              justifyContent: "space-between",
-              paddingHorizontal: space.lg,
-              paddingTop: space.lg,
-              paddingBottom: space.sm,
+              backgroundColor: t.surfaceRaised,
+              borderTopLeftRadius: radius.xl,
+              borderTopRightRadius: radius.xl,
+              maxHeight: "88%",
             }}
           >
-            <View style={{ flex: 1 }}>
-              <T variant="heading" accessibilityRole="header" style={{ color: t.brandHeading }}>
-                Hypothetical recovery target
-              </T>
-              <T variant="caption" style={{ marginTop: 2 }}>
-                What if the monthly costs were different?
-              </T>
-            </View>
-            <Pressable
-              onPress={close}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              hitSlop={10}
-              style={{ padding: space.xs }}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                paddingHorizontal: space.lg,
+                paddingTop: space.lg,
+                paddingBottom: space.sm,
+              }}
             >
-              <Ionicons name="close" size={20} color={ink[500]} />
-            </Pressable>
-          </View>
-
-          <ScrollView
-            contentContainerStyle={{
-              paddingHorizontal: space.lg,
-              paddingBottom: insets.bottom + space.lg,
-              gap: space.md,
-            }}
-            keyboardShouldPersistTaps="handled"
-          >
-            <T variant="caption" style={{ lineHeight: 18 }}>
-              This is a what-if check. Nothing is saved, and your real Recovery Target stays unchanged.
-            </T>
-
-            <View>
-              <T variant="label" style={{ marginBottom: 4 }}>
-                Assumed monthly costs (PHP)
-              </T>
-              <TextInput
-                value={rawValue}
-                onChangeText={(v) => {
-                  setRawValue(v);
-                  if (valueError) setValueError(null);
-                }}
-                onFocus={() => setValueFocused(true)}
-                onBlur={() => setValueFocused(false)}
-                onSubmitEditing={() => void submit()}
-                keyboardType="decimal-pad"
-                placeholder={`e.g. ${Math.round(currentExpectedMonthlyExpenses)}`}
-                placeholderTextColor={ink[400]}
-                accessibilityLabel="Assumed monthly costs, in Philippine pesos"
-                style={{
-                  minHeight: TAP_FLOOR,
-                  borderWidth: 1,
-                  borderColor: valueError ? statusText.critical : valueFocused ? brand[600] : ink[200],
-                  borderRadius: radius.md,
-                  paddingHorizontal: space.md,
-                  fontFamily: font.sans,
-                  fontSize: typeScale.body,
-                  color: ink[900],
-                }}
-              />
-              <T variant="caption" style={{ marginTop: 4 }}>
-                Your current monthly basis is {formatMoney(currentExpectedMonthlyExpenses)}.
-              </T>
-              {valueError ? (
-                <View
-                  accessibilityLiveRegion="polite"
-                  style={{ flexDirection: "row", gap: 5, marginTop: space.sm, alignItems: "flex-start" }}
-                >
-                  <Ionicons name="warning-outline" size={14} color={statusText.critical} style={{ marginTop: 1 }} accessibilityElementsHidden importantForAccessibility="no" />
-                  <T style={{ flex: 1, fontSize: typeScale.caption, lineHeight: 17, color: statusText.critical }}>
-                    {valueError}
-                  </T>
-                </View>
-              ) : null}
+              <View style={{ flex: 1 }}>
+                <T variant="heading" accessibilityRole="header" style={{ color: t.brandHeading }}>
+                  Hypothetical recovery target
+                </T>
+                <T variant="caption" style={{ marginTop: 2 }}>
+                  What if the monthly costs were different?
+                </T>
+              </View>
+              <Pressable
+                onPress={close}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                hitSlop={10}
+                style={{ padding: space.xs }}
+              >
+                <Ionicons name="close" size={20} color={ink[500]} />
+              </Pressable>
             </View>
 
-            <Button title={submitting ? "Calculating…" : "See hypothetical target"} onPress={() => void submit()} disabled={submitting} loading={submitting} />
+            <ScrollView
+              contentContainerStyle={{
+                paddingHorizontal: space.lg,
+                paddingBottom: insets.bottom + space.lg,
+                gap: space.md,
+              }}
+              keyboardShouldPersistTaps="handled"
+            >
+              <T variant="caption" style={{ lineHeight: 18 }}>
+                This is a what-if check. Nothing is saved, and your real Recovery Target stays unchanged.
+              </T>
 
-            {submitError ? <ErrorNote>{submitError}</ErrorNote> : null}
+              <View>
+                <T variant="label" style={{ marginBottom: 4 }}>
+                  Assumed monthly costs (PHP)
+                </T>
+                <TextInput
+                  value={rawValue}
+                  onChangeText={(v) => {
+                    setRawValue(v);
+                    if (valueError) setValueError(null);
+                  }}
+                  onFocus={() => setValueFocused(true)}
+                  onBlur={() => setValueFocused(false)}
+                  onSubmitEditing={() => void submit()}
+                  keyboardType="decimal-pad"
+                  placeholder={`e.g. ${Math.round(currentExpectedMonthlyExpenses)}`}
+                  placeholderTextColor={ink[400]}
+                  accessibilityLabel="Assumed monthly costs, in Philippine pesos"
+                  style={{
+                    minHeight: TAP_FLOOR,
+                    borderWidth: 1,
+                    borderColor: valueError ? statusText.critical : valueFocused ? brand[600] : ink[200],
+                    borderRadius: radius.md,
+                    paddingHorizontal: space.md,
+                    fontFamily: font.sans,
+                    fontSize: typeScale.body,
+                    color: ink[900],
+                  }}
+                />
+                <T variant="caption" style={{ marginTop: 4 }}>
+                  Your current monthly basis is {formatMoney(currentExpectedMonthlyExpenses)}.
+                </T>
+                {valueError ? (
+                  <View
+                    accessibilityLiveRegion="polite"
+                    style={{ flexDirection: "row", gap: 5, marginTop: space.sm, alignItems: "flex-start" }}
+                  >
+                    <Ionicons name="warning-outline" size={14} color={statusText.critical} style={{ marginTop: 1 }} accessibilityElementsHidden importantForAccessibility="no" />
+                    <T style={{ flex: 1, fontSize: typeScale.caption, lineHeight: 17, color: statusText.critical }}>
+                      {valueError}
+                    </T>
+                  </View>
+                ) : null}
+              </View>
 
-            {result ? <RecoveryScenarioResult result={result} /> : null}
+              <Button title={submitting ? "Calculating…" : "See hypothetical target"} onPress={() => void submit()} disabled={submitting} loading={submitting} />
 
-            {/*
-              §10.7 "Save as a plan" — small and secondary, deliberately not
-              styled like the primary "See hypothetical target" button above.
-              Persists only what was just typed in as the assumed expense
-              figure, for the owner's own reference; never touches the real
-              Recovery Target or the business profile. See SaveAsPlanAction.
-            */}
-            {result ? (
-              <SaveAsPlanAction
-                businessProfileId={businessProfileId}
-                assumedExpectedMonthlyExpenses={result.assumedExpectedMonthlyExpenses}
-              />
-            ) : null}
-          </ScrollView>
-        </View>
+              {submitError ? <ErrorNote>{submitError}</ErrorNote> : null}
+
+              {result ? <RecoveryScenarioResult result={result} /> : null}
+
+              {/*
+                §10.7 "Save as a plan" — small and secondary, deliberately not
+                styled like the primary "See hypothetical target" button above.
+                Persists only what was just typed in as the assumed expense
+                figure, for the owner's own reference; never touches the real
+                Recovery Target or the business profile. See SaveAsPlanAction.
+              */}
+              {result ? (
+                <SaveAsPlanAction
+                  businessProfileId={businessProfileId}
+                  assumedExpectedMonthlyExpenses={result.assumedExpectedMonthlyExpenses}
+                />
+              ) : null}
+            </ScrollView>
+          </View>
+        </RisingSheet>
       </Pressable>
     </Modal>
   );

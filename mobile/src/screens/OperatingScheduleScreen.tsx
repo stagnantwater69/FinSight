@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RisingSheet } from "../components/RisingSheet";
 import { Alert as RNAlert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -454,23 +455,25 @@ export function OperatingScheduleScreen({ route }: { route?: { params?: { busine
           <T style={{ color: t.textSecondary }}>FinSight uses your open days to calculate your daily sales target.</T>
         </Card>
       </ContentScrollView>
-      <Modal visible={specialDateOpen} transparent animationType="slide" onRequestClose={closeSpecialDate} statusBarTranslucent>
+      <Modal visible={specialDateOpen} transparent animationType="fade" onRequestClose={closeSpecialDate} statusBarTranslucent>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, justifyContent: "flex-end", backgroundColor: t.scrim }}>
-          <Pressable accessible={false} importantForAccessibility="no-hide-descendants" onPress={closeSpecialDate} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }} />
-          <View accessibilityViewIsModal style={{ width: "100%", maxWidth: 720, alignSelf: "center", maxHeight: "90%", backgroundColor: t.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingBottom: insets.bottom }}>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                <T variant="heading" accessibilityRole="header" style={{ flex: 1 }}>Add special date</T>
-                <Pressable accessibilityRole="button" accessibilityLabel="Close special date form" disabled={addingOverride} accessibilityState={{ disabled: addingOverride }} onPress={closeSpecialDate} style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}><Ionicons name="close" size={22} color={t.textSecondary} /></Pressable>
-              </View>
-              <DateField label="Date" value={newDate} onChange={setNewDate} allowFuture today={businessToday(business.timezone)} />
-              <T variant="label">This date is</T>
-              <SegmentedControl options={[{ label: "Closed", value: "CLOSED" }, { label: "Open", value: "OPEN" }]} value={newType} onChange={setNewType} accessibilityLabel="This date is" />
-              <Field label="Reason (optional)" value={newReason} onChangeText={setNewReason} maxLength={FIELD_LIMITS.operatingOverrideReason} placeholder="e.g. Typhoon, fiesta, inventory day" />
-              {addError ? <ErrorNote>{addError}</ErrorNote> : null}
-              <Button title="Add" variant="primary" onPress={addOverride} loading={addingOverride} disabled={!newDate} />
-            </ScrollView>
-          </View>
+          <RisingSheet>
+            <Pressable accessible={false} importantForAccessibility="no-hide-descendants" onPress={closeSpecialDate} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }} />
+            <View accessibilityViewIsModal style={{ width: "100%", maxWidth: 720, alignSelf: "center", maxHeight: "90%", backgroundColor: t.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingBottom: insets.bottom }}>
+              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                  <T variant="heading" accessibilityRole="header" style={{ flex: 1 }}>Add special date</T>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Close special date form" disabled={addingOverride} accessibilityState={{ disabled: addingOverride }} onPress={closeSpecialDate} style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}><Ionicons name="close" size={22} color={t.textSecondary} /></Pressable>
+                </View>
+                <DateField label="Date" value={newDate} onChange={setNewDate} allowFuture today={businessToday(business.timezone)} />
+                <T variant="label">This date is</T>
+                <SegmentedControl options={[{ label: "Closed", value: "CLOSED" }, { label: "Open", value: "OPEN" }]} value={newType} onChange={setNewType} accessibilityLabel="This date is" />
+                <Field label="Reason (optional)" value={newReason} onChangeText={setNewReason} maxLength={FIELD_LIMITS.operatingOverrideReason} placeholder="e.g. Typhoon, fiesta, inventory day" />
+                {addError ? <ErrorNote>{addError}</ErrorNote> : null}
+                <Button title="Add" variant="primary" onPress={addOverride} loading={addingOverride} disabled={!newDate} />
+              </ScrollView>
+            </View>
+          </RisingSheet>
         </KeyboardAvoidingView>
       </Modal>
     </Screen>
