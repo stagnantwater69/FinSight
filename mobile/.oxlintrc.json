@@ -3,6 +3,14 @@
   "plugins": ["react", "typescript", "oxc"],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    // oxlint 1.93 added React Compiler checks; the app does not use the compiler, so they stay off.
+    "react/set-state-in-effect": "off",
+    "react/refs": "off",
+    "react/immutability": "off",
+    "react/purity": "off",
+    "react/use-memo": "off",
+    "react/globals": "off",
+    "react/preserve-manual-memoization": "off"
   }
 }

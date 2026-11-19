@@ -289,7 +289,7 @@ jobs:
     # web/package.json; a mismatch fails fast with "browser not found".
     # --user 1001 is Playwright's guidance for Firefox on GitHub Actions.
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
       options: --user 1001
     steps:
       - uses: actions/checkout@v7

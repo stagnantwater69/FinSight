@@ -6,6 +6,10 @@ updates:
       interval: weekly
       timezone: Asia/Manila
     open-pull-requests-limit: 5
+    ignore:
+      # Types must match the Node 22 runtime, or code can call APIs production lacks.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
     groups:
       minor-and-patch:
         update-types: [minor, patch]
@@ -30,6 +34,19 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: [version-update:semver-major]
+      # patches/manifest.json patches these exact versions; move them with the patches.
+      - dependency-name: "@react-navigation/bottom-tabs"
+      - dependency-name: "@react-navigation/native-stack"
+      - dependency-name: "@react-navigation/elements"
+      - dependency-name: "react-native-screens"
+      # Expo SDK 58 pins these native modules; `npx expo install --fix` moves them.
+      - dependency-name: "@react-native-community/datetimepicker"
+      - dependency-name: "react-native-gesture-handler"
+      - dependency-name: "react-native-svg"
+      - dependency-name: "react-native-worklets"
+      - dependency-name: "react-native-nitro-modules"
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
     groups:
       minor-and-patch:
         update-types: [minor, patch]
