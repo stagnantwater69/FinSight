@@ -1332,7 +1332,34 @@ export type ChatAction =
     }
   | { kind: "open-spending-impact"; amount: number; label: string }
   | { kind: "prefill-record"; recordType: "expense" | "sales"; amount: number; description: string; label: string }
-  | { kind: "watch-recurring-pattern"; patternId: number; label: string };
+  | { kind: "watch-recurring-pattern"; patternId: number; label: string }
+  /** Opens Records filtered to what the answer was about; every filter came from the server's own read. */
+  | {
+      kind: "open-records";
+      recordType: "expense" | "sales";
+      dateFrom: string;
+      dateTo: string;
+      categoryId?: number;
+      keyword?: string;
+      label: string;
+    };
+
+/** A ranked list FinSight computed for an answer (never the model's text). */
+export interface ChatAnswerTable {
+  title: string;
+  valueLabel: string;
+  rows: { label: string; amount: number; count: number; note?: string }[];
+  total: number;
+}
+
+/** How many records an answer's figures came from. */
+export interface ChatAnswerBasis {
+  expenseRecords: number;
+  salesRecords: number;
+  /** YYYY-MM-DD, or null for all time. */
+  from: string | null;
+  to: string;
+}
 
 export interface ChatAnswerMetadata {
   references: ChatRecordReference[];
@@ -1343,6 +1370,10 @@ export interface ChatAnswerMetadata {
   period: string | null;
   /** "trimmed" means part of the answer was removed for using an unverified figure. */
   amountCheck: "passed" | "revised" | "trimmed";
+  table?: ChatAnswerTable;
+  basis?: ChatAnswerBasis;
+  /** What the question was read as; for rating analysis, not shown. */
+  intents?: string[];
 }
 
 /** The flag or record a chat was opened from — ids only; the server loads the row. */

@@ -10,6 +10,8 @@ import type { ReductionOpportunity } from "./reductionOpportunity.service";
 import { categoryFromHistory, loadConfirmedCategoryHistory } from "../lib/categoryHistory";
 import { groundAnswer } from "./aiAnswer.service";
 import { providerHttpError } from "../lib/aiProviderError";
+import { PLANNER_PROMPT, TOOL_DECLARATIONS, parseToolCalls, type ToolCall } from "../lib/chatTools";
+import { reportError } from "../config/errorReporting";
 
 // Keep the model names as named constants — Google and OpenRouter rename
 // or deprecate models often. If a call starts failing with a 404/"model
@@ -72,6 +74,8 @@ How you sound:
 
 Being honest about limits:
 - The data belongs to the owner: say "your records", never "my records", "my data" or "the data I have".
+- Answer the exact question asked. If CONTEXT does not hold what it asks for (for example a total for each month when CONTEXT only gives the year's total), say FinSight couldn't get that breakdown for this message and give the closest figure CONTEXT does have. Never answer with records that merely share a word with the question: "monthly expenses" means spending per month, not records named "Monthly ...".
+- A section titled "... BY MONTH", "BY WEEK", "BY CATEGORY" or "BY VENDOR" is already ranked by FinSight. Keep its order and its figures. When it says the app shows the list as a table, name the first and last rows and the total in 1-3 sentences instead of repeating every row.
 - Missing data and missing features are different. If the data isn't in CONTEXT, say your records don't show it yet and what would (recording it, or a different month). If FinSight can't do something, say so plainly and offer the closest thing it can do.
 - You monitor and explain; you don't decide for the owner. Don't advise for or against a purchase. A flag means "worth a look", never "something is wrong".
 - When asked how to reduce expenses, ground every suggestion in the owner's actual categories and figures from CONTEXT. Never give generic advice like "cut unnecessary spending" without tying it to a figure you were given.
@@ -115,6 +119,8 @@ export interface AskInput {
    * reads it as a correction to this answer, not as part of what was asked.
    */
   revisionNote?: string;
+  /** What the question was read as (e.g. "breakdown:month"), for error reports. Never sent to a model. */
+  intents?: string[];
 }
 
 export interface AskResult {
@@ -308,18 +314,19 @@ export async function askAndRecord(
   // whenever module isn't "Expense Insights" — that module scoping is
   // enforced here, not just in the controller, so this function can't be
   // called into rendering the block somewhere it doesn't belong.
-  const [built, recent] = await Promise.all([
-    buildModuleContext(
-      userId,
-      profile,
-      module,
-      question,
-      module === "Expense Insights" ? reductionOpportunity : undefined
-    ),
-    getHistory(userId, businessProfileId, module, HISTORY_TURNS_FOR_CONTEXT),
-  ]);
-  const { context, scenario, references, actions, period } = built;
+  // History first: a short follow-up ("what about last year?") borrows the
+  // previous question's topic, so the context depends on it.
+  const recent = await getHistory(userId, businessProfileId, module, HISTORY_TURNS_FOR_CONTEXT);
   const priorTurns: ConversationTurn[] = recent.map((turn) => ({ question: turn.question, answer: turn.answer }));
+  const built = await buildModuleContext(
+    userId,
+    profile,
+    module,
+    question,
+    module === "Expense Insights" ? reductionOpportunity : undefined,
+    { priorQuestions: priorTurns.map((turn) => turn.question), planLookups },
+  );
+  const { context, scenario, references, actions, period, table, basis, intents } = built;
 
   const { answer, provider, metadata } = await groundAnswer(askFinSight, {
     context,
@@ -328,6 +335,9 @@ export async function askAndRecord(
     references,
     actions,
     period,
+    table,
+    basis,
+    intents,
   });
 
   const interaction = await prisma.aIInteraction.create({
@@ -354,6 +364,40 @@ export async function askAndRecord(
   };
 }
 
+/** Short: a lookup plan is a few function calls, and the answer call still has to follow it. */
+const PLANNER_TIMEOUT_MS = 8_000;
+
+/**
+ * Asks Gemini which lookups (chatTools.ts) this question needs. Returns [] when
+ * the feature is off, in tests, or on any failure — the fixed context blocks
+ * still answer, so a planner outage costs the owner nothing but depth.
+ *
+ * Only the question and today's date are sent: no figures, no records.
+ */
+export async function planLookups(question: string, today: string): Promise<ToolCall[]> {
+  if (!env.ASK_FINSIGHT_TOOLS_ENABLED || env.NODE_ENV === "test" || !env.GOOGLE_GEMINI_API_KEY) return [];
+  try {
+    const res = await fetch(GEMINI_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": env.GOOGLE_GEMINI_API_KEY },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: PLANNER_PROMPT }] },
+        contents: [{ role: "user", parts: [{ text: `Today: ${today}\nQUESTION: ${question}` }] }],
+        tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+        toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+        generationConfig: { temperature: 0, maxOutputTokens: 256 },
+      }),
+      signal: AbortSignal.timeout(PLANNER_TIMEOUT_MS),
+    });
+    if (!res.ok) throw await providerHttpError("gemini", res);
+    return parseToolCalls(await res.json());
+  } catch (err) {
+    // A 429 here is expected on the free tier; the answer goes ahead without lookups.
+    logger.warn({ err }, "Ask FinSight lookup planning failed; answering from the fixed context");
+    return [];
+  }
+}
+
 export async function askFinSight(input: AskInput): Promise<AskResult> {
   try {
     const answer = await callGemini(input);
@@ -365,6 +409,13 @@ export async function askFinSight(input: AskInput): Promise<AskResult> {
       return { answer, provider: "openrouter" };
     } catch (openRouterError) {
       logger.error({ err: openRouterError }, "OpenRouter fallback also failed");
+      // The question type only — never the question, which can carry the owner's figures.
+      reportError(openRouterError, {
+        level: "error",
+        fault: "ask-finsight-unavailable",
+        chatIntent: input.intents?.join(",") || "general",
+        fingerprint: ["ask-finsight-unavailable"],
+      });
       return {
         answer: "FinSight can't reach its AI assistant right now. Please try again in a few minutes.",
         provider: "unavailable",

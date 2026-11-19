@@ -339,11 +339,25 @@ describe("Ask FinSight keeps correct answers whole", () => {
 
   it.each([
     "Raw Materials went up to **PHP 4,200.00** compared to PHP 3,733.33 [fact:f22, f23].",
+    "Raw Materials went up to **PHP 4,200.00** compared to PHP 3,733.33 [fact:f22, fact:f23].",
     "Raw Materials went up to **PHP 4,200.00** [fact:f23] compared to PHP 3,733.33 [fact:f22].",
     "Raw Materials came to PHP 4,200.00 [fact:f23] instead of PHP 3,733.33 [fact:f22].",
   ])("passes a comparison connector between two cited figures: %s", async (answer) => {
     const ask = scripted(answer);
     const result = await groundAnswer(ask, { context: comparison, question: "Compare January and December", references: new Map() });
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(result.metadata.amountCheck).toBe("passed");
+  });
+
+  it("passes a cited category total referred to as \"that category\"", async () => {
+    const context = [
+      "- Business Meals: PHP 1,200.00 — 13.7% of period expenses, up 50.0% vs. previous period (was PHP 800.00) [fact:f1]",
+      "- Why it was flagged: Your usual amount in this category is PHP 305.14 [fact:f2]",
+      "- \"LPG refill\" from Petron: usually PHP 1,200.00, about every 30 days [fact:f3]",
+    ].join("\n");
+    const answer = "Total spending in that category reached **PHP 1,200.00** this period [fact:f1], which is up from **PHP 800.00** in the previous period [fact:f1].";
+    const ask = scripted(answer);
+    const result = await groundAnswer(ask, { context, question: "Should I stop eating out?", references: new Map() });
     expect(ask).toHaveBeenCalledTimes(1);
     expect(result.metadata.amountCheck).toBe("passed");
   });

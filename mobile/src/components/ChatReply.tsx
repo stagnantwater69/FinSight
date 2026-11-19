@@ -6,13 +6,13 @@ import { Button, ErrorNote, Money, T } from "./ui";
 import { TAP_FLOOR } from "./touchTarget";
 import { api } from "../lib/api";
 import * as haptics from "../lib/haptics";
-import { CHAT_PAGE_TARGETS, inlineRuns, parseChatBlocks, recordPath } from "../lib/chatLinks";
+import { basisSentence, CHAT_PAGE_TARGETS, inlineRuns, parseChatBlocks, recordPath } from "../lib/chatLinks";
 import { formatMoney } from "../lib/money";
 import { formatDueDate } from "../lib/recurringAgenda";
 import { useTheme } from "../context/ThemeContext";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { font, radius, space, typeScale } from "../theme/tokens";
-import type { ChatAction, ChatAnswerMetadata, RecordItem } from "../lib/types";
+import type { ChatAction, ChatAnswerMetadata, ChatAnswerTable, RecordItem } from "../lib/types";
 import { navigateToTabScreen, type TabNavigation } from "../navigation/types";
 
 /**
@@ -152,7 +152,9 @@ export function ChatReplyExtras({
 
   return (
     <View style={{ gap: space.sm }}>
-      {metadata.period && metadata.references.length === 0 ? <T variant="caption">Based on records for {metadata.period}.</T> : null}
+      {metadata.table ? <AnswerTableView table={metadata.table} /> : null}
+      {metadata.basis ? <T variant="caption">{basisSentence(metadata.basis)}</T> : null}
+      {metadata.period && metadata.references.length === 0 && !metadata.basis ? <T variant="caption">Based on records for {metadata.period}.</T> : null}
       {metadata.amountCheck === "trimmed" ? (
         <T variant="caption">Part of this answer was removed because it used a figure FinSight couldn't find in your records.</T>
       ) : null}
@@ -205,6 +207,20 @@ export function ChatReplyExtras({
           key={scopeKey}
           actions={metadata.actions}
           onOpenSpendingImpact={(amount) => openPage("spending-impact", { plannedAmount: amount })}
+          onOpenRecords={(action) => {
+            haptics.tapped();
+            onLeave();
+            navigation.navigate("Records", {
+              screen: "RecordsList",
+              params: {
+                type: action.recordType,
+                dateFrom: action.dateFrom,
+                dateTo: action.dateTo,
+                ...(action.categoryId !== undefined ? { categoryId: action.categoryId } : {}),
+                ...(action.keyword ? { keyword: action.keyword } : {}),
+              },
+            });
+          }}
           onPrefill={(recordType, description, amount) =>
             recordType === "sales"
               ? openPage("add-sales", { prefill: { description, amount } })
@@ -248,13 +264,58 @@ export function ChatReplyExtras({
   );
 }
 
+
+/** The server's ranked list: one row per month/week/category, a bar each, and the total. */
+function AnswerTableView({ table }: { table: ChatAnswerTable }) {
+  const t = useTheme();
+  const largest = Math.max(...table.rows.map((row) => row.amount), 0);
+  return (
+    <View
+      style={{ borderWidth: 1, borderColor: t.border, borderRadius: radius.md, backgroundColor: t.surface, padding: space.md, gap: space.sm }}
+    >
+      <T variant="label" style={{ color: t.textSecondary }}>{table.title}</T>
+      {table.rows.map((row) => (
+        <View key={row.label} style={{ gap: space.xs }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+            <T style={{ flex: 1, fontSize: typeScale.bodySm, color: t.textPrimary }} numberOfLines={1}>
+              {row.label}
+              {row.note ? <Text style={{ color: t.textMuted }}> ({row.note})</Text> : null}
+            </T>
+            <T style={{ fontSize: typeScale.bodySm, color: t.textPrimary }}>
+              <Money value={row.amount} decimals />
+            </T>
+          </View>
+          <View style={{ height: 6, borderRadius: radius.full, backgroundColor: t.border, overflow: "hidden" }}>
+            <View
+              style={{
+                height: 6,
+                borderRadius: radius.full,
+                backgroundColor: t.brand[500],
+                width: `${largest > 0 ? Math.max(2, (row.amount / largest) * 100) : 0}%`,
+              }}
+            />
+          </View>
+        </View>
+      ))}
+      <View style={{ flexDirection: "row", borderTopWidth: 1, borderTopColor: t.border, paddingTop: space.sm }}>
+        <T variant="label" style={{ flex: 1, color: t.textSecondary }}>Total</T>
+        <T variant="label" style={{ color: t.textPrimary }}>
+          <Money value={table.total} decimals />
+        </T>
+      </View>
+    </View>
+  );
+}
+
 function ActionRow({
   actions,
   onOpenSpendingImpact,
+  onOpenRecords,
   onPrefill,
 }: {
   actions: ChatAction[];
   onOpenSpendingImpact: (amount: number) => void;
+  onOpenRecords: (action: Extract<ChatAction, { kind: "open-records" }>) => void;
   onPrefill: (recordType: "expense" | "sales", description: string, amount: number) => void;
 }) {
   const t = useTheme();
@@ -274,6 +335,12 @@ function ActionRow({
     if (action.kind === "open-spending-impact") {
       if (!Number.isFinite(action.amount) || action.amount < 0) return;
       onOpenSpendingImpact(action.amount);
+      return;
+    }
+    if (action.kind === "open-records") {
+      const day = /^\d{4}-\d{2}-\d{2}$/;
+      if (!day.test(action.dateFrom) || !day.test(action.dateTo) || (action.recordType !== "expense" && action.recordType !== "sales")) return;
+      onOpenRecords(action);
       return;
     }
     if (action.kind === "prefill-record") {

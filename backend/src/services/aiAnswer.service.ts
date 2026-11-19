@@ -1,4 +1,5 @@
 import type { AskInput, AskResult } from "./ai.service";
+import type { AnswerTable } from "./aiAnalytics.service";
 
 /**
  * Everything that happens to a model's answer between the provider and the
@@ -80,7 +81,29 @@ export type ChatAction =
   /** Opens the Add expense / Add sales form filled in. The owner still saves it. */
   | { kind: "prefill-record"; recordType: "expense" | "sales"; amount: number; description: string; label: string }
   /** Turns a repeating expense FinSight detected into a watched schedule, through the existing confirm endpoint. */
-  | { kind: "watch-recurring-pattern"; patternId: number; label: string };
+  | { kind: "watch-recurring-pattern"; patternId: number; label: string }
+  /** Opens Records filtered to what the answer was about. Every filter came from the server's own read. */
+  | {
+      kind: "open-records";
+      recordType: "expense" | "sales";
+      dateFrom: string;
+      dateTo: string;
+      categoryId?: number;
+      keyword?: string;
+      label: string;
+    };
+
+/** A grouped list the clients draw under the answer (see aiAnalytics.service). */
+export type { AnswerTable };
+
+/** What the answer's figures were drawn from, for the "Figures from…" line. */
+export interface AnswerBasis {
+  expenseRecords: number;
+  salesRecords: number;
+  /** YYYY-MM-DD, or null for all time. */
+  from: string | null;
+  to: string;
+}
 
 /** How the amount check went, so the clients can be honest about a trimmed answer. */
 export type AmountCheck = "passed" | "revised" | "trimmed";
@@ -93,6 +116,11 @@ export interface AnswerMetadata {
   /** The period the answer was grounded in, e.g. "January 2022". */
   period: string | null;
   amountCheck: AmountCheck;
+  /** A ranked list FinSight computed, drawn by the clients under the answer. */
+  table?: AnswerTable;
+  basis?: AnswerBasis;
+  /** What the question was read as, e.g. ["breakdown:month", "tool:find_records"]. For rating analysis only. */
+  intents?: string[];
 }
 
 // ============================================================
@@ -285,11 +313,30 @@ const SUBJECT_STOP_WORDS = new Set((
   "the a an your you our their this that these those record records equivalent period total amount " +
   "was were are is be been have has had cost costs spent spend spending paid purchase " +
   "today todays reference against about compared compare instead versus " +
+  // "That category" names no category: it must not outscore the cited category's own line.
+  "category categories " +
   "from for and with before after on per as of in to at php peso pesos piso pisos"
 ).split(" "));
 
+/**
+ * Filipino words for the subjects context lines name in English. Without them a
+ * correct Taglish claim ("kailangan mo pang benta … PHP 72,500") read as having
+ * no subject, or the wrong one, and was trimmed, while "ang upa mo ay PHP 500"
+ * passed unchecked whatever line the 500 came from.
+ */
+const FILIPINO_SUBJECTS: Record<string, string> = {
+  benta: "sales", nabenta: "sales", pagbebenta: "sales", kita: "sales", kinita: "sales", kikitain: "sales",
+  gastos: "expenses", gastusin: "expenses", ginastos: "expenses", nagastos: "expenses",
+  kailangan: "needed", natitira: "left", natitirang: "left", kulang: "uncovered",
+  upa: "rent", renta: "rent", kuryente: "electricity", tubig: "water", sahod: "wages", suweldo: "wages",
+  pondo: "funds", karaniwan: "usual", karaniwang: "usual", kategorya: "category", kategoryang: "category",
+  buwan: "month", buwanang: "monthly", araw: "day", linggo: "week",
+  bayarin: "bills", utang: "debt", tinda: "stock", paninda: "stock",
+};
+
 function subjectWords(text: string): string[] {
   return [...new Set((text.toLowerCase().match(/[\p{L}]{3,}/gu) ?? [])
+    .map((word) => FILIPINO_SUBJECTS[word] ?? word)
     .filter((word) => !SUBJECT_STOP_WORDS.has(word)))];
 }
 
@@ -312,10 +359,10 @@ function financialFacts(context: string): FinancialFact[] {
   });
 }
 
-/** Fact tags a claim cites, including the combined "[fact:f6, f7]" form models write. */
+/** Fact tags a claim cites, including the combined "[fact:f6, f7]" and "[fact:f6, fact:f7]" forms models write. */
 function citedFactTags(claim: string): string[] {
   return [...claim.matchAll(/\[fact:([^\]]*)\]/g)]
-    .flatMap((match) => match[1]!.split(/[,\s]+/).filter((id) => /^f\d+$/.test(id)))
+    .flatMap((match) => match[1]!.split(/[,\s]+/).map((id) => id.replace(/^fact:/, "")).filter((id) => /^f\d+$/.test(id)))
     .map((id) => `[fact:${id}]`);
 }
 
@@ -574,6 +621,8 @@ export interface GroundAnswerInput extends AskInput {
   references: ReadonlyMap<string, RecordReference>;
   actions?: ChatAction[];
   period?: string | null;
+  table?: AnswerTable | null;
+  basis?: AnswerBasis | null;
 }
 
 /**
@@ -586,8 +635,14 @@ export async function groundAnswer(
   ask: (input: AskInput) => Promise<AskResult>,
   input: GroundAnswerInput,
 ): Promise<GroundedAnswer> {
-  const { references, actions = [], period = null, ...askInput } = input;
+  const { references, actions = [], period = null, table = null, basis = null, ...askInput } = input;
   const baseMetadata: AnswerMetadata = { references: [], pages: [], actions, followUps: [], period, amountCheck: "passed" };
+  // Optional fields appear only when set, so older answers and clients see the shape they always did.
+  const extras = {
+    ...(table ? { table } : {}),
+    ...(basis ? { basis } : {}),
+    ...(askInput.intents?.length ? { intents: askInput.intents } : {}),
+  };
 
   const first = await ask(askInput);
   // The outage placeholder is FinSight's own sentence, not a model answer.
@@ -633,6 +688,7 @@ export async function groundAnswer(
       followUps,
       period,
       amountCheck,
+      ...extras,
     },
   };
 }

@@ -57,6 +57,8 @@ export interface ErrorContext {
   fault?: string;
   /** A rate limiter's name, for usage reports. */
   limiter?: string;
+  /** What an Ask FinSight question was read as, e.g. "breakdown:month" — never the question text. */
+  chatIntent?: string;
   /** The numeric FinSight user id — never an email or any other identifier. */
   ownerId?: string;
   /**
