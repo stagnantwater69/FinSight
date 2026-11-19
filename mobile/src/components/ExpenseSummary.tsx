@@ -14,6 +14,7 @@ import type {
 import { font, radius, space, typeScale } from "../theme/tokens";
 import { TAP_FLOOR } from "./touchTarget";
 import { ChartPlotPressArea, ChartValueReadout, useChartSelection, type ChartDatum } from "./ChartInteraction";
+import { GrowFill } from "./GrowFill";
 
 /** Above this share of recorded funds, spending is drawn as a warning. */
 export const FUNDS_SHARE_WARNING = 75;
@@ -302,7 +303,7 @@ function Track({ percent, color }: { percent: number; color: string }) {
   const t = useTheme();
   return (
     <View style={{ height: 6, borderRadius: 3, backgroundColor: t.surfaceStrong }}>
-      <View style={{ width: `${Math.max(2, Math.min(100, percent))}%`, height: 6, borderRadius: 3, backgroundColor: color }} />
+      <GrowFill percent={Math.max(2, Math.min(100, percent))} style={{ height: 6, borderRadius: 3, backgroundColor: color }} />
     </View>
   );
 }

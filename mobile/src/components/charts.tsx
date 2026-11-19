@@ -8,6 +8,7 @@ import { formatFinancialDate } from "../lib/financialPosition";
 import { formatMoney } from "../lib/money";
 import { font, radius, space, typeScale } from "../theme/tokens";
 import { useTheme } from "../context/ThemeContext";
+import { GrowFill } from "./GrowFill";
 
 /**
  * The chart kit.
@@ -785,13 +786,13 @@ export function CategoryChange({
                 {/* Centre line is zero; bars grow left for down, right for up. */}
                 <View style={{ flex: 1, alignItems: "flex-end" }}>
                   {!up && !flat ? (
-                    <View style={{ height: 6, borderRadius: 3, width: `${share * 100}%`, backgroundColor: fill }} />
+                    <GrowFill percent={share * 100} style={{ height: 6, borderRadius: 3, backgroundColor: fill }} />
                   ) : null}
                 </View>
                 <View style={{ width: 1, height: 10, backgroundColor: ink[200] }} />
                 <View style={{ flex: 1 }}>
                   {up && !flat ? (
-                    <View style={{ height: 6, borderRadius: 3, width: `${share * 100}%`, backgroundColor: fill }} />
+                    <GrowFill percent={share * 100} style={{ height: 6, borderRadius: 3, backgroundColor: fill }} />
                   ) : null}
                 </View>
               </View>

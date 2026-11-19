@@ -6,6 +6,7 @@ import { Card, Screen, T } from "../components/ui";
 import { CashflowChart } from "../components/charts";
 import { GranularityDropdown } from "../components/CashflowRangeDropdown";
 import { SkeletonBox } from "../components/Skeleton";
+import { Reveal } from "../components/Reveal";
 import { ConnectionNotice, FreshnessStatus } from "../components/ConnectionNotice";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { useTheme } from "../context/ThemeContext";
@@ -87,13 +88,15 @@ export function MoneyFlowScreen() {
               </View>
             </View>
           ) : (
-            <CashflowChart
-              data={points}
-              granularity={granularity}
-              title="Money in and out"
-              subtitle={rangeText}
-              action={<GranularityDropdown value={granularity} onChange={setGranularity} />}
-            />
+            <Reveal>
+              <CashflowChart
+                data={points}
+                granularity={granularity}
+                title="Money in and out"
+                subtitle={rangeText}
+                action={<GranularityDropdown value={granularity} onChange={setGranularity} />}
+              />
+            </Reveal>
           )}
         </Card>
         <FreshnessStatus at={state.lastUpdatedAt} now={Date.now()} refreshing={refreshing || state.refreshing} />

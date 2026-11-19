@@ -12,6 +12,7 @@ import { useTheme } from "../context/ThemeContext";
 import { formatMoney } from "../lib/money";
 import { font, radius, space, typeScale } from "../theme/tokens";
 import type { CategoryTrend, DailyExpenseTotal } from "../lib/types";
+import { GrowFill } from "./GrowFill";
 
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function shortDate(value: string): string {
@@ -75,7 +76,7 @@ export function SpendingComparison({ total, previousTotal, period, comparedWith 
             <T style={{ fontSize: typeScale.bodySm, fontFamily: font.sansSemibold, fontVariant: ["tabular-nums"] }}>{exact(row.amount)}</T>
           </View>
           <View style={{ height: 10, backgroundColor: t.surfaceStrong, borderRadius: radius.sm }}>
-            <View style={{ width: `${Math.max(0, Math.min(100, row.amount / max * 100))}%`, height: 10, backgroundColor: row.color, borderRadius: radius.sm }} />
+            <GrowFill percent={Math.max(0, Math.min(100, row.amount / max * 100))} style={{ height: 10, backgroundColor: row.color, borderRadius: radius.sm }} />
           </View>
         </Pressable>
       ))}
@@ -224,7 +225,7 @@ export function CategoryBars({ trends, total, previousTotal, comparedWith, onOpe
           return <Pressable key={c.categoryId} {...rankedSelection.bind(i)} accessibilityRole="button" accessibilityLabel={`${c.categoryName}, ${exact(c.current)}, ${share.toFixed(1)} percent of spending${c.recordCount === undefined ? "" : `, ${c.recordCount} expenses`}. Previous ${exact(c.previous)} in ${comparedWith ?? "the previous period"}. ${changeText}. View these records.`} onPress={() => onOpen(c.categoryId)} style={({ pressed }) => ({ minHeight: TAP_FLOOR, gap: space.sm, paddingVertical: space.md, borderBottomWidth: 1, borderBottomColor: t.border, opacity: pressed ? 0.7 : 1 })}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}><View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: i < PREVIEW ? categoryColors[i] : expense.other }} /><T style={{ flex: 1, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>{c.categoryName}</T><Ionicons name="chevron-forward" size={18} color={t.textSecondary} /></View>
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: space.xs }}><T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg, fontVariant: ["tabular-nums"] }}>{exact(c.current)}</T><T variant="caption">{`${share.toFixed(1)}%${c.recordCount === undefined ? "" : ` · ${c.recordCount} expense${c.recordCount === 1 ? "" : "s"}`}`}</T></View>
-            <ChartPlotPressArea selection={rankedSelection} count={rankedData.length} chartLabel={`${c.categoryName} comparison`} indexAtPoint={() => i}><View accessible={false} style={{ gap: space.xs }}><View style={{ height: 6, backgroundColor: t.surfaceStrong, borderRadius: 2 }}><View style={{ height: 6, width: `${c.current / comparisonMax * 100}%`, backgroundColor: t.brandFill, borderRadius: 2 }} /></View><View style={{ height: 6, backgroundColor: t.surfaceStrong, borderRadius: 2 }}><View style={{ height: 6, width: `${c.previous / comparisonMax * 100}%`, backgroundColor: t.textSecondary, borderRadius: 2 }} /></View></View></ChartPlotPressArea>
+            <ChartPlotPressArea selection={rankedSelection} count={rankedData.length} chartLabel={`${c.categoryName} comparison`} indexAtPoint={() => i}><View accessible={false} style={{ gap: space.xs }}><View style={{ height: 6, backgroundColor: t.surfaceStrong, borderRadius: 2 }}><GrowFill percent={c.current / comparisonMax * 100} style={{ height: 6, backgroundColor: t.brandFill, borderRadius: 2 }} /></View><View style={{ height: 6, backgroundColor: t.surfaceStrong, borderRadius: 2 }}><GrowFill percent={c.previous / comparisonMax * 100} style={{ height: 6, backgroundColor: t.textSecondary, borderRadius: 2 }} /></View></View></ChartPlotPressArea>
             <T variant="caption">{`Previous: ${exact(c.previous)} · ${comparedWith ?? "previous period"}`}</T>
             <T style={{ fontSize: typeScale.bodySm, fontFamily: font.sansMedium, color: change === 0 || pct === null ? t.textSecondary : change > 0 ? t.statusText.serious : t.statusText.good }}>{previousTotal === 0 && c.previous === 0 ? "No earlier expenses to compare" : changeText}</T>
           </Pressable>;

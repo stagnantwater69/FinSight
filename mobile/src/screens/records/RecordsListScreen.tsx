@@ -639,7 +639,7 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
           <T
             accessibilityRole="header"
             style={{
-              marginTop: index === 0 ? 0 : space.md,
+              marginTop: index === 0 ? 0 : space.xl,
               marginBottom: space.sm,
               fontSize: typeScale.caption,
               fontFamily: font.sansSemibold,

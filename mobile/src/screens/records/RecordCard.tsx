@@ -147,7 +147,8 @@ export function RecordCard({
   const groupStyle = grouped
     ? {
         marginBottom: rowGap,
-        paddingVertical: space.md,
+        // Same breathing room as a standalone Card; 12pt read cramped between dividers.
+        paddingVertical: space.lg,
         borderTopLeftRadius: opensGroup ? radius.lg : 0,
         borderTopRightRadius: opensGroup ? radius.lg : 0,
         borderBottomLeftRadius: closesGroup ? radius.lg : 0,
@@ -215,7 +216,7 @@ export function RecordCard({
               date is the group's header, so it is not repeated per row (it is
               still in the spoken label above).
             */}
-            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 5, rowGap: 2, marginTop: 2 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 6, rowGap: space.xs, marginTop: space.xs }}>
               <T variant="caption">
                 {grouped ? "" : `${r.date.slice(0, 10)} · `}
                 {r.type === "expense" ? `Expense · ${categoryName}` : "Sales"}

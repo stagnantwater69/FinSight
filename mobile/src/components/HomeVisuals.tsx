@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Pressable, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { T } from "./ui";
+import { GrowFill } from "./GrowFill";
 import { TealPanel } from "./CoachKit";
 import { TAP_FLOOR } from "./touchTarget";
 import { ChartPlotPressArea, ChartValueReadout, useChartSelection, type ChartDatum, type ChartSelection } from "./ChartInteraction";
@@ -43,7 +44,7 @@ function FlowRow({ label, value, max, color, delta, interaction }: { label: stri
         <T style={{ maxWidth: "100%", fontFamily: font.monoSemibold, fontSize: typeScale.bodySm, color: HERO.ink }}>{formatMoney(value)}</T>
       </View>
       <View style={{ height: 14, borderRadius: 6, backgroundColor: HERO.wash, overflow: "hidden" }}>
-        <View style={{ width: `${width}%`, height: "100%", borderRadius: 6, backgroundColor: color }} />
+        <GrowFill percent={width} style={{ borderRadius: 6, backgroundColor: color }} />
       </View>
     </Pressable>
   );
@@ -198,7 +199,7 @@ export function TodayGoalSummary({
         accessibilityValue={{ min: 0, max: 100, now: Math.round(Math.min(100, todayPct)) }}
         style={{ height: 14, borderRadius: 7, backgroundColor: t.surfaceStrong, overflow: "hidden", marginTop: space.md }}
       >
-        <View style={{ width: `${Math.max(0, Math.min(100, todayPct))}%`, height: "100%", borderRadius: 7, backgroundColor: t.ACCENT.fill }} />
+        <GrowFill percent={todayPct} style={{ borderRadius: 7, backgroundColor: t.ACCENT.fill }} />
       </View>
       </ChartPlotPressArea>
       <View style={{ flexDirection: stacked ? "column" : "row", gap: space.xs, justifyContent: "space-between", marginTop: 6 }}>
@@ -215,7 +216,7 @@ export function TodayGoalSummary({
           accessibilityValue={{ min: 0, max: 100, now: Math.round(coverage) }}
           style={{ height: 6, borderRadius: 3, backgroundColor: t.surfaceStrong, overflow: "hidden" }}
         >
-          <View style={{ width: `${coverage}%`, height: "100%", backgroundColor: t.status[tone] }} />
+          <GrowFill percent={coverage} style={{ backgroundColor: t.status[tone] }} />
         </View>
         </ChartPlotPressArea>
         <T style={{ fontFamily: font.monoSemibold, fontSize: typeScale.caption, color: t.textPrimary }}>{`${Math.round(coverage)}%`}</T>

@@ -16,6 +16,7 @@ import {
 import type { DailyCoverageRow, RecoveryInsight, RecoveryReportingPeriod } from "../lib/types";
 import { font, radius, space, typeScale } from "../theme/tokens";
 import { ChartPlotPressArea, ChartValueReadout, useChartSelection, type ChartDatum } from "./ChartInteraction";
+import { GrowFill } from "./GrowFill";
 
 type Tone = "good" | "warning" | "critical" | "neutral";
 
@@ -49,7 +50,7 @@ function Bar({ percent, color, label, detail }: { percent: number; color: string
       accessibilityValue={{ min: 0, max: 100, now: Math.round(width) }}
       style={{ height: 10, borderRadius: radius.full, overflow: "hidden", backgroundColor: t.surfaceStrong }}
     >
-      <View style={{ width: `${width}%`, height: "100%", borderRadius: radius.full, backgroundColor: color }} />
+      <GrowFill percent={width} style={{ height: "100%", borderRadius: radius.full, backgroundColor: color }} />
     </View>
     </ChartPlotPressArea>
     <ChartValueReadout data={barData} selection={barSelection} chartLabel={detail.label} explore={false} />

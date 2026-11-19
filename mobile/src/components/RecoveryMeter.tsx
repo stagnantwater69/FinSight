@@ -7,6 +7,7 @@ import { useTheme } from "../context/ThemeContext";
 import { dayStatusTone } from "../lib/recoveryTone";
 import { resolveMonthStatus } from "../lib/recoveryStatus";
 import type { RecoveryTargets } from "../lib/types";
+import { GrowFill } from "./GrowFill";
 
 /**
  * The Recovery Meter — the product's signature component, and one of only two
@@ -182,7 +183,7 @@ function Bar({ ratio, color, height, label, detail }: { ratio: number; color: st
       accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }}
       style={{ height, backgroundColor: ink[100], borderRadius: height / 2, overflow: "hidden" }}
     >
-      <View style={{ width: `${ratio * 100}%`, height: "100%", backgroundColor: color, borderRadius: height / 2 }} />
+      <GrowFill percent={ratio * 100} style={{ height: "100%", backgroundColor: color, borderRadius: height / 2 }} />
     </View>
     </ChartPlotPressArea>
     <ChartValueReadout data={barData} selection={barSelection} chartLabel={label} />
