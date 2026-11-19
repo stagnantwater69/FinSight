@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { RisingSheet } from "./RisingSheet";
 import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { CONTENT_WIDTH, ContentScrollView } from "./ContentScrollView";
 import { useReducedMotion } from "../lib/useReducedMotion";
@@ -459,87 +460,89 @@ function DaySheet({ row, date, onClose }: { row: DailyCoverageRow | null; date: 
   const max = Math.max(row?.sales ?? 0, target ?? 0, 1);
   const below = row?.status === "below";
   return (
-    <Modal visible={visible} transparent animationType={reducedMotion ? "none" : "slide"} statusBarTranslucent onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType={reducedMotion ? "none" : "fade"} statusBarTranslucent onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: t.scrim, justifyContent: "flex-end", paddingTop: insets.top + space.md }}>
-        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close day details" style={StyleSheet.absoluteFill} />
-        <ContentScrollView
-          accessibilityViewIsModal
-          onStartShouldSetResponder={() => true}
-          style={{ maxHeight: "90%", flexGrow: 0, width: "100%", maxWidth: CONTENT_WIDTH, alignSelf: "center", backgroundColor: t.surfaceRaised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }}
-          contentContainerStyle={{
-            backgroundColor: t.surfaceRaised,
-            padding: space.lg,
-            paddingBottom: space.lg + insets.bottom,
-            gap: space.md,
-          }}
-        >
-          <View style={{ alignSelf: "center", width: 40, height: 5, borderRadius: 3, backgroundColor: t.surfaceStrong }} />
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "center", justifyContent: "space-between" }}>
-            <T variant="title" accessibilityRole="header" style={{ color: t.textPrimary }}>
-              {date ? longDate(date) : ""}
-            </T>
-            {row ? (
-              <View
-                style={{
-                  borderRadius: radius.full,
-                  paddingHorizontal: space.sm + 2,
-                  paddingVertical: 4,
-                  backgroundColor: closed ? t.surfaceMuted : below ? t.statusSurface.critical : t.statusSurface.good,
-                }}
-              >
-                <T style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: closed ? t.textMuted : below ? t.statusText.critical : t.statusText.good }}>
-                  {closed ? "Closed" : below ? "Below target" : row.status === "at" ? "Reached target" : "Above target"}
-                </T>
-              </View>
-            ) : null}
-          </View>
-
-          {!row ? (
-            <T variant="caption">No record for this day.</T>
-          ) : closed || target === null ? (
-            <T style={{ fontSize: typeScale.bodySm, color: t.textSecondary }}>
-              {closed ? "A closed day on your schedule, so it carries no target." : "The target for this day is unavailable."}{row.sales > 0 ? ` You still recorded ${formatMoney(row.sales, { decimals: true })}.` : ""}
-            </T>
-          ) : (
-            <>
-              <DayBar label="Sold" value={row.sales} max={max} color={below ? t.status.critical : t.status.good} />
-              <DayBar label="Target" value={target} max={max} color={t.borderStrong} />
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  borderRadius: radius.md,
-                  padding: space.md,
-                  backgroundColor: below ? t.statusSurface.critical : t.statusSurface.good,
-                }}
-              >
-                <T style={{ fontSize: typeScale.bodySm, fontFamily: font.sansSemibold, color: below ? t.statusText.critical : t.statusText.good }}>
-                  {below ? "Short by" : row.status === "at" ? "Right on target" : "Over by"}
-                </T>
-                {row.status === "at" ? null : (
-                  <Money value={Math.abs(row.gap ?? 0)} size={typeScale.title} weight="semibold" color={below ? t.statusText.critical : t.statusText.good} />
-                )}
-              </View>
-            </>
-          )}
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Done"
-            style={({ pressed }) => ({
-              minHeight: TAP_FLOOR,
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: t.borderStrong,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.85 : 1,
-            })}
+        <RisingSheet>
+          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close day details" style={StyleSheet.absoluteFill} />
+          <ContentScrollView
+            accessibilityViewIsModal
+            onStartShouldSetResponder={() => true}
+            style={{ maxHeight: "90%", flexGrow: 0, width: "100%", maxWidth: CONTENT_WIDTH, alignSelf: "center", backgroundColor: t.surfaceRaised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }}
+            contentContainerStyle={{
+              backgroundColor: t.surfaceRaised,
+              padding: space.lg,
+              paddingBottom: space.lg + insets.bottom,
+              gap: space.md,
+            }}
           >
-            <T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodySm, color: t.textPrimary }}>Done</T>
-          </Pressable>
-        </ContentScrollView>
+            <View style={{ alignSelf: "center", width: 40, height: 5, borderRadius: 3, backgroundColor: t.surfaceStrong }} />
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "center", justifyContent: "space-between" }}>
+              <T variant="title" accessibilityRole="header" style={{ color: t.textPrimary }}>
+                {date ? longDate(date) : ""}
+              </T>
+              {row ? (
+                <View
+                  style={{
+                    borderRadius: radius.full,
+                    paddingHorizontal: space.sm + 2,
+                    paddingVertical: 4,
+                    backgroundColor: closed ? t.surfaceMuted : below ? t.statusSurface.critical : t.statusSurface.good,
+                  }}
+                >
+                  <T style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: closed ? t.textMuted : below ? t.statusText.critical : t.statusText.good }}>
+                    {closed ? "Closed" : below ? "Below target" : row.status === "at" ? "Reached target" : "Above target"}
+                  </T>
+                </View>
+              ) : null}
+            </View>
+
+            {!row ? (
+              <T variant="caption">No record for this day.</T>
+            ) : closed || target === null ? (
+              <T style={{ fontSize: typeScale.bodySm, color: t.textSecondary }}>
+                {closed ? "A closed day on your schedule, so it carries no target." : "The target for this day is unavailable."}{row.sales > 0 ? ` You still recorded ${formatMoney(row.sales, { decimals: true })}.` : ""}
+              </T>
+            ) : (
+              <>
+                <DayBar label="Sold" value={row.sales} max={max} color={below ? t.status.critical : t.status.good} />
+                <DayBar label="Target" value={target} max={max} color={t.borderStrong} />
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    borderRadius: radius.md,
+                    padding: space.md,
+                    backgroundColor: below ? t.statusSurface.critical : t.statusSurface.good,
+                  }}
+                >
+                  <T style={{ fontSize: typeScale.bodySm, fontFamily: font.sansSemibold, color: below ? t.statusText.critical : t.statusText.good }}>
+                    {below ? "Short by" : row.status === "at" ? "Right on target" : "Over by"}
+                  </T>
+                  {row.status === "at" ? null : (
+                    <Money value={Math.abs(row.gap ?? 0)} size={typeScale.title} weight="semibold" color={below ? t.statusText.critical : t.statusText.good} />
+                  )}
+                </View>
+              </>
+            )}
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+              style={({ pressed }) => ({
+                minHeight: TAP_FLOOR,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: t.borderStrong,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodySm, color: t.textPrimary }}>Done</T>
+            </Pressable>
+          </ContentScrollView>
+        </RisingSheet>
       </View>
     </Modal>
   );

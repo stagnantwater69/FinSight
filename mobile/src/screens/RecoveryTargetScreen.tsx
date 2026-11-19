@@ -1,4 +1,5 @@
 import { CONTENT_WIDTH, ContentScrollView } from "../components/ContentScrollView";
+import { RisingSheet } from "../components/RisingSheet";
 import { useEffect, useRef, useState } from "react";
 import { type ScrollViewInstance, Alert as RNAlert, Modal, Pressable, StyleSheet, View } from "react-native";
 import { useReducedMotion } from "../lib/useReducedMotion";
@@ -1014,39 +1015,41 @@ function RecoveryAboutSheet({ visible, onClose, asOf }: { visible: boolean; onCl
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   return (
-    <Modal visible={visible} transparent animationType={reducedMotion ? "none" : "slide"} statusBarTranslucent onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType={reducedMotion ? "none" : "fade"} statusBarTranslucent onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: t.scrim, justifyContent: "flex-end", paddingTop: insets.top + space.md }}>
-        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" style={StyleSheet.absoluteFill} />
-        <ContentScrollView
-          accessibilityViewIsModal
-          onStartShouldSetResponder={() => true}
-          style={{ maxHeight: "90%", flexGrow: 0, width: "100%", maxWidth: CONTENT_WIDTH, alignSelf: "center", backgroundColor: t.surfaceRaised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }}
-          contentContainerStyle={{
-            backgroundColor: t.surfaceRaised,
-            paddingTop: space.md,
-            paddingHorizontal: space.lg,
-            paddingBottom: insets.bottom + space.lg,
-            gap: space.md,
-          }}
-        >
-          <View style={{ alignSelf: "center", width: 36, height: 4, borderRadius: 2, backgroundColor: t.borderStrong }} />
-          <T variant="title" accessibilityRole="header">About this target</T>
-          {ABOUT_POINTS.map((point) => (
-            <View key={point.title} style={{ flexDirection: "row", gap: space.md, alignItems: "flex-start" }}>
-              <View style={{ width: 36, height: 36, borderRadius: radius.md, backgroundColor: t.brandSurface, alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name={point.icon} size={18} color={t.brandText} />
+        <RisingSheet>
+          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" style={StyleSheet.absoluteFill} />
+          <ContentScrollView
+            accessibilityViewIsModal
+            onStartShouldSetResponder={() => true}
+            style={{ maxHeight: "90%", flexGrow: 0, width: "100%", maxWidth: CONTENT_WIDTH, alignSelf: "center", backgroundColor: t.surfaceRaised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }}
+            contentContainerStyle={{
+              backgroundColor: t.surfaceRaised,
+              paddingTop: space.md,
+              paddingHorizontal: space.lg,
+              paddingBottom: insets.bottom + space.lg,
+              gap: space.md,
+            }}
+          >
+            <View style={{ alignSelf: "center", width: 36, height: 4, borderRadius: 2, backgroundColor: t.borderStrong }} />
+            <T variant="title" accessibilityRole="header">About this target</T>
+            {ABOUT_POINTS.map((point) => (
+              <View key={point.title} style={{ flexDirection: "row", gap: space.md, alignItems: "flex-start" }}>
+                <View style={{ width: 36, height: 36, borderRadius: radius.md, backgroundColor: t.brandSurface, alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name={point.icon} size={18} color={t.brandText} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodySm, color: t.textPrimary }}>{point.title}</T>
+                  <T style={{ fontSize: typeScale.label, lineHeight: 19, color: t.textSecondary }}>{point.body}</T>
+                </View>
               </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodySm, color: t.textPrimary }}>{point.title}</T>
-                <T style={{ fontSize: typeScale.label, lineHeight: 19, color: t.textSecondary }}>{point.body}</T>
-              </View>
-            </View>
-          ))}
-          {asOf ? (
-            <T variant="caption" style={{ paddingTop: space.sm, borderTopWidth: 1, borderTopColor: t.border }}>{asOf}</T>
-          ) : null}
-          <Button title="Got it" variant="brand" onPress={onClose} />
-        </ContentScrollView>
+            ))}
+            {asOf ? (
+              <T variant="caption" style={{ paddingTop: space.sm, borderTopWidth: 1, borderTopColor: t.border }}>{asOf}</T>
+            ) : null}
+            <Button title="Got it" variant="brand" onPress={onClose} />
+          </ContentScrollView>
+        </RisingSheet>
       </View>
     </Modal>
   );

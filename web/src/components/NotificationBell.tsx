@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { usePresence } from "../lib/usePresence";
 import { Link } from "react-router-dom";
 import { X } from "lucide-react";
 import { useNotifications } from "../context/NotificationContext";
@@ -19,6 +20,7 @@ export function NotificationBell() {
     refresh,
   } = useNotifications();
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const { ref, triggerRef } = useDismiss(open, () => setOpen(false));
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -69,14 +71,14 @@ export function NotificationBell() {
           </span>
         ) : null}
       </button>
-      {open ? (
-        <div
+      {presence.mounted ? (
+        <div inert={presence.leaving} aria-hidden={presence.leaving || undefined}
           id={panelId}
           ref={panelRef}
           role="dialog"
           aria-label="Notifications"
           tabIndex={-1}
-          className="fixed inset-x-3 top-20 z-50 flex max-h-[calc(100dvh-10rem-env(safe-area-inset-bottom))] animate-pop-down flex-col overflow-hidden rounded-2xl bg-paper shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[min(38rem,calc(100dvh-9rem-env(safe-area-inset-bottom)))] lg:max-h-[min(38rem,calc(100dvh-8rem))] sm:w-96"
+          className={`fixed inset-x-3 top-20 z-50 flex max-h-[calc(100dvh-10rem-env(safe-area-inset-bottom))] ${presence.leaving ? "animate-pop-out" : "animate-pop-down"} flex-col overflow-hidden rounded-2xl bg-paper shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[min(38rem,calc(100dvh-9rem-env(safe-area-inset-bottom)))] lg:max-h-[min(38rem,calc(100dvh-8rem))] sm:w-96`}
         >
           <div className="flex shrink-0 items-start justify-between gap-2 border-b border-paper-200 px-4 py-3">
             <div className="min-w-0">

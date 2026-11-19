@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { usePresence } from "../lib/usePresence";
 import { SelectInput, TextInput } from "./Field";
 import { IconCheck, IconChevronDown } from "./icons";
 
@@ -49,6 +50,7 @@ export function CategoryFilter({ id, value, onChange, categories, disabled = fal
 function SearchableCategoryFilter({ id, value, onChange, categories, disabled }: Required<Props>) {
   const listboxId = useId();
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
@@ -144,8 +146,8 @@ function SearchableCategoryFilter({ id, value, onChange, categories, disabled }:
       <p role="status" className="sr-only">
         {open ? (needle ? `${matches.length} of ${categories.length} categories match` : `${categories.length} categories`) : ""}
       </p>
-      {open ? (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 animate-pop-down overflow-hidden rounded-xl border border-paper-200 bg-paper shadow-lg">
+      {presence.mounted ? (
+        <div inert={presence.leaving} aria-hidden={presence.leaving || undefined} className={`absolute left-0 right-0 top-full z-50 mt-1 ${presence.leaving ? "animate-pop-out" : "animate-pop-down"} overflow-hidden rounded-xl border border-paper-200 bg-paper shadow-lg`}>
           {options.length === 0 ? (
             <p className="px-3 py-3 text-sm text-ink-500">No categories match “{query.trim()}”.</p>
           ) : null}

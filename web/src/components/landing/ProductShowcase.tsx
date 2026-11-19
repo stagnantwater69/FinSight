@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SlidingIndicator } from "../SlidingIndicator";
 import { ArrowRight, Camera, MessageSquare } from "lucide-react";
 import { Money } from "../Money";
 import { MEASURE } from "./grid";
@@ -64,16 +65,17 @@ export function ProductShowcase() {
           <p className="font-landing-sans text-[11px] font-bold uppercase tracking-[0.14em] text-landing-green">Show, don't tell</p>
           <h2 id="showcase-title" className="mx-auto mt-3 max-w-[30ch] font-landing-display text-[clamp(1.7rem,3.3vw,2.35rem)] font-extrabold leading-[1.14] tracking-[-0.04em] text-landing-charcoal">See how FinSight handles your daily financial records</h2>
           <p className="mt-3 font-landing-sans text-[15px] leading-relaxed text-landing-muted sm:text-base">Capture a receipt. Check the details. Save a record you can use.</p>
-          <div role="tablist" aria-label="Product demonstrations" aria-orientation="horizontal" onKeyDown={onTabKeys} className="mx-auto mt-5 inline-flex max-w-full flex-wrap justify-center gap-1 rounded-full border border-landing-mint-light/70 bg-landing-surface p-1 shadow-sm">
+          <div role="tablist" aria-label="Product demonstrations" aria-orientation="horizontal" onKeyDown={onTabKeys} className="relative mx-auto mt-5 inline-flex max-w-full flex-wrap justify-center gap-1 rounded-full border border-landing-mint-light/70 bg-landing-surface p-1 shadow-sm">
+            <SlidingIndicator activeKey={tab} className="rounded-full bg-landing-emerald" />
             {TABS.map(({ id, label, icon: Icon }) => (
-              <button key={id} type="button" role="tab" id={`product-showcase-tab-${id}`} aria-selected={tab === id} aria-controls="product-showcase-panel" tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)} className={`inline-flex min-h-tap items-center justify-center gap-2 rounded-full px-4 font-landing-sans text-[13px] font-semibold transition-colors sm:px-6 sm:text-sm ${tab === id ? "bg-landing-emerald text-white" : "text-landing-muted hover:bg-landing-mint-pale hover:text-landing-charcoal"}`}>
+              <button key={id} type="button" role="tab" id={`product-showcase-tab-${id}`} aria-selected={tab === id} aria-controls="product-showcase-panel" tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)} className={`relative z-10 inline-flex min-h-tap items-center justify-center gap-2 rounded-full px-4 font-landing-sans text-[13px] font-semibold transition-colors sm:px-6 sm:text-sm ${tab === id ? "text-white" : "text-landing-muted hover:bg-landing-mint-pale hover:text-landing-charcoal"}`}>
                 <Icon className="h-4 w-4 shrink-0" aria-hidden />{label}
               </button>
             ))}
           </div>
         </div>
         <div role="tabpanel" id="product-showcase-panel" aria-labelledby={`product-showcase-tab-${tab}`} tabIndex={0} className="mt-5 rounded-[20px] border border-landing-mint-light/70 bg-landing-surface p-5 shadow-sm sm:p-7 lg:p-8">
-          {tab === "ocr" ? <OcrPanel /> : <AiPanel />}
+          <div key={tab} className="motion-safe:animate-fade-up">{tab === "ocr" ? <OcrPanel /> : <AiPanel />}</div>
         </div>
       </div>
     </section>

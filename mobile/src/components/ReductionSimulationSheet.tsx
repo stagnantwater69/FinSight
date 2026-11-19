@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { RisingSheet } from "./RisingSheet";
 import { periodLabel, periodParams, type PeriodSelection } from "../lib/reportingPeriod";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -155,140 +156,142 @@ export function ReductionSimulationSheet({
   }
 
   return (
-    <Modal visible={visible} transparent animationType={reduceMotion ? "none" : "slide"} statusBarTranslucent onRequestClose={close}>
+    <Modal visible={visible} transparent animationType={reduceMotion ? "none" : "fade"} statusBarTranslucent onRequestClose={close}>
       <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.scrim, justifyContent: "flex-end" }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <Pressable
-        onPress={close}
-        accessibilityRole="button"
-        accessible={false}
-        importantForAccessibility="no-hide-descendants"
-        style={StyleSheet.absoluteFill}
-      />
-        <View
-          style={{
-            backgroundColor: t.surfaceRaised,
-            borderTopLeftRadius: radius.xl,
-            borderTopRightRadius: radius.xl,
-            maxHeight: "92%",
-            flexShrink: 1,
-          }}
-          accessibilityViewIsModal
-        >
+        <RisingSheet>
+        <Pressable
+          onPress={close}
+          accessibilityRole="button"
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+          style={StyleSheet.absoluteFill}
+        />
           <View
             style={{
-              flexDirection: "row",
-              alignItems: "flex-start",
-              justifyContent: "space-between",
-              paddingHorizontal: space.lg,
-              paddingTop: space.lg,
-              paddingBottom: space.sm,
+              backgroundColor: t.surfaceRaised,
+              borderTopLeftRadius: radius.xl,
+              borderTopRightRadius: radius.xl,
+              maxHeight: "92%",
+              flexShrink: 1,
             }}
+            accessibilityViewIsModal
           >
-            <View style={{ flex: 1 }}>
-              <T variant="heading" accessibilityRole="header" style={{ color: t.brandHeading }}>
-                Simulate a reduction
-              </T>
-              <T variant="caption" style={{ marginTop: 2 }}>
-                {opportunity.categoryName}
-              </T>
-            </View>
-            <Pressable
-              onPress={close}
-              accessibilityRole="button"
-              accessibilityLabel="Close simulate reduction"
-              hitSlop={10}
-              style={{ minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                paddingHorizontal: space.lg,
+                paddingTop: space.lg,
+                paddingBottom: space.sm,
+              }}
             >
-              <Ionicons name="close" size={20} color={ink[500]} />
-            </Pressable>
-          </View>
-
-          <ScrollView
-            style={{ flexShrink: 1 }}
-            contentContainerStyle={{
-              paddingHorizontal: space.lg,
-              paddingBottom: insets.bottom + space.lg,
-              gap: space.md,
-            }}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-          >
-            <View style={{ gap: space.xs, paddingVertical: space.md, borderBottomWidth: 1, borderBottomColor: t.border }}>
-              <T style={{ color: t.textSecondary }}>{opportunity.categoryName} · {periodLabel(period)}</T>
-              <T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.titleLg, lineHeight: 32, fontVariant: ["tabular-nums"] }}>{formatMoney(evidenceBaseline, { decimals: true })}</T>
-              <T variant="caption">Recorded category expenses</T>
-            </View>
-            <T style={{ color: t.textSecondary }}>Try a lower expense amount. This is a hypothetical check; your records stay unchanged.</T>
-
-            <View>
-              <T variant="label" style={{ marginBottom: 6 }}>
-                Reduce by
-              </T>
-              <SegmentedControl
-                options={KIND_OPTIONS}
-                value={kind}
-                onChange={(v) => {
-                  setKind(v);
-                  setValueError(null);
-                }}
-                accessibilityLabel="Reduce by"
-              />
-            </View>
-
-            <View>
-              <T variant="label" style={{ marginBottom: 4 }}>
-                {kind === "percent" ? "Percentage" : "Amount (PHP)"}
-              </T>
-              <TextInput
-                value={rawValue}
-                onChangeText={(v) => {
-                  setRawValue(v);
-                  if (valueError) setValueError(null);
-                }}
-                onFocus={() => setValueFocused(true)}
-                onBlur={() => setValueFocused(false)}
-                onSubmitEditing={submit}
-                keyboardType="decimal-pad"
-                placeholder={kind === "percent" ? "e.g. 15" : "e.g. 1000"}
-                placeholderTextColor={ink[400]}
-                accessibilityLabel={kind === "percent" ? "Reduction percentage" : "Reduction amount, in Philippine pesos"}
-                style={{
-                  minHeight: TAP_FLOOR,
-                  borderWidth: 1,
-                  borderColor: valueError ? statusText.critical : valueFocused ? brand[600] : ink[200],
-                  borderRadius: radius.md,
-                  paddingHorizontal: space.md,
-                  fontSize: typeScale.title, lineHeight: 28,
-                  fontFamily: font.sans,
-                  fontVariant: ["tabular-nums"],
-                  color: ink[900],
-                }}
-              />
-              {kind === "amount" && evidenceBaseline > 0 ? (
-                <T variant="caption" style={{ marginTop: 4 }}>
-                  Maximum reduction: {formatMoney(evidenceBaseline, { decimals: true })}.
+              <View style={{ flex: 1 }}>
+                <T variant="heading" accessibilityRole="header" style={{ color: t.brandHeading }}>
+                  Simulate a reduction
                 </T>
-              ) : null}
-              {valueError ? (
-                <View
-                  accessibilityLiveRegion="polite"
-                  style={{ flexDirection: "row", gap: 5, marginTop: space.sm, alignItems: "flex-start" }}
-                >
-                  <Ionicons name="alert-circle-outline" size={18} color={statusText.critical} />
-                  <T style={{ flex: 1, fontSize: typeScale.caption, lineHeight: 17, color: statusText.critical }}>
-                    {valueError}
-                  </T>
-                </View>
-              ) : null}
+                <T variant="caption" style={{ marginTop: 2 }}>
+                  {opportunity.categoryName}
+                </T>
+              </View>
+              <Pressable
+                onPress={close}
+                accessibilityRole="button"
+                accessibilityLabel="Close simulate reduction"
+                hitSlop={10}
+                style={{ minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}
+              >
+                <Ionicons name="close" size={20} color={ink[500]} />
+              </Pressable>
             </View>
 
-            <Button title={submitting ? "Simulating…" : "Simulate"} onPress={submit} disabled={submitting} loading={submitting} />
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{
+                paddingHorizontal: space.lg,
+                paddingBottom: insets.bottom + space.lg,
+                gap: space.md,
+              }}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              <View style={{ gap: space.xs, paddingVertical: space.md, borderBottomWidth: 1, borderBottomColor: t.border }}>
+                <T style={{ color: t.textSecondary }}>{opportunity.categoryName} · {periodLabel(period)}</T>
+                <T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.titleLg, lineHeight: 32, fontVariant: ["tabular-nums"] }}>{formatMoney(evidenceBaseline, { decimals: true })}</T>
+                <T variant="caption">Recorded category expenses</T>
+              </View>
+              <T style={{ color: t.textSecondary }}>Try a lower expense amount. This is a hypothetical check; your records stay unchanged.</T>
 
-            {submitError ? <ErrorNote>{submitError}</ErrorNote> : null}
+              <View>
+                <T variant="label" style={{ marginBottom: 6 }}>
+                  Reduce by
+                </T>
+                <SegmentedControl
+                  options={KIND_OPTIONS}
+                  value={kind}
+                  onChange={(v) => {
+                    setKind(v);
+                    setValueError(null);
+                  }}
+                  accessibilityLabel="Reduce by"
+                />
+              </View>
 
-            {result ? <ReductionSimulationResult result={result} periodText={periodLabel(period)} /> : null}
-          </ScrollView>
-        </View>
+              <View>
+                <T variant="label" style={{ marginBottom: 4 }}>
+                  {kind === "percent" ? "Percentage" : "Amount (PHP)"}
+                </T>
+                <TextInput
+                  value={rawValue}
+                  onChangeText={(v) => {
+                    setRawValue(v);
+                    if (valueError) setValueError(null);
+                  }}
+                  onFocus={() => setValueFocused(true)}
+                  onBlur={() => setValueFocused(false)}
+                  onSubmitEditing={submit}
+                  keyboardType="decimal-pad"
+                  placeholder={kind === "percent" ? "e.g. 15" : "e.g. 1000"}
+                  placeholderTextColor={ink[400]}
+                  accessibilityLabel={kind === "percent" ? "Reduction percentage" : "Reduction amount, in Philippine pesos"}
+                  style={{
+                    minHeight: TAP_FLOOR,
+                    borderWidth: 1,
+                    borderColor: valueError ? statusText.critical : valueFocused ? brand[600] : ink[200],
+                    borderRadius: radius.md,
+                    paddingHorizontal: space.md,
+                    fontSize: typeScale.title, lineHeight: 28,
+                    fontFamily: font.sans,
+                    fontVariant: ["tabular-nums"],
+                    color: ink[900],
+                  }}
+                />
+                {kind === "amount" && evidenceBaseline > 0 ? (
+                  <T variant="caption" style={{ marginTop: 4 }}>
+                    Maximum reduction: {formatMoney(evidenceBaseline, { decimals: true })}.
+                  </T>
+                ) : null}
+                {valueError ? (
+                  <View
+                    accessibilityLiveRegion="polite"
+                    style={{ flexDirection: "row", gap: 5, marginTop: space.sm, alignItems: "flex-start" }}
+                  >
+                    <Ionicons name="alert-circle-outline" size={18} color={statusText.critical} />
+                    <T style={{ flex: 1, fontSize: typeScale.caption, lineHeight: 17, color: statusText.critical }}>
+                      {valueError}
+                    </T>
+                  </View>
+                ) : null}
+              </View>
+
+              <Button title={submitting ? "Simulating…" : "Simulate"} onPress={submit} disabled={submitting} loading={submitting} />
+
+              {submitError ? <ErrorNote>{submitError}</ErrorNote> : null}
+
+              {result ? <ReductionSimulationResult result={result} periodText={periodLabel(period)} /> : null}
+            </ScrollView>
+          </View>
+        </RisingSheet>
       </KeyboardAvoidingView>
     </Modal>
   );

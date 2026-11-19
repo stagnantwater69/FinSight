@@ -1,7 +1,10 @@
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
+import { RisingSheet } from "./RisingSheet";
+import { useSegmentHighlight } from "./SegmentHighlight";
 import {
   type TextInputInstance,
   ActivityIndicator,
+  Animated,
   Image,
   ImageSourcePropType,
   Modal,
@@ -797,13 +800,18 @@ export function SegmentedControl<Value extends string | number>({
    */
   const { width, fontScale } = useWindowDimensions();
   const stacks = stacked ?? (width < 360 || fontScale > 1.2);
+  const highlight = useSegmentHighlight(options.findIndex((option) => option.value === value));
   return (
     <View style={[styles.segmentTrack, stacks && { flexDirection: "column" }]}>
-      {options.map((option) => {
+      {highlight.ready ? (
+        <Animated.View pointerEvents="none" style={[highlight.style, { borderRadius: radius.sm, backgroundColor: t.brandFill }]} />
+      ) : null}
+      {options.map((option, index) => {
         const selected = option.value === value;
         return (
           <Pressable
             key={String(option.value)}
+            onLayout={highlight.onLayoutFor(index)}
             accessibilityRole="button"
             accessibilityLabel={accessibilityLabel ? `${accessibilityLabel}, ${option.label}` : undefined}
             accessibilityState={{ selected }}
@@ -815,7 +823,7 @@ export function SegmentedControl<Value extends string | number>({
               styles.segment,
               stacks && { flex: 0, paddingVertical: space.sm },
               {
-                backgroundColor: selected ? t.brandFill : "transparent",
+                backgroundColor: selected && !highlight.ready ? t.brandFill : "transparent",
                 opacity: pressed ? 0.85 : 1,
                 flexDirection: "row",
                 alignItems: "center",
@@ -890,101 +898,103 @@ export function OptionSheet<Option extends { id: number | string; name: string; 
   const close = () => { setSearch(""); onClose(); };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={close}>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={close}>
       <View style={{ flex: 1, backgroundColor: t.scrim, justifyContent: "flex-end" }}>
-        <Pressable
-          onPress={close}
-          accessibilityRole="button"
-          accessibilityLabel="Close without choosing"
-          style={[StyleSheet.absoluteFill, { minHeight: TAP_FLOOR, minWidth: TAP_FLOOR }]}
-        />
-        <View
-          style={{
-            backgroundColor: t.surfaceRaised,
-            borderTopLeftRadius: radius.xl,
-            borderTopRightRadius: radius.xl,
-            paddingTop: space.md,
-            paddingBottom: insets.bottom + space.md,
-            maxHeight: "70%",
-          }}
-        >
+        <RisingSheet>
+          <Pressable
+            onPress={close}
+            accessibilityRole="button"
+            accessibilityLabel="Close without choosing"
+            style={[StyleSheet.absoluteFill, { minHeight: TAP_FLOOR, minWidth: TAP_FLOOR }]}
+          />
           <View
             style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              paddingHorizontal: space.lg,
-              paddingBottom: space.sm,
+              backgroundColor: t.surfaceRaised,
+              borderTopLeftRadius: radius.xl,
+              borderTopRightRadius: radius.xl,
+              paddingTop: space.md,
+              paddingBottom: insets.bottom + space.md,
+              maxHeight: "70%",
             }}
           >
-            <T variant="heading" accessibilityRole="header" style={{ color: t.brandHeading }}>
-              {title}
-            </T>
-            <Pressable
-              onPress={close}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              hitSlop={10}
-              style={{ padding: space.xs }}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingHorizontal: space.lg,
+                paddingBottom: space.sm,
+              }}
             >
-              <Ionicons name="close" size={20} color={t.textMuted} />
-            </Pressable>
-          </View>
-
-          {searchPlaceholder ? (
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder={searchPlaceholder}
-              accessibilityLabel={searchPlaceholder}
-              placeholderTextColor={t.textMuted}
-              autoCorrect={false}
-              style={{ minHeight: TAP_FLOOR, marginHorizontal: space.lg, marginBottom: space.sm, paddingHorizontal: space.md, borderWidth: 1, borderColor: t.borderStrong, borderRadius: radius.md, color: t.textPrimary, fontFamily: font.sans, fontSize: typeScale.body }}
-            />
-          ) : null}
-          <ScrollView keyboardShouldPersistTaps="handled">
-            {recent.length ? <T variant="label" style={{ paddingHorizontal: space.lg, paddingVertical: space.sm }}>Recently chosen</T> : null}
-            {shown.map((option, index) => {
-              const isSelected = option.id === value;
-              return (
-                <View key={String(option.id)}>
-                  {recent.length > 0 && index === recent.length ? <T variant="label" style={{ paddingHorizontal: space.lg, paddingVertical: space.sm }}>All categories</T> : null}
-                  <Pressable
-                  onPress={() => {
-                    haptics.tapped();
-                    onChoose(option.id);
-                    close();
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: space.sm,
-                    minHeight: TAP_FLOOR,
-                    paddingHorizontal: space.lg,
-                    paddingVertical: space.sm,
-                    backgroundColor: pressed ? t.surfaceMuted : isSelected ? t.brandSurface : t.surfaceRaised,
-                  })}
-                >
-                  <T style={{ flex: 1, fontSize: typeScale.body, color: isSelected ? t.brandHeading : t.ink[800] }}>
-                    {option.name}
-                  </T>
-                  {option.detail ? <T variant="caption">{option.detail}</T> : null}
-                  {/* A tick as well as the tint — never colour alone. */}
-                  {isSelected ? <Ionicons name="checkmark" size={18} color={t.brand[600]} /> : null}
-                  </Pressable>
-                </View>
-              );
-            })}
-            {shown.length === 0 ? (
-              <T variant="caption" style={{ paddingHorizontal: space.lg, paddingVertical: space.md }}>
-                {query ? "No categories match. Try another name." : emptyText}
+              <T variant="heading" accessibilityRole="header" style={{ color: t.brandHeading }}>
+                {title}
               </T>
+              <Pressable
+                onPress={close}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                hitSlop={10}
+                style={{ padding: space.xs }}
+              >
+                <Ionicons name="close" size={20} color={t.textMuted} />
+              </Pressable>
+            </View>
+
+            {searchPlaceholder ? (
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder={searchPlaceholder}
+                accessibilityLabel={searchPlaceholder}
+                placeholderTextColor={t.textMuted}
+                autoCorrect={false}
+                style={{ minHeight: TAP_FLOOR, marginHorizontal: space.lg, marginBottom: space.sm, paddingHorizontal: space.md, borderWidth: 1, borderColor: t.borderStrong, borderRadius: radius.md, color: t.textPrimary, fontFamily: font.sans, fontSize: typeScale.body }}
+              />
             ) : null}
-          </ScrollView>
-        </View>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {recent.length ? <T variant="label" style={{ paddingHorizontal: space.lg, paddingVertical: space.sm }}>Recently chosen</T> : null}
+              {shown.map((option, index) => {
+                const isSelected = option.id === value;
+                return (
+                  <View key={String(option.id)}>
+                    {recent.length > 0 && index === recent.length ? <T variant="label" style={{ paddingHorizontal: space.lg, paddingVertical: space.sm }}>All categories</T> : null}
+                    <Pressable
+                    onPress={() => {
+                      haptics.tapped();
+                      onChoose(option.id);
+                      close();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: space.sm,
+                      minHeight: TAP_FLOOR,
+                      paddingHorizontal: space.lg,
+                      paddingVertical: space.sm,
+                      backgroundColor: pressed ? t.surfaceMuted : isSelected ? t.brandSurface : t.surfaceRaised,
+                    })}
+                  >
+                    <T style={{ flex: 1, fontSize: typeScale.body, color: isSelected ? t.brandHeading : t.ink[800] }}>
+                      {option.name}
+                    </T>
+                    {option.detail ? <T variant="caption">{option.detail}</T> : null}
+                    {/* A tick as well as the tint — never colour alone. */}
+                    {isSelected ? <Ionicons name="checkmark" size={18} color={t.brand[600]} /> : null}
+                    </Pressable>
+                  </View>
+                );
+              })}
+              {shown.length === 0 ? (
+                <T variant="caption" style={{ paddingHorizontal: space.lg, paddingVertical: space.md }}>
+                  {query ? "No categories match. Try another name." : emptyText}
+                </T>
+              ) : null}
+            </ScrollView>
+          </View>
+        </RisingSheet>
       </View>
     </Modal>
   );
@@ -1131,63 +1141,65 @@ export function ConfirmSheet({
   const dialog = presentation === "dialog";
 
   return (
-    <Modal visible={visible} transparent animationType={reduceMotion ? "none" : dialog ? "fade" : "slide"} statusBarTranslucent onRequestClose={dismiss} accessibilityLabel={dialog ? title : undefined}>
+    <Modal visible={visible} transparent animationType={reduceMotion ? "none" : "fade"} statusBarTranslucent onRequestClose={dismiss} accessibilityLabel={dialog ? title : undefined}>
       <View style={{ flex: 1, backgroundColor: t.scrim, justifyContent: dialog ? "center" : "flex-end", paddingTop: insets.top + (dialog ? space.xl : space.lg), ...(dialog ? { paddingHorizontal: space.xl, paddingBottom: insets.bottom + space.xl } : {}) }}>
-      <Pressable
-        onPress={dismiss}
-        accessible={false}
-        importantForAccessibility="no-hide-descendants"
-        style={StyleSheet.absoluteFill}
-      />
-        <View
-          accessibilityViewIsModal
-          style={{
-            width: "100%",
-            maxWidth: dialog ? 400 : 720,
-            maxHeight: "100%",
-            alignSelf: "center",
-            backgroundColor: t.surfaceRaised,
-            ...(dialog ? { borderRadius: radius.lg } : { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }),
-          }}
-        >
-          <ScrollView style={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled" contentContainerStyle={dialog ? { padding: space.xl } : { paddingTop: space.md, paddingHorizontal: space.lg, paddingBottom: insets.bottom + space.lg }}>
-          {/* The grabber. Says "this came from the bottom and goes back there". */}
-          {!dialog ? <View
+        <RisingSheet dialog={dialog}>
+        <Pressable
+          onPress={dismiss}
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+          style={StyleSheet.absoluteFill}
+        />
+          <View
+            accessibilityViewIsModal
             style={{
+              width: "100%",
+              maxWidth: dialog ? 400 : 720,
+              maxHeight: "100%",
               alignSelf: "center",
-              width: 36,
-              height: 4,
-              borderRadius: 2,
-              backgroundColor: t.borderStrong,
-              marginBottom: space.lg,
+              backgroundColor: t.surfaceRaised,
+              ...(dialog ? { borderRadius: radius.lg } : { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }),
             }}
-          /> : null}
+          >
+            <ScrollView style={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled" contentContainerStyle={dialog ? { padding: space.xl } : { paddingTop: space.md, paddingHorizontal: space.lg, paddingBottom: insets.bottom + space.lg }}>
+            {/* The grabber. Says "this came from the bottom and goes back there". */}
+            {!dialog ? <View
+              style={{
+                alignSelf: "center",
+                width: 36,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: t.borderStrong,
+                marginBottom: space.lg,
+              }}
+            /> : null}
 
-          <T variant="title" accessibilityRole="header" style={{ textAlign: "center", ...(dialog ? { color: t.textPrimary } : {}) }}>
-            {title}
-          </T>
-          {body ? (
-            <T style={{ fontSize: dialog ? typeScale.body : typeScale.bodySm, color: t.ink[600], textAlign: "center", marginTop: 6, lineHeight: dialog ? 24 : 20 }}>
-              {body}
+            <T variant="title" accessibilityRole="header" style={{ textAlign: "center", ...(dialog ? { color: t.textPrimary } : {}) }}>
+              {title}
             </T>
-          ) : null}
+            {body ? (
+              <T style={{ fontSize: dialog ? typeScale.body : typeScale.bodySm, color: t.ink[600], textAlign: "center", marginTop: 6, lineHeight: dialog ? 24 : 20 }}>
+                {body}
+              </T>
+            ) : null}
 
-          {error ? (
-            <View style={{ marginTop: space.md }}>
-              <ErrorNote>{error}</ErrorNote>
-            </View>
-          ) : null}
+            {error ? (
+              <View style={{ marginTop: space.md }}>
+                <ErrorNote>{error}</ErrorNote>
+              </View>
+            ) : null}
 
-          <View style={{ flexDirection: stackActions ? "column" : "row", gap: space.sm, marginTop: space.lg }}>
-            <View style={stackActions ? undefined : { flex: 1 }}>
-              <Button title={cancelLabel} variant="secondary" onPress={dialog ? dismiss : onCancel} disabled={busy} focusRingColor={dialog ? t.brandText : undefined} />
+            <View style={{ flexDirection: stackActions ? "column" : "row", gap: space.sm, marginTop: space.lg }}>
+              <View style={stackActions ? undefined : { flex: 1 }}>
+                <Button title={cancelLabel} variant="secondary" onPress={dialog ? dismiss : onCancel} disabled={busy} focusRingColor={dialog ? t.brandText : undefined} />
+              </View>
+              <View style={stackActions ? undefined : { flex: 1 }}>
+                <Button title={confirmLabel} variant={confirmVariant} onPress={onConfirm} loading={busy} focusRingColor={dialog ? confirmVariant === "brand" ? t.onBrandFill : confirmVariant === "primary" ? t.ACCENT.onFill : t.brandText : undefined} />
+              </View>
             </View>
-            <View style={stackActions ? undefined : { flex: 1 }}>
-              <Button title={confirmLabel} variant={confirmVariant} onPress={onConfirm} loading={busy} focusRingColor={dialog ? confirmVariant === "brand" ? t.onBrandFill : confirmVariant === "primary" ? t.ACCENT.onFill : t.brandText : undefined} />
-            </View>
+            </ScrollView>
           </View>
-          </ScrollView>
-        </View>
+        </RisingSheet>
       </View>
     </Modal>
   );

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { RisingSheet } from "./RisingSheet";
 import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { CONTENT_WIDTH, ContentScrollView } from "./ContentScrollView";
 import { useReducedMotion } from "../lib/useReducedMotion";
@@ -65,64 +66,66 @@ function InsightSwitcherSheet({
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   return (
-    <Modal visible={visible} transparent animationType={reducedMotion ? "none" : "slide"} statusBarTranslucent onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType={reducedMotion ? "none" : "fade"} statusBarTranslucent onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: t.scrim, justifyContent: "flex-end", paddingTop: insets.top + space.md }}>
-        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close without choosing" style={StyleSheet.absoluteFill} />
-        <ContentScrollView
-          accessibilityViewIsModal
-          onStartShouldSetResponder={() => true}
-          style={{ maxHeight: "90%", flexGrow: 0, width: "100%", maxWidth: CONTENT_WIDTH, alignSelf: "center", backgroundColor: t.surfaceRaised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }}
-          contentContainerStyle={{
-            backgroundColor: t.surfaceRaised,
-            paddingTop: space.md,
-            paddingHorizontal: space.md,
-            paddingBottom: insets.bottom + space.lg,
-            gap: space.xs,
-          }}
-        >
-          <View style={{ alignSelf: "center", width: 36, height: 4, borderRadius: 2, backgroundColor: t.borderStrong, marginBottom: space.sm }} />
-          <T variant="title" accessibilityRole="header" style={{ marginLeft: space.xs, marginBottom: space.sm }}>
-            Explore insights
-          </T>
-          {INSIGHT_SCREENS.map((screen) => {
-            const selected = screen.id === active;
-            const hue = screen.hue === null ? t.brandText : t.categorical[screen.hue] ?? t.brandText;
-            return (
-              <Pressable
-                key={screen.id}
-                accessibilityRole="button"
-                accessibilityLabel={`${screen.name}. ${screen.detail}`}
-                accessibilityState={{ selected }}
-                onPress={() => onChoose(screen.id)}
-                style={({ pressed }) => ({
-                  minHeight: 64,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: space.md,
-                  paddingHorizontal: space.md,
-                  paddingVertical: space.sm,
-                  borderRadius: radius.lg,
-                  borderWidth: 1.5,
-                  borderColor: selected ? t.brandBorder : "transparent",
-                  backgroundColor: selected ? t.brandSurface : pressed ? t.surfaceMuted : "transparent",
-                })}
-              >
-                <View style={{ width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: screen.hue === null ? t.brandSurface : `${hue}1f` }}>
-                  <Ionicons name={screen.icon} size={22} color={hue} />
-                </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.body, color: t.textPrimary }}>{screen.name}</T>
-                  <T variant="caption">{screen.detail}</T>
-                </View>
-                {selected ? (
-                  <Ionicons name="checkmark-circle" size={22} color={t.brandFill} />
-                ) : (
-                  <Ionicons name="chevron-forward" size={18} color={t.textMuted} />
-                )}
-              </Pressable>
-            );
-          })}
-        </ContentScrollView>
+        <RisingSheet>
+          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close without choosing" style={StyleSheet.absoluteFill} />
+          <ContentScrollView
+            accessibilityViewIsModal
+            onStartShouldSetResponder={() => true}
+            style={{ maxHeight: "90%", flexGrow: 0, width: "100%", maxWidth: CONTENT_WIDTH, alignSelf: "center", backgroundColor: t.surfaceRaised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }}
+            contentContainerStyle={{
+              backgroundColor: t.surfaceRaised,
+              paddingTop: space.md,
+              paddingHorizontal: space.md,
+              paddingBottom: insets.bottom + space.lg,
+              gap: space.xs,
+            }}
+          >
+            <View style={{ alignSelf: "center", width: 36, height: 4, borderRadius: 2, backgroundColor: t.borderStrong, marginBottom: space.sm }} />
+            <T variant="title" accessibilityRole="header" style={{ marginLeft: space.xs, marginBottom: space.sm }}>
+              Explore insights
+            </T>
+            {INSIGHT_SCREENS.map((screen) => {
+              const selected = screen.id === active;
+              const hue = screen.hue === null ? t.brandText : t.categorical[screen.hue] ?? t.brandText;
+              return (
+                <Pressable
+                  key={screen.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${screen.name}. ${screen.detail}`}
+                  accessibilityState={{ selected }}
+                  onPress={() => onChoose(screen.id)}
+                  style={({ pressed }) => ({
+                    minHeight: 64,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: space.md,
+                    paddingHorizontal: space.md,
+                    paddingVertical: space.sm,
+                    borderRadius: radius.lg,
+                    borderWidth: 1.5,
+                    borderColor: selected ? t.brandBorder : "transparent",
+                    backgroundColor: selected ? t.brandSurface : pressed ? t.surfaceMuted : "transparent",
+                  })}
+                >
+                  <View style={{ width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: screen.hue === null ? t.brandSurface : `${hue}1f` }}>
+                    <Ionicons name={screen.icon} size={22} color={hue} />
+                  </View>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.body, color: t.textPrimary }}>{screen.name}</T>
+                    <T variant="caption">{screen.detail}</T>
+                  </View>
+                  {selected ? (
+                    <Ionicons name="checkmark-circle" size={22} color={t.brandFill} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={18} color={t.textMuted} />
+                  )}
+                </Pressable>
+              );
+            })}
+          </ContentScrollView>
+        </RisingSheet>
       </View>
     </Modal>
   );
