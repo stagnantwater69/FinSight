@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SlidingIndicator } from "../components/SlidingIndicator";
 import { Link, useSearchParams } from "react-router-dom";
 import { Play } from "lucide-react";
 import { PublicLayout, PublicPageHead } from "../components/PublicLayout";
@@ -34,7 +35,8 @@ export function Tutorials() {
       />
 
       <div className="mx-auto max-w-[1240px] px-4 py-14 lg:px-6 lg:py-20">
-        <div role="tablist" aria-label="Tutorial platform" aria-orientation="horizontal" onKeyDown={onTabKeys} className="inline-flex max-w-full flex-wrap gap-1 rounded-full border border-landing-mint-light/70 bg-landing-surface p-1 shadow-sm">
+        <div role="tablist" aria-label="Tutorial platform" aria-orientation="horizontal" onKeyDown={onTabKeys} className="relative inline-flex max-w-full flex-wrap gap-1 rounded-full border border-landing-mint-light/70 bg-landing-surface p-1 shadow-sm">
+          <SlidingIndicator activeKey={platform} className="rounded-full bg-landing-emerald" />
           {PLATFORMS.map(({ id, label }) => (
             <button
               key={id}
@@ -45,14 +47,14 @@ export function Tutorials() {
               aria-controls="tutorials-panel"
               tabIndex={platform === id ? 0 : -1}
               onClick={() => setParams(id === "web" ? {} : { platform: id }, { replace: true })}
-              className={`inline-flex min-h-tap items-center justify-center rounded-full px-5 text-sm font-semibold transition-colors ${platform === id ? "bg-landing-emerald text-white" : "text-landing-muted hover:bg-landing-mint-pale hover:text-landing-charcoal"}`}
+              className={`relative z-10 inline-flex min-h-tap items-center justify-center rounded-full px-5 text-sm font-semibold transition-colors ${platform === id ? "text-white" : "text-landing-muted hover:bg-landing-mint-pale hover:text-landing-charcoal"}`}
             >
               {label}
             </button>
           ))}
         </div>
 
-        <div role="tabpanel" id="tutorials-panel" aria-labelledby={`tutorials-tab-${platform}`} className="mt-10">
+        <div key={platform} role="tabpanel" id="tutorials-panel" aria-labelledby={`tutorials-tab-${platform}`} className="mt-10 motion-safe:animate-fade-up">
           {platform === "web" ? <WebVideos /> : <AndroidGuides />}
         </div>
 

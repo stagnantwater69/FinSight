@@ -188,7 +188,7 @@ export function AskFinSightDrawer() {
         role="dialog"
         aria-modal="true"
         aria-label="Ask FinSight"
-        className={`fixed inset-0 z-50 flex flex-col bg-paper-50 shadow-lg transition-transform duration-300 ease-shell sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-md ${
+        className={`fixed inset-0 z-50 flex flex-col bg-paper-50 shadow-lg transition-transform duration-[360ms] ease-out sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-md ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >

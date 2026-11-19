@@ -1,4 +1,6 @@
 import { useRef, useState } from "react";
+import { usePresence } from "../lib/usePresence";
+import { SlidingIndicator } from "./SlidingIndicator";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useNotifications } from "../context/NotificationContext";
@@ -42,6 +44,7 @@ export function AccountMenu() {
   const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const logoutPending = useRef(false);
@@ -102,15 +105,15 @@ export function AccountMenu() {
         <span className="sr-only">Account menu</span>
       </button>
 
-      {open ? (
-        <div
+      {presence.mounted ? (
+        <div inert={presence.leaving} aria-hidden={presence.leaving || undefined}
           role="dialog"
           aria-label="Account"
           // Capped to the space between the topbar and the mobile bottom nav,
           // scrolling inside itself: on a 568px-tall phone (or any phone held
           // sideways) the full menu is taller than that space, and Log out
           // ended up hidden behind the bottom nav.
-          className="scroll-slim absolute right-0 top-full z-50 mt-2 max-h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] w-64 max-w-[calc(100vw-1.5rem)] animate-pop-down overflow-y-auto overscroll-contain rounded-2xl border border-paper-200 bg-paper p-1.5 shadow-lg lg:max-h-[calc(100dvh-5rem)]"
+          className={`scroll-slim absolute right-0 top-full z-50 mt-2 max-h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] w-64 max-w-[calc(100vw-1.5rem)] ${presence.leaving ? "animate-pop-out" : "animate-pop-down"} overflow-y-auto overscroll-contain rounded-2xl border border-paper-200 bg-paper p-1.5 shadow-lg lg:max-h-[calc(100dvh-5rem)]`}
         >
           {/* Identity header — confirms WHICH account, which matters as soon
               as someone has a personal and a work login. */}
@@ -162,8 +165,9 @@ export function AccountMenu() {
             <div
               role="radiogroup"
               aria-label="Theme"
-              className="mx-1.5 mb-1 flex gap-1 rounded-xl bg-paper-100 p-1"
+              className="relative mx-1.5 mb-1 flex gap-1 rounded-xl bg-paper-100 p-1"
             >
+              <SlidingIndicator activeKey={theme} className="rounded-lg bg-paper shadow-sm" />
               {THEMES.map((option) => (
                 <button
                   key={option}
@@ -171,9 +175,9 @@ export function AccountMenu() {
                   role="radio"
                   aria-checked={theme === option}
                   onClick={() => setTheme(option)}
-                  className={`flex min-h-tap flex-1 items-center justify-center rounded-lg px-2 text-[12px] font-semibold transition ${
+                  className={`relative z-10 flex min-h-tap flex-1 items-center justify-center rounded-lg px-2 text-[12px] font-semibold transition ${
                     theme === option
-                      ? "bg-paper text-tone-brand shadow-sm"
+                      ? "text-tone-brand"
                       : "text-ink-500 hover:text-ink-800"
                   }`}
                 >

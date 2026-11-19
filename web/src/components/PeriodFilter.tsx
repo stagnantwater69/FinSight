@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { usePresence } from "../lib/usePresence";
+import { SlidingIndicator } from "./SlidingIndicator";
 import { useReportingPeriod } from "../context/ReportingPeriodContext";
 import { useDismiss } from "../lib/hooks";
 import { ALL_TIME, THIS_WEEK, monthLabel } from "../lib/reportingPeriod";
@@ -39,6 +41,7 @@ export function PeriodFilter({
   const { selection, setSelection, months, monthsState, refreshMonths } =
     useReportingPeriod();
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const close = useCallback(() => setOpen(false), []);
   const { ref, triggerRef } = useDismiss(open, close);
   const listRef = useRef<HTMLDivElement>(null);
@@ -124,8 +127,12 @@ export function PeriodFilter({
       <div
         role="group"
         aria-label="Period"
-        className="flex flex-wrap gap-1 rounded-xl border border-paper-200 bg-paper-100 p-1"
+        className="relative flex flex-wrap gap-1 rounded-xl border border-paper-200 bg-paper-100 p-1"
       >
+        <SlidingIndicator
+          activeKey={`${visibleSelection.kind}:${activeMonth ?? ""}`}
+          className="rounded-lg bg-paper shadow-sm"
+        />
         <Segment
           active={visibleSelection.kind === "week"}
           onClick={() => setSelection(THIS_WEEK)}
@@ -140,6 +147,7 @@ export function PeriodFilter({
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
+          data-active={monthActive}
           disabled={noMonths}
           title={noMonths ? emptyTitle : undefined}
           onClick={() => setOpen((value) => !value)}
@@ -149,8 +157,8 @@ export function PeriodFilter({
               setOpen(true);
             }
           }}
-          className={`tap gap-1.5 rounded-lg pl-3 pr-2.5 text-[13.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-            monthActive ? "bg-paper text-tone-brand shadow-sm" : "text-ink-600 hover:text-tone-brand"
+          className={`tap relative z-10 gap-1.5 rounded-lg pl-3 pr-2.5 text-[13.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+            monthActive ? "text-tone-brand" : "text-ink-600 hover:text-tone-brand"
           }`}
         >
           {activeMonth ? monthLabel(activeMonth) : "Month"}
@@ -168,14 +176,14 @@ export function PeriodFilter({
         ) : null}
       </div>
 
-      {open ? (
-        <div
+      {presence.mounted ? (
+        <div inert={presence.leaving} aria-hidden={presence.leaving || undefined}
           ref={listRef}
           id={listId}
           role="listbox"
           aria-label="Months with records"
           onKeyDown={onGridKeys}
-          className="scroll-slim absolute right-0 top-full z-50 mt-2 max-h-[min(22rem,calc(100dvh-9rem))] w-[19rem] max-w-[calc(100vw-2rem)] animate-pop-down overflow-y-auto rounded-2xl border border-paper-200 bg-paper p-2 shadow-lg"
+          className={`scroll-slim absolute right-0 top-full z-50 mt-2 max-h-[min(22rem,calc(100dvh-9rem))] w-[19rem] max-w-[calc(100vw-2rem)] ${presence.leaving ? "animate-pop-out" : "animate-pop-down"} overflow-y-auto rounded-2xl border border-paper-200 bg-paper p-2 shadow-lg`}
         >
           {years.map((year, yearIndex) => (
             <div key={year} role="group" aria-label={year} className="pb-1">
@@ -259,8 +267,8 @@ function Segment({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`tap rounded-lg px-3 text-[13.5px] font-semibold transition ${
-        active ? "bg-paper text-tone-brand shadow-sm" : "text-ink-600 hover:text-tone-brand"
+      className={`tap relative z-10 rounded-lg px-3 text-[13.5px] font-semibold transition ${
+        active ? "text-tone-brand" : "text-ink-600 hover:text-tone-brand"
       }`}
     >
       {children}

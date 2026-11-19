@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePresence } from "../../lib/usePresence";
 import { MoreHorizontal } from "lucide-react";
 import { useDismiss, useMenuKeys } from "../../lib/hooks";
 import { IconEdit, IconTrash } from "../icons";
@@ -42,6 +43,7 @@ interface Props {
 
 export function ConversationItem({ conversation, active, onSelect, onRename, onDelete }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const presence = usePresence(menuOpen);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
   const { ref: menuRef, triggerRef } = useDismiss<HTMLDivElement>(menuOpen, () => setMenuOpen(false));
@@ -132,12 +134,12 @@ export function ConversationItem({ conversation, active, onSelect, onRename, onD
             <MoreHorizontal aria-hidden size={16} />
           </button>
 
-          {menuOpen ? (
-            <div
+          {presence.mounted ? (
+            <div inert={presence.leaving} aria-hidden={presence.leaving || undefined}
               role="menu"
               aria-label={`Conversation actions for ${conversation.title}`}
               onKeyDown={onMenuKeys}
-              className="absolute right-0 top-full z-50 mt-1 w-40 animate-pop-down rounded-xl border border-paper-200 bg-paper p-1 shadow-lg"
+              className={`absolute right-0 top-full z-50 mt-1 w-40 ${presence.leaving ? "animate-pop-out" : "animate-pop-down"} rounded-xl border border-paper-200 bg-paper p-1 shadow-lg`}
             >
               <button
                 type="button"
