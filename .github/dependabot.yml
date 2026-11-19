@@ -10,6 +10,11 @@ updates:
       # Types must match the Node 22 runtime, or code can call APIs production lacks.
       - dependency-name: "@types/node"
         update-types: [version-update:semver-major]
+      # Prisma 7 drops datasource URLs from schema.prisma and needs a driver adapter; upgrade it as planned work.
+      - dependency-name: "prisma"
+        update-types: [version-update:semver-major]
+      - dependency-name: "@prisma/*"
+        update-types: [version-update:semver-major]
     groups:
       minor-and-patch:
         update-types: [minor, patch]
