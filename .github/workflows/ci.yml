@@ -267,7 +267,7 @@ jobs:
       # runner. Every spec mocks the API with synthetic data, so nothing real
       # is in it.
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-e2e-failure
           path: web/test-results/
@@ -308,7 +308,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: "ci-placeholder-anon-key"
           VITE_API_BASE_URL: "http://localhost:4000/api/v1"
       - if: failure() || cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-cross-browser-failure
           path: web/test-results/
@@ -631,7 +631,7 @@ jobs:
       # The suite's browser output, log and results, kept for a week when it
       # fails. Its fixture.json (the throwaway test session) is left out.
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: browser-local-api-failure
           path: |
