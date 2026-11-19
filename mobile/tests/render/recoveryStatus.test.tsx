@@ -352,6 +352,10 @@ describe('RecoveryTargetScreen — "Why your target changed" (Phase 3, §10.3)',
       changeSincePreviousDay: { ...baseChange, adjustedDailyTargetDelta: 600 },
     });
     expect(await queries.findByText('Why your target changed')).toBeTruthy();
+    expect(queries.getByLabelText('Daily target increased by PHP 600.00. Fewer days left.')).toBeTruthy();
+    // The full sentences wait behind a tap.
+    expect(queries.queryByText(/fewer days/)).toBeNull();
+    await fireEvent.press(queries.getByRole('button', { name: 'How it changed' }));
     expect(await queries.findByText(/increased by PHP 600\.00/)).toBeTruthy();
     expect(await queries.findByText(/fewer days/)).toBeTruthy();
   });
@@ -367,6 +371,7 @@ describe('RecoveryTargetScreen — "Why your target changed" (Phase 3, §10.3)',
         primaryReason: 'sales_added',
       },
     });
+    await fireEvent.press(await queries.findByRole('button', { name: 'How it changed' }));
     expect(await queries.findByText(/decreased by PHP 400\.00/)).toBeTruthy();
     expect(await queries.findByText(/closing the gap|helping close the gap/)).toBeTruthy();
     expect(await queries.findByText(/You recorded PHP 2,500\.00 in sales since yesterday/)).toBeTruthy();
@@ -378,6 +383,8 @@ describe('RecoveryTargetScreen — "Why your target changed" (Phase 3, §10.3)',
       status: 'behind',
       changeSincePreviousDay: { ...baseChange, adjustedDailyTargetDelta: 0.49, salesAdded: 0.01 },
     });
+    expect(await queries.findByText('PHP 0.49 / day')).toBeTruthy();
+    await fireEvent.press(queries.getByRole('button', { name: 'How it changed' }));
     expect(await queries.findByText(/increased by PHP 0\.49/)).toBeTruthy();
     expect(await queries.findByText(/You recorded PHP 0\.01 in sales since yesterday/)).toBeTruthy();
   });
@@ -475,7 +482,8 @@ describe('RecoveryTargetScreen — weekly checkpoints (Phase 4, §10.4)', () => 
   it('renders the next checkpoint card without crashing on its null recordedAmount/variance', async () => {
     const queries = await renderScreen({ ...baseInsight, status: 'behind', today: '2026-08-15', weeklyCheckpoints: checkpoints });
     await queries.findByText('Weekly checkpoints');
-    expect(queries.getByText('Sold so far')).toBeTruthy();
+    expect(queries.getByText('Still needed')).toBeTruthy();
+    expect(queries.getAllByRole('progressbar', { name: /^Sold PHP .* goal$/ }).length).toBe(2);
   });
 
   it('counts the days to the next checkpoint when today is a full ISO timestamp', async () => {
@@ -545,11 +553,8 @@ describe('RecoveryTargetScreen — reporting period', () => {
     expect(queries.getByText('Remaining weekly target')).toBeTruthy();
     expect(queries.getByText('Why PHP 350 a day?')).toBeTruthy();
     expect(queries.getAllByText('of PHP 1,000').length).toBeGreaterThan(0);
-    expect(
-      queries.getByText(
-        'Recorded sales this week are PHP 300 against a PHP 1,000 target. Behind. The remaining target is PHP 700, or about PHP 350 per open day left.',
-      ),
-    ).toBeTruthy();
+    // The weekly daily goal, not the month's.
+    expect(queries.getByText('PHP 350 / day')).toBeTruthy();
     // Month-to-date only: these would show monthly figures under a weekly heading.
     expect(queries.queryByRole('header', { name: /Today's goal/ })).toBeNull();
     expect(queries.queryByRole('button', { name: 'Type amount' })).toBeNull();

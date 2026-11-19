@@ -11,12 +11,12 @@ import { RecoveryScenarioSheet } from "../components/RecoveryScenarioSheet";
 import { SkeletonCard } from "../components/Skeleton";
 import { CumulativeSalesChart } from "../components/charts";
 import { PeriodPill, PeriodStatus } from "../components/PeriodSelector";
-import { RecoverySummaryCard } from "../components/RecoveryPeriodCards";
 import {
   CheckpointFlags,
   DailyTargetBreakdown,
   DayCalendar,
   DayScore,
+  ProgressBar,
   RecoveryCoachCard,
   RecoveryNextGoal,
   TodayGoalCard,
@@ -378,8 +378,6 @@ function RecoveryTargetContent({ navigation }: InsightsScreenProps<"RecoveryTarg
               />
             ) : null}
 
-            <RecoverySummaryCard period={period} />
-
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`${askPrompt}${askPrompt.endsWith("?") ? "" : "."} Ask FinSight`}
@@ -561,10 +559,14 @@ function RecoveryPrimaryAction({
  * already filter out `null` and `no_material_change` before rendering this.
  */
 function RecoveryChangeExplanation({ change }: { change: RecoveryChangeSincePreviousDay }) {
-  const { statusText } = useTheme();
+  const t = useTheme();
+  const { statusText } = t;
   const { adjustedDailyTargetDelta, salesAdded, primaryReason } = change;
   const increased = adjustedDailyTargetDelta > 0;
   const direction = increased ? "increased" : "decreased";
+  const family = increased ? "critical" : "good";
+  const reasonShort =
+    primaryReason === "sales_added" ? "Sales recorded" : primaryReason === "open_day_elapsed" ? "Fewer days left" : "Setup changed";
   const reasonCopy =
     primaryReason === "sales_added"
       ? "Recorded sales are helping close the gap."
@@ -574,9 +576,23 @@ function RecoveryChangeExplanation({ change }: { change: RecoveryChangeSincePrev
 
   return (
     <View>
-      <T variant="heading" accessibilityRole="header" style={{ marginBottom: 4 }}>
+      <T variant="heading" accessibilityRole="header" style={{ marginBottom: space.sm }}>
         Why your target changed
       </T>
+      <View
+        accessible
+        accessibilityLabel={`Daily target ${direction} by ${formatMoney(Math.abs(adjustedDailyTargetDelta), { decimals: true })}. ${reasonShort}.`}
+        style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.sm }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.full, backgroundColor: t.statusSurface[family] }}>
+          <Ionicons name={increased ? "arrow-up" : "arrow-down"} size={14} color={statusText[family]} />
+          <T style={{ fontFamily: font.monoSemibold, fontSize: typeScale.bodySm, color: statusText[family] }}>
+            {`${formatMoney(Math.abs(adjustedDailyTargetDelta), { decimals: true })} / day`}
+          </T>
+        </View>
+        <T style={{ fontSize: typeScale.bodySm, color: t.textSecondary }}>{reasonShort}</T>
+      </View>
+      <Disclosure title="How it changed">
       <T style={{ marginBottom: space.xs }}>
         Your adjusted daily target {direction} by{" "}
         {formatMoney(Math.abs(adjustedDailyTargetDelta), { decimals: true })}.{" "}
@@ -597,6 +613,7 @@ function RecoveryChangeExplanation({ change }: { change: RecoveryChangeSincePrev
         by AI").
       */}
       <T variant="caption">This explanation is calculated by FinSight, not written by AI.</T>
+      </Disclosure>
     </View>
   );
 }
@@ -679,18 +696,22 @@ function CheckpointSummaryCard({
   family,
   title,
   badge,
-  stats,
+  goal,
+  sold,
+  figure,
 }: {
   family: CheckpointFamily;
   title: string;
   badge: string;
-  stats: Array<{ label: string; value: number; emphasis?: boolean }>;
+  goal: number;
+  sold: number;
+  /** The one number that matters: the gap either way, or what is still needed. */
+  figure: { label: string; value: number };
 }) {
   const t = useTheme();
+  const stats = [{ label: "Goal", value: goal }, { label: "Sold", value: sold }, figure];
   return (
     <View
-      accessible
-      accessibilityLabel={`${title}, ${badge}. ${stats.map((s) => `${s.label} ${formatMoney(s.value)}`).join(", ")}`}
       style={{
         borderRadius: radius.md,
         borderWidth: 1,
@@ -699,6 +720,7 @@ function CheckpointSummaryCard({
         overflow: "hidden",
       }}
     >
+      <View accessible accessibilityLabel={`${title}, ${badge}. ${stats.map((s) => `${s.label} ${formatMoney(s.value)}`).join(", ")}`}>
       <View
         style={{
           flexDirection: "row",
@@ -713,19 +735,19 @@ function CheckpointSummaryCard({
         <T style={{ flex: 1, fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.textPrimary }}>{title}</T>
         <T style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.statusText[family] }}>{badge}</T>
       </View>
-      <View style={{ flexDirection: "row", paddingHorizontal: space.md, paddingVertical: space.md, gap: space.sm }}>
-        {stats.map((s) => (
-          <View key={s.label} style={{ flex: 1, gap: 2 }}>
-            <T variant="caption">{s.label}</T>
-            <Money
-              value={s.value}
-              bare
-              size={typeScale.bodyLg}
-              weight="semibold"
-              color={s.emphasis ? t.statusText[family] : t.textPrimary}
-            />
-          </View>
-        ))}
+      <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: space.sm, paddingHorizontal: space.md, paddingTop: space.md }}>
+        <T variant="caption">{figure.label}</T>
+        <Money value={figure.value} bare size={typeScale.title} weight="semibold" color={t.statusText[family]} />
+      </View>
+      </View>
+      <View style={{ paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: space.md }}>
+        <ProgressBar
+          percent={goal > 0 ? (sold / goal) * 100 : 0}
+          color={t.statusSolid[family]}
+          height={8}
+          label={`Sold ${formatMoney(sold)} of ${formatMoney(goal)} goal`}
+          detail={{ key: title, label: title, values: [{ label: "Goal", value: goal }, { label: "Sold", value: sold }, { label: figure.label, value: figure.value }] }}
+        />
       </View>
     </View>
   );
@@ -741,11 +763,9 @@ function LastCheckpointCard({ checkpoint }: { checkpoint: RecoveryCheckpoint }) 
       family={missed ? "critical" : "good"}
       title={`By ${formatCheckpointDate(checkpoint.endDate)} · last checkpoint`}
       badge={missed ? "Missed" : "Met"}
-      stats={[
-        { label: "Goal", value: checkpoint.cumulativeTarget },
-        { label: "You sold", value: sold },
-        { label: missed ? "Short by" : "Ahead by", value: Math.abs(variance), emphasis: true },
-      ]}
+      goal={checkpoint.cumulativeTarget}
+      sold={sold}
+      figure={{ label: missed ? "Short by" : "Ahead by", value: Math.abs(variance) }}
     />
   );
 }
@@ -760,11 +780,9 @@ function NextCheckpointCard({ checkpoint, today, salesSoFar }: { checkpoint: Rec
       family={reached ? "good" : "warning"}
       title={`By ${formatCheckpointDate(checkpoint.endDate)} · next checkpoint`}
       badge={days <= 1 ? "Tomorrow" : `${days} days away`}
-      stats={[
-        { label: "Goal", value: checkpoint.cumulativeTarget },
-        { label: "Sold so far", value: salesSoFar },
-        { label: "Still needed", value: stillNeeded, emphasis: true },
-      ]}
+      goal={checkpoint.cumulativeTarget}
+      sold={salesSoFar}
+      figure={{ label: "Still needed", value: stillNeeded }}
     />
   );
 }
