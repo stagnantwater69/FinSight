@@ -446,6 +446,8 @@ async function request<T>(method: string, path: string, opts: {
   /** The stored-session token to send, set only on the one retry after a refresh. */
   retryToken?: string;
   requestGeneration?: number;
+  /** Return the body as text instead of parsing JSON (the CSV export). */
+  rawText?: boolean;
 } = {}): Promise<T> {
   const generation = opts.requestGeneration ?? sessionGeneration;
   // The clock covers reading the body too: a connection can stall after the
@@ -499,7 +501,7 @@ async function request<T>(method: string, path: string, opts: {
       throw deadline.timedOut() ? networkError(new Error("The request timed out")) : networkError(err);
     }
     assertRequestCurrent(generation, deadline.signal);
-    const data = (text ? JSON.parse(text) : undefined) as T;
+    const data = (opts.rawText ? text : text ? JSON.parse(text) : undefined) as T;
     invalidateServerStateForMutation(method, path, opts.body, opts.cacheScope, data);
     return data;
   } catch (err) {
@@ -679,6 +681,8 @@ export const api = {
     query?: ApiQuery,
     signal?: AbortSignal,
   ) => request<T>("GET", path, { query, signal }),
+  getText: (path: string, query?: ApiQuery, signal?: AbortSignal) =>
+    request<string>("GET", path, { query, signal, rawText: true }),
   /*
    * `signal` is on every verb, not just GET and upload. A screen that blurs
    * mid-confirm calls operation.cancel(), and without a signal here the
