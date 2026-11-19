@@ -281,10 +281,10 @@ describe('Daily spending details', () => {
 
     expect(queries.getByText('No daily spending in this period.')).toBeTruthy();
     expect(queries.queryByRole('image')).toBeNull();
-    expect(queries.queryByRole('button', { name: 'View daily amounts' })).toBeNull();
+    expect(queries.queryByRole('button', { name: 'Previous day' })).toBeNull();
   });
 
-  it('opens and closes every daily amount, including days with zero spending', async () => {
+  it('reads every day through the stepper, including days with zero spending, without a separate amounts list', async () => {
     const queries = await render(withTheme(
       <DailySpending days={[
         { date: '2026-09-01', total: 150, count: 1 },
@@ -294,18 +294,12 @@ describe('Daily spending details', () => {
     ));
 
     expect(queries.getByRole('button', { name: /Daily spending chart/ }).props.accessibilityLabel).toContain('Highest: PHP 500.00 on Sep 3.');
-    expect(queries.queryByText('PHP 150.00')).toBeNull();
-    const show = queries.getByRole('button', { name: 'View daily amounts' });
-    expect(show.props.accessibilityState.expanded).toBe(false);
-    await fireEvent.press(show);
-    expect(queries.getByText('PHP 150.00')).toBeTruthy();
-    expect(queries.getByText('Sep 2')).toBeTruthy();
+    expect(queries.queryByRole('button', { name: /daily amounts/ })).toBeNull();
+    expect(queries.getByText('Sep 3 · Daily spending')).toBeTruthy();
+    await fireEvent.press(queries.getByRole('button', { name: 'Previous day' }));
+    expect(queries.getByText('Sep 2 · Daily spending')).toBeTruthy();
     expect(queries.getByText('PHP 0.00')).toBeTruthy();
-    expect(queries.getAllByText('PHP 500.00')).toHaveLength(3);
-    const hide = queries.getByRole('button', { name: 'Hide daily amounts' });
-    expect(hide.props.accessibilityState.expanded).toBe(true);
-    await fireEvent.press(hide);
-    expect(queries.queryByText('PHP 150.00')).toBeNull();
-    expect(queries.queryByText('PHP 0.00')).toBeNull();
+    await fireEvent.press(queries.getByRole('button', { name: 'Previous day' }));
+    expect(queries.getByText('PHP 150.00')).toBeTruthy();
   });
 });

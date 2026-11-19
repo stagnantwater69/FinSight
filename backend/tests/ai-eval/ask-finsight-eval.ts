@@ -72,10 +72,10 @@ Today's date: 2022-02-01. All amounts are Philippine pesos.`;
 const BLOCKS = {
   paidRice: `=== WHAT THE OWNER SAYS THEY PAID ===
 The owner says they paid PHP 500.00 for "rice". This is NOT in their records yet.
-A button under this answer opens the form filled in; nothing is saved until the owner saves it. Say so in one short sentence and never say it has been recorded.`,
+A button under this answer opens the form filled in; nothing is saved until the owner saves it. Say so in one short sentence that repeats the amount and item, and never say it has been recorded.`,
   paidBigas: `=== WHAT THE OWNER SAYS THEY PAID ===
 The owner says they paid PHP 500.00 for "bigas". This is NOT in their records yet.
-A button under this answer opens the form filled in; nothing is saved until the owner saves it. Say so in one short sentence and never say it has been recorded.`,
+A button under this answer opens the form filled in; nothing is saved until the owner saves it. Say so in one short sentence that repeats the amount and item, and never say it has been recorded.`,
   soldAlready: `=== WHAT THE OWNER SAYS THEY SOLD ===
 A sales record of the same amount is already in the records: "Daily sales" PHP 3,000.00 on 2022-01-31 ${recordTag("sales", 88)}
 Ask whether this is the same one before suggesting they add it again. Do not say anything was recorded just now.`,
@@ -125,6 +125,29 @@ Buttons under this answer let the owner have FinSight watch these as repeating p
   vendors: `Vendors paid the most this period (counted expenses, highest first):
 - Frozen Foods Supplier: PHP 2,640.00 across 6 record(s)
 - Packaging Supplier: PHP 1,560.00 across 4 record(s)`,
+  // Rendered by aiAnalytics.service breakdownLines, as buildModuleContext sends it.
+  monthlyRanking: `=== EXPENSES BY MONTH (2021), lowest to highest ===
+1. March 2021: PHP 4,100.00 across 9 record(s)
+2. January 2021: PHP 6,250.00 across 14 record(s)
+3. February 2021: PHP 7,900.00 across 17 record(s)
+- No counted records at all in: April 2021. Left out of the ranking: no records usually means nothing was recorded, not that nothing was spent.
+- Total counted expenses for 2021: PHP 18,250.00 across 40 record(s)
+FinSight calculated each total above. Keep this order and these figures; do not add, average or re-rank them yourself.
+The app shows this full list as a table under the answer.`,
+  // The snapshot's sales-minus-expenses lines and the record balance note, as buildModuleContext sends them.
+  thriving: `=== ALL-TIME TOTALS ===
+Sales recorded this period: PHP 6,644,166.00 across 57,205 sales record(s)
+Money left after counted expenses this period (sales minus counted expenses): PHP 3,031,865.87
+Counted expenses as a share of sales this period: 54.4%
+Current recorded funds count only records dated from the opening balance date, 2026-10-01, onward. They are not sales minus expenses for this period or for all time, so never compare them with period totals or explain a difference between the two.
+
+=== RECORD BALANCE ===
+- Records for all time: 57,205 sales records but only 7,195 counted expense records, about 8 sales records for every expense record.
+- That can be normal (some shops record every sale but only their regular bills), but it can also mean expenses are missing. Missing expenses make profit look bigger than it really is.
+- When the owner asks how the business is doing, whether it is profitable or thriving, or about profit, say this in one sentence and suggest checking that every expense is recorded. Do not call the records wrong.`,
+  noMonthly: `=== EXPENSE RECORDS MATCHING THE QUESTION (2021) ===
+Matching "rent": 1 record(s) totalling PHP 4,500.00
+- "Monthly burger stall rent" PHP 4,500.00 on 2021-10-01 in Rent [ref:e901]`,
 };
 
 interface Case {
@@ -138,6 +161,8 @@ interface Case {
   block?: keyof typeof BLOCKS;
   /** Each must appear in the answer: the figure or fact the block exists to deliver. */
   mustMention?: RegExp[];
+  /** None may appear: an invented explanation the context does not give. */
+  mustNotMention?: RegExp[];
 }
 
 /** Claims that something was saved, which only the owner's own Save does. */
@@ -164,6 +189,12 @@ const CASES: Case[] = [
   { name: "completeness check", question: "Is my data complete?", block: "completeness", mustMention: [/27/, /\b4\b|four/i] },
   { name: "names a noticed repeating expense", question: "What are my regular bills?", block: "recurring", mustMention: [/LPG/i] },
   { name: "names the top vendor", question: "Who do I pay the most?", block: "vendors", mustMention: [/Frozen Foods Supplier/i] },
+  // The question that started the breakdown work: per-month totals, lowest first.
+  { name: "ranks months least to greatest", question: "rank my monthly expense in 2021, from least to greatest", block: "monthlyRanking", mustMention: [/March/, /4,100/, /7,900|February/] },
+  // Profit from the server's own subtraction, the record-count caveat, and no invented reason for low funds.
+  { name: "says whether the business is doing well", question: "base on my all time records is my business thriving or not?", block: "thriving", mustMention: [/3,031,865/, /expense/i], mustNotMention: [/due to|because of recent|gaps? in/i] },
+  // With no per-month block, say so: never rank records that merely contain the word "monthly".
+  { name: "admits a missing monthly breakdown", question: "rank my monthly expense in 2021, from least to greatest", block: "noMonthly", mustMention: [/couldn't|can't|cannot|(?:don't|doesn't|does not|do not) (?:have|show|include)|not able/i] },
 ];
 
 /** The context as the model receives it: with the case's block, and fact tags on every figure line, as buildModuleContext sends it. */
@@ -248,6 +279,9 @@ async function main() {
     if (testCase.block?.startsWith("paid") && CLAIMS_SAVED.test(result.answer)) problems.push("claims something was saved");
     for (const expected of testCase.mustMention ?? []) {
       if (!expected.test(result.answer)) problems.push(`does not mention ${expected}`);
+    }
+    for (const forbidden of testCase.mustNotMention ?? []) {
+      if (forbidden.test(result.answer)) problems.push(`mentions ${forbidden}`);
     }
 
     failures += problems.length > 0 ? 1 : 0;

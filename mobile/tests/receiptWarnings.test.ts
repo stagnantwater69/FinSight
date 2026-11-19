@@ -3,7 +3,6 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import {
   RECEIPT_WARNING_CODES,
-  evidenceSummary,
   fieldsNeedingAttention,
   warningHeadline,
   warningPageSuffix,
@@ -100,32 +99,5 @@ describe("which fields to point the owner at", () => {
     expect(
       fieldsNeedingAttention([warning({ field: "date" }), warning({ field: "date" })]),
     ).toEqual(["date"]);
-  });
-});
-
-describe("field evidence", () => {
-  it("quotes the line the value was read from", () => {
-    expect(evidenceSummary({ pageNumber: 2, sourceText: "TOTAL 1,250.00", source: "ocr" })).toBe(
-      'From page 2, read from the text: "TOTAL 1,250.00"',
-    );
-  });
-
-  /*
-   * Nulls are DROPPED, never printed. "From page unknown" is worse than
-   * saying nothing — the whole point of evidence is that the owner can go and
-   * look at it.
-   */
-  it("says only what is actually known", () => {
-    expect(evidenceSummary({ pageNumber: 1, sourceText: null, source: null })).toBe("From page 1.");
-    expect(evidenceSummary({ pageNumber: null, sourceText: "TOTAL 90", source: null })).toBe('From: "TOTAL 90"');
-    expect(evidenceSummary({ pageNumber: null, sourceText: null, source: null })).toBeNull();
-    expect(evidenceSummary(null)).toBeNull();
-    expect(evidenceSummary(undefined)).toBeNull();
-  });
-
-  it("says when a value was interpreted rather than read", () => {
-    expect(evidenceSummary({ pageNumber: 1, sourceText: null, source: "vision" })).toBe(
-      "From page 1, interpreted from the photo.",
-    );
   });
 });

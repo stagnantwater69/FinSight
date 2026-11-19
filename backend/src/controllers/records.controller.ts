@@ -5,6 +5,7 @@ import * as salesRecordService from "../services/salesRecord.service";
 import * as recordMonthsService from "../services/recordMonths.service";
 import * as futureDatedRecordsService from "../services/futureDatedRecords.service";
 import * as recordPositionService from "../services/recordPosition.service";
+import * as recordExportService from "../services/recordExport.service";
 import {
   DEFAULT_RECORD_SORT,
   RECORD_SORTS,
@@ -397,4 +398,65 @@ export async function futureDated(req: Request, res: Response) {
   const query = z.object({ businessProfileId: z.coerce.number().int().positive().max(2147483647) }).parse(req.query);
   const result = await futureDatedRecordsService.listFutureDatedRecords(req.user!.id, query.businessProfileId);
   res.status(200).json(result);
+}
+
+const exportQuerySchema = z.object({
+  businessProfileId: z.coerce.number().int().positive().max(2147483647),
+  type: z.enum(["expense", "sales", "all"]).default("all"),
+  categoryId: z.coerce.number().int().positive().max(2147483647).optional(),
+  dateFrom: z.string().date().optional(),
+  dateTo: z.string().date().optional(),
+  keyword: z.string().max(255).optional(),
+  source: z.enum(["MANUAL_ENTRY", "CSV_UPLOAD", "RECEIPT_SCAN"]).optional(),
+  importBatchId: z.coerce.number().int().positive().max(2147483647).optional(),
+  // "2026-01,2026-03": whole months, gaps allowed. Capped so one request
+  // cannot build an OR of thousands of ranges.
+  months: z.string().max(1_000).optional().transform((value, ctx) => {
+    if (value === undefined) return undefined;
+    const months = [...new Set(value.split(",").map((month) => month.trim()).filter(Boolean))].sort();
+    if (months.length === 0 || months.length > 120 || !months.every((month) => /^\d{4}-(0[1-9]|1[0-2])$/.test(month))) {
+      ctx.addIssue({ code: "custom", message: "months must be up to 120 months written as YYYY-MM, separated by commas" });
+      return z.NEVER;
+    }
+    return months;
+  }),
+});
+
+/** Months with records and how many of each kind, for the export sheet's month list. */
+export async function exportMonths(req: Request, res: Response) {
+  const query = z.object({ businessProfileId: z.coerce.number().int().positive().max(2147483647) }).parse(req.query);
+  res.status(200).json({ months: await recordExportService.listExportMonths(req.user!.id, query.businessProfileId) });
+}
+
+/**
+ * The owner's records as a CSV file for their accountant, with the same
+ * filters as `search`. Ownership-scoped by the service, so another business's
+ * id is a 404.
+ */
+export async function exportCsv(req: Request, res: Response) {
+  const query = exportQuerySchema.parse(req.query);
+  // Ownership and size are settled here, before any header is sent, so those
+  // refusals still reach the client as ordinary JSON errors.
+  const prepared = await recordExportService.prepareRecordsExport(req.user!.id, query);
+  const months = query.months;
+  const range = months
+    ? [months[0], months.length > 1 ? months.at(-1) : undefined].filter(Boolean).join("-to-")
+    : [query.dateFrom, query.dateTo].filter(Boolean).join("-to-");
+  const filename = `finsight-${query.type === "all" ? "records" : query.type}${range ? `-${range}` : ""}.csv`;
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.status(200);
+  try {
+    for await (const chunk of prepared.chunks()) {
+      if (res.destroyed) return; // The client went away; stop reading the database.
+      if (!res.write(chunk)) await new Promise<void>((resolve) => res.once("drain", resolve));
+    }
+    res.end();
+  } catch (err) {
+    // Too late for a JSON error. Cutting the connection without the final
+    // chunk makes the client's read fail, so a half file is never saved as a
+    // whole one.
+    res.destroy(err instanceof Error ? err : new Error("Export failed"));
+  }
 }

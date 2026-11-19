@@ -112,7 +112,7 @@ export function PanelStatus({ tone, glyph, copy }: { tone: "good" | "warning" | 
           justifyContent: "center",
         }}
       >
-        <T style={{ color: HERO.ink, fontSize: typeScale.micro }}>{glyph}</T>
+        <Ionicons name={glyph === "!" ? "alert" : glyph === "✓" ? "checkmark" : "information"} size={12} color={HERO.ink} accessibilityElementsHidden importantForAccessibility="no" />
       </View>
       <T style={{ color: HERO.ink, fontSize: typeScale.caption, fontFamily: font.sansSemibold }}>{copy}</T>
     </View>

@@ -229,7 +229,7 @@ function RecoveryTargetContent({ navigation }: InsightsScreenProps<"RecoveryTarg
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm }}>
                   <PeriodPill showAllTime={false} />
                   {data.asOfDate ? (
-                    <T style={{ fontSize: typeScale.caption, color: HERO.muted }}>
+                    <T numberOfLines={1} style={{ flexShrink: 0, fontSize: typeScale.caption, color: HERO.muted }}>
                       {`As of ${new Date(data.asOfDate).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}`}
                     </T>
                   ) : null}

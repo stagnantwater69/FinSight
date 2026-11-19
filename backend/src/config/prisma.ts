@@ -93,7 +93,7 @@ function withSecondsParam(
  * WHICH CONNECTION FAILURES ARE RETRIED, AND WHY ONLY THESE.
  *
  * P2024 (no free pool slot within pool_timeout), P1001 (server not
- * reachable) and an engine that could not connect at all fail before the
+ * reachable), P1011 (TLS handshake failed while opening) and an engine that could not connect at all fail before the
  * statement is sent, so running it again
  * cannot apply a write twice. P1017 (connection closed), P1008 and P1002
  * (timed out) can strike after the database has executed the statement, so
@@ -104,7 +104,7 @@ function withSecondsParam(
  * whose connection died cannot be continued anyway — the whole transaction
  * fails and the error middleware answers 503 as before.
  */
-const NEVER_SENT_CODES = new Set(["P2024", "P1001"]);
+const NEVER_SENT_CODES = new Set(["P2024", "P1001", "P1011"]);
 const DROPPED_CODES = new Set(["P1017", "P1008", "P1002"]);
 const READ_OPERATIONS = new Set([
   "findUnique",

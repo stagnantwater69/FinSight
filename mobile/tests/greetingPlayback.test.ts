@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceGreetingFrame,
   GREETING_FPS,
+  GREETING_PAUSE_FRAME,
   GREETING_REST_FRAME,
   GREETING_WRAP_CROSSFADE_MS,
 } from "../src/lib/greetingPlayback";
@@ -103,6 +104,10 @@ describe("advanceGreetingFrame", () => {
 });
 
 describe("greeting playback constants", () => {
+  it("holds the paused greeting on the closing frame of the wave", () => {
+    expect(GREETING_PAUSE_FRAME).toBe(TOTAL - 1);
+  });
+
   it("rests on a pose inside the sequence", () => {
     expect(GREETING_REST_FRAME).toBeGreaterThanOrEqual(0);
     expect(GREETING_REST_FRAME).toBeLessThan(TOTAL);

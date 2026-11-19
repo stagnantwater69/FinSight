@@ -1,16 +1,16 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Copy, ThumbsDown, ThumbsUp } from "lucide-react";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
-import { CHAT_PAGE_ROUTES, recordHref } from "../../lib/chatLinks";
+import { basisSentence, CHAT_PAGE_ROUTES, recordHref, recordsFilterHref } from "../../lib/chatLinks";
 import { useToast } from "../Toast";
 import { useBusinessProfiles } from "../../context/BusinessProfileContext";
 import { watchRecurringPattern } from "../../pages/expenseInsight/reviewRequests";
 import { Button } from "../Button";
 import { Money } from "../Money";
 import { IconArrowRight, IconChevronDown } from "../icons";
-import type { ChatAction, ChatAnswerMetadata } from "../../lib/types";
+import type { ChatAction, ChatAnswerMetadata, ChatAnswerTable } from "../../lib/types";
 
 /**
  * Everything the server resolved alongside one of Fin's replies.
@@ -43,7 +43,7 @@ const linkCardClass =
   "flex min-h-tap items-center gap-3 rounded-xl border border-paper-200 bg-paper px-3 py-2 text-left text-sm transition hover:border-brand-200 hover:bg-tint-brand";
 
 export function AnswerExtras({ metadata, content, latest, feedback, onRate, onNavigate }: Props) {
-  const { references, pages, actions, period, amountCheck } = metadata;
+  const { references, pages, actions, period, amountCheck, table, basis } = metadata;
   const toast = useToast();
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const recordCount = `${references.length} ${references.length === 1 ? "record" : "records"}`;
@@ -59,6 +59,9 @@ export function AnswerExtras({ metadata, content, latest, feedback, onRate, onNa
 
   return (
     <div className="flex flex-col gap-2">
+      {table ? <AnswerTableView table={table} /> : null}
+      {basis ? <p className="text-xs text-ink-500">{basisSentence(basis)}</p> : null}
+
       {/*
         Where the answer came from, collapsed to one line. The records are the
         ones the server put in this message's context, so opening the list is
@@ -97,7 +100,7 @@ export function AnswerExtras({ metadata, content, latest, feedback, onRate, onNa
             </div>
           ) : null}
         </div>
-      ) : period ? (
+      ) : period && !basis ? (
         <p className="text-xs text-ink-500">Based on your records for {period}.</p>
       ) : null}
 
@@ -134,6 +137,44 @@ export function AnswerExtras({ metadata, content, latest, feedback, onRate, onNa
         </RateButton>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * The ranked list the server computed, drawn as rows with a bar each so the
+ * order reads at a glance. Figures are the server's, never the reply's text.
+ */
+function AnswerTableView({ table }: { table: ChatAnswerTable }) {
+  const largest = Math.max(...table.rows.map((row) => row.amount), 0);
+  const captionId = useId();
+  return (
+    <figure aria-labelledby={captionId} className="rounded-xl border border-paper-200 bg-paper p-3">
+      <figcaption id={captionId} className="mb-2 text-xs font-semibold text-ink-700">{table.title}</figcaption>
+      <ol className="flex flex-col gap-1.5">
+        {table.rows.map((row) => (
+          <li key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 text-sm">
+            <span className="truncate text-ink-800">
+              {row.label}
+              {row.note ? <span className="ml-1.5 text-xs text-ink-500">({row.note})</span> : null}
+            </span>
+            <span className="text-right text-ink-900">
+              <Money value={row.amount} decimals />
+            </span>
+            <span aria-hidden className="col-span-2 h-1.5 overflow-hidden rounded-full bg-paper-100">
+              <span
+                className="block h-full rounded-full bg-brand-500"
+                style={{ width: `${largest > 0 ? Math.max(2, (row.amount / largest) * 100) : 0}%` }}
+              />
+            </span>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 flex justify-between border-t border-paper-200 pt-2 text-xs font-semibold text-ink-700">
+        <span>Total</span>
+        <Money value={table.total} decimals />
+      </p>
+    </figure>
   );
 }
 
@@ -185,6 +226,11 @@ function ActionRow({ actions, onNavigate }: { actions: ChatAction[]; onNavigate:
           ? { description: action.description, amount: action.amount }
           : { description: action.description, vendor: "", amount: action.amount };
       navigate(CHAT_PAGE_ROUTES[action.recordType === "sales" ? "add-sales" : "add-expense"], { state: { duplicateFrom } });
+      return;
+    }
+    if (action.kind === "open-records") {
+      onNavigate();
+      navigate(recordsFilterHref(action));
       return;
     }
     if (action.kind === "watch-recurring-pattern" && !selected) return;

@@ -4,7 +4,6 @@ import { CategorySelect } from "../../components/CategorySelect";
 import { MoneyInput, TextInput } from "../../components/Field";
 import { Money } from "../../components/Money";
 import { BAND_COPY, confidenceBand } from "../../lib/confidenceBands";
-import { EvidenceNote } from "./EvidenceNote";
 import { scannedItemRemoveId, scannedItemRowId } from "./helpers";
 import type { AddedItem, ReceiptScanResult, ScannedItem } from "./types";
 
@@ -138,17 +137,6 @@ export function ScannedItemsTable({
                 {item.ownerEditedFields?.length ? (
                   <span className="ml-1.5 inline-flex rounded-full bg-tint-brand px-1.5 py-0.5 text-xs font-medium text-tone-brand ring-1 ring-edge-brand align-middle">
                     Corrected by you
-                  </span>
-                ) : null}
-                {/*
-                  The printed line this row came off, quoted. It is
-                  the cheapest possible way to check a row: the
-                  owner compares two strings instead of hunting the
-                  paper for a number.
-                */}
-                {item.evidence ? (
-                  <span className="mt-0.5 block text-xs leading-relaxed text-ink-500">
-                    <EvidenceNote evidence={item.evidence} />
                   </span>
                 ) : null}
                 {/*

@@ -239,3 +239,54 @@ describe('chat reply record references and actions', () => {
     expect(apiGet).not.toHaveBeenCalled();
   });
 });
+
+describe('chat reply ranked table, basis and records button', () => {
+  const ranked: ChatAnswerMetadata = {
+    ...chatMetadata,
+    references: [],
+    period: '2025',
+    actions: [{ kind: 'open-records', recordType: 'expense', dateFrom: '2025-03-01', dateTo: '2025-03-31', label: 'Open March 2025 expenses' }],
+    table: {
+      title: 'Expenses by month, 2025 (lowest to highest)',
+      valueLabel: 'Expenses',
+      rows: [
+        { label: 'March 2025', amount: 300, count: 1 },
+        { label: 'June 2025', amount: 2500, count: 1, note: 'In progress' },
+      ],
+      total: 2800,
+    },
+    basis: { expenseRecords: 2, salesRecords: 0, from: '2025-01-01', to: '2025-12-31' },
+  };
+
+  it('draws the server rows in order with exact figures, the total and the basis line', async () => {
+    const queries = await render(tree(ranked));
+    expect(queries.getByText('Expenses by month, 2025 (lowest to highest)')).toBeTruthy();
+    const march = queries.getByText(/^March 2025/);
+    const june = queries.getByText(/^June 2025/);
+    expect(march).toBeTruthy();
+    expect(june).toBeTruthy();
+    expect(queries.getByText(/PHP 2,800\.00/)).toBeTruthy();
+    expect(queries.getByText('Figures from 2 expense records, 2025-01-01 to 2025-12-31.')).toBeTruthy();
+    expect(queries.queryByText('Based on records for 2025.')).toBeNull();
+  });
+
+  it('opens Records filtered to the named month', async () => {
+    const queries = await render(tree(ranked));
+    pressHandler(queries.getByRole('button', { name: 'Open March 2025 expenses' }))();
+    expect(onLeave).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledWith('Records', {
+      screen: 'RecordsList',
+      params: { type: 'expense', dateFrom: '2025-03-01', dateTo: '2025-03-31' },
+    });
+  });
+
+  it('ignores a records button with malformed dates', async () => {
+    const bad: ChatAnswerMetadata = {
+      ...ranked,
+      actions: [{ kind: 'open-records', recordType: 'expense', dateFrom: 'yesterday', dateTo: '2025-03-31', label: 'Open bad' }],
+    };
+    const queries = await render(tree(bad));
+    pressHandler(queries.getByRole('button', { name: 'Open bad' }))();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});

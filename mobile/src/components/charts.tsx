@@ -1420,7 +1420,7 @@ export function CumulativeSalesChart({
           </View>
         </View>
       </View>
-      <ChartValueReadout data={values} selection={selection} chartLabel={title} />
+      <ChartValueReadout data={values} selection={selection} chartLabel={title} explore={false} />
     </ChartFrame>
   );
 }

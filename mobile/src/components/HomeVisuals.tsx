@@ -94,7 +94,7 @@ export function MoneyFlowPanel({
         <FlowRow label="Money in" value={sales} max={max} color={HERO.inFill} delta={salesDelta} interaction={flowSelection.bind(0)} />
         <FlowRow label="Money out" value={expenses} max={max} color={HERO.outFill} delta={expensesDelta} interaction={flowSelection.bind(1)} />
       </View>
-      <ChartValueReadout data={flowData} selection={flowSelection} chartLabel="Money flow" />
+      <ChartValueReadout data={flowData} selection={flowSelection} chartLabel="Money flow" explore={false} />
       <View
         accessible
         accessibilityLabel={`Net ${periodPhrase} ${net < 0 ? "minus " : ""}${formatMoney(Math.abs(net))}`}
@@ -233,7 +233,7 @@ export function TodayGoalSummary({
           </Pressable>
         ) : null}
       </View>
-      <ChartValueReadout data={goalData} selection={goalSelection} chartLabel="Sales goals" />
+      <ChartValueReadout data={goalData} selection={goalSelection} chartLabel="Sales goals" explore={false} />
       {showBasis && basisNote ? <T variant="caption" style={{ marginTop: space.sm, lineHeight: 18 }}>{basisNote}</T> : null}
       <View style={{ marginTop: space.md }}>{action}</View>
     </View>
@@ -331,7 +331,7 @@ export function SpendingSplitCard({
               </Pressable>
             ))}
           </View>
-          <ChartValueReadout data={splitData} selection={splitSelection} chartLabel="Spending split" />
+          <ChartValueReadout data={splitData} selection={splitSelection} chartLabel="Spending split" explore={false} />
         </>
       ) : (
         <T variant="caption">No spending recorded in this period.</T>

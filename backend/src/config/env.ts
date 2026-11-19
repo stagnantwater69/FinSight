@@ -73,6 +73,12 @@ const envSchema = z.object({
   MOBILE_APP_URL: z.string().default("finsight://"),
   GOOGLE_GEMINI_API_KEY: z.string().optional().default(""),
   OPENROUTER_API_KEY: z.string().optional().default(""),
+  /**
+   * Lets Ask FinSight spend one extra Gemini call to pick lookups (ranking,
+   * filters, comparisons) before answering. Off in tests regardless; turn off
+   * here if the free-tier quota runs short.
+   */
+  ASK_FINSIGHT_TOOLS_ENABLED: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
   /** Veryfi credentials are inert unless the unified receipt dispatch gate approves a call. */
   VERYFI_CLIENT_ID: z.string().optional().default(""),
   VERYFI_CLIENT_SECRET: z.string().optional().default(""),

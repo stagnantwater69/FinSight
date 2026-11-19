@@ -17,6 +17,14 @@ export const GREETING_FPS = 12;
 export const GREETING_REST_FRAME = 43;
 
 /**
+ * The pose held when the owner turns the greeting's motion off in Settings:
+ * the closing frame (source greeting_119.png), wing raised and one eye shut.
+ * It is the last of the 103 frames; tests/greetingPlayback.test.ts checks that
+ * against the asset folder.
+ */
+export const GREETING_PAUSE_FRAME = 102;
+
+/**
  * How long to blend the last frame of the wave into the first.
  *
  * THE SEQUENCE DOES NOT WRAP ON ITS OWN. Frame 102 back to frame 0 measures a

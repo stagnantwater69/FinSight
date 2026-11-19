@@ -33,7 +33,7 @@ const NOT_APP_COPY = new Set<string>([
 
 /** Strings matched by regex on purpose — the flow uses a partial matcher. */
 const REGEX_SELECTORS = new Map<string, RegExp>([
-  ["A what-if check.*", /A what-if check/],
+  ["What-if check.*", /What-if check/],
 ]);
 
 function sourceText(): string {

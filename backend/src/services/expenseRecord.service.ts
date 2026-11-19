@@ -1200,7 +1200,7 @@ export async function bulkResolveExpenseDuplicates(
   return owned.length;
 }
 
-function searchExpenseWhere(filters: SearchFilters): Prisma.ExpenseRecordWhereInput {
+export function searchExpenseWhere(filters: SearchFilters): Prisma.ExpenseRecordWhereInput {
   const cursorWhere = recordCursorWhere(filters.cursor, filters.sort ?? DEFAULT_RECORD_SORT);
   return {
     businessProfileId: filters.businessProfileId,

@@ -22,6 +22,8 @@ const REVIEWED_PROFILE_TRUSTING_EXPORTS = [
   "src/services/csvImport.service.ts#resolveCategories",
   "src/services/csvSourcePurge.service.ts#enqueueDetachedCsvSourcePurge",
   "src/services/csvStorageReconciliation.service.ts#reconcileCsvStorageProfile",
+  // Pure where-builders; recordExport.service checks ownership before using them.
+  "src/services/expenseRecord.service.ts#searchExpenseWhere",
   "src/services/extractionFeedback.service.ts#loadCorrections",
   "src/services/extractionFeedback.service.ts#recordDeletedLine",
   "src/services/operatingCalendar.service.ts#resolveExactOperatingCounts",
@@ -29,6 +31,7 @@ const REVIEWED_PROFILE_TRUSTING_EXPORTS = [
   "src/services/receiptCaptureBatch.service.ts#validateReceiptCaptureBatchSlot",
   "src/services/receiptProviderDispatch.service.ts#dispatchReceiptProviderRescue",
   "src/services/receiptScan/dto.ts#toDTO",
+  "src/services/salesRecord.service.ts#searchSalesWhere",
   "src/services/receiptScan/extraction.ts#snapVendorToHistory",
   "src/services/receiptScan/worker.ts#persistReceiptProcessingOutput",
   "src/services/storage.service.ts#csvFileReference",

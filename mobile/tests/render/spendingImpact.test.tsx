@@ -118,7 +118,7 @@ beforeEach(() => {
 });
 
 describe('Spending Impact — the impact gauge', () => {
-  it('selects exact gauge and before/after values with hypothetical labels', async () => {
+  it('selects exact gauge values and lists the slip lines with hypothetical labels', async () => {
     const q = await renderScreen();
     await check(q, '11000');
     await tapChart(q, 'Spending impact');
@@ -126,13 +126,12 @@ describe('Spending Impact — the impact gauge', () => {
     expect(name).toContain('Planned purchase: PHP 11,000.00');
     expect(name).toContain('High-impact threshold: PHP 3,928.50');
     expect(name).toContain('Hypothetical purchase; no records are changed.');
-    await fireEvent.press(q.getByRole('button', { name: /^Before and after, in detail:/ }));
-    await tapChart(q, 'Recorded available funds');
-    expect(chartReadout(q, 'Recorded available funds').props.accessibilityLabel).toContain('Before purchase: PHP 13,095.00. After purchase: PHP 2,095.00');
-    const expenses = q.getByLabelText(/^Recorded expenses .* plot$/, { includeHiddenElements: true });
-    const label = expenses.props.accessibilityLabel.replace(/ plot$/, '');
-    await tapChart(q, label);
-    expect(chartReadout(q, label).props.accessibilityLabel).toContain('Before purchase: PHP 8,400.00. After purchase: PHP 19,400.00');
+    // The what-if slip: funds, the purchase taken off, then expenses now and with it.
+    expect(q.getAllByText('PHP 13,095.00').length).toBeGreaterThan(0);
+    expect(q.getAllByText('−PHP 11,000.00').length).toBeGreaterThan(0);
+    expect(q.getAllByText('PHP 8,400.00').length).toBeGreaterThan(0);
+    expect(q.getAllByText('PHP 19,400.00').length).toBeGreaterThan(0);
+    expect(q.getByText('What-if slip')).toBeTruthy();
     expect(apiPost).not.toHaveBeenCalled();
   });
   it('exposes the gauge as a progressbar that announces its value in words', async () => {

@@ -88,7 +88,7 @@ import { MonthEndReviewScreen } from "./src/screens/MonthEndReviewScreen";
 import { font } from "./src/theme/tokens";
 import { shadowStyle } from "./src/theme/shadow";
 import type { Palette } from "./src/theme/palette";
-import { ThemeProvider, useTheme, useThemeControl } from "./src/context/ThemeContext";
+import { LightTheme, ThemeProvider, useTheme, useThemeControl } from "./src/context/ThemeContext";
 import { recordsTabPressAction, RECORDS_LIST_SCREEN } from "./src/lib/tabSelection";
 import { isFullscreenSubpage } from "./src/lib/subpageNavigation";
 import { returnFromOperatingSchedule } from "./src/lib/operatingScheduleNavigation";
@@ -173,6 +173,8 @@ function useScreenOptions() {
     headerBackButtonDisplayMode: "minimal",
     statusBarStyle: t.statusBarStyle,
     statusBarBackgroundColor: t.surface,
+    // The screen under a pushed subpage stops re-rendering until it is back on top.
+    freezeOnBlur: true,
   } as const;
 }
 
@@ -690,6 +692,8 @@ function MainTabs() {
       }}
       screenOptions={({ route }) => ({
         headerShown: false,
+        // Hidden tabs stop re-rendering when shared state (period, business, theme) changes; they catch up on focus.
+        freezeOnBlur: true,
         tabBarIcon: ({ color, focused }) => (
           <TabIcon
             routeName={route.name}
@@ -783,8 +787,9 @@ function ScanPlaceholder() {
 }
 
 function AuthStack() {
+  const t = useTheme();
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.surfaceSunken } }}>
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
       <Stack.Screen name="RecoverPassword" component={RecoverPasswordScreen} />
@@ -913,7 +918,7 @@ function Root({ fontsReady }: { fontsReady: boolean }) {
      * the account they had just finished setting up.
      */
     if (link.kind === "confirm-email") {
-      return <ConfirmEmailScreen tokens={tokens} linkError={linkError} onDone={dismiss} />;
+      return <LightTheme><ConfirmEmailScreen tokens={tokens} linkError={linkError} onDone={dismiss} /></LightTheme>;
     }
     if (link.kind === "session-handoff") {
       return (
@@ -931,7 +936,9 @@ function Root({ fontsReady }: { fontsReady: boolean }) {
       <MainOrOnboarding />
     </BusinessProfileProvider>
   ) : (
-    <AuthStack />
+    <LightTheme>
+      <AuthStack />
+    </LightTheme>
   );
 }
 

@@ -163,6 +163,8 @@ export const TUTORIALS: Tutorial[] = [
  * that silently discards messages is worse than no contact page at all.
  */
 export const SUPPORT_EMAIL = "support@finsight.example";
+/** `.example` is a reserved domain that never receives mail; mobile's Contact screen applies the same rule. */
+export const SUPPORT_EMAIL_AVAILABLE = Boolean(SUPPORT_EMAIL) && !SUPPORT_EMAIL.toLowerCase().endsWith(".example");
 
 // ---------------------------------------------------------------- Legal
 

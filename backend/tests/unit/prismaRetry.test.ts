@@ -33,6 +33,8 @@ describe("shouldRetryQuery", () => {
     expect(shouldRetryQuery(knownError("P2024"), "create", false, 0)).toBe(true);
     expect(shouldRetryQuery(knownError("P1001"), "update", false, 0)).toBe(true);
     expect(shouldRetryQuery(knownError("P1001"), "update", false, 1)).toBe(true);
+    expect(shouldRetryQuery(knownError("P1011"), "updateMany", false, 0)).toBe(true);
+    expect(shouldRetryQuery(knownError("P1011"), "findFirst", true, 0)).toBe(false);
   });
 
   it("gives a pool timeout only one retry, since it already waited out pool_timeout", () => {

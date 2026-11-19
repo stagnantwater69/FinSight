@@ -8,11 +8,13 @@ import { GREETING_FRAMES } from "../lib/greetingFrames";
 import {
   advanceGreetingFrame,
   GREETING_FPS,
+  GREETING_PAUSE_FRAME,
   GREETING_REST_FRAME,
   GREETING_WRAP_CROSSFADE_MS,
 } from "../lib/greetingPlayback";
 import { pickHeadline } from "../lib/homeInsight";
 import { useReducedMotion } from "../lib/useReducedMotion";
+import { useGreetingPaused } from "../lib/greetingMotion";
 import { font, radius, space, typeScale } from "../theme/tokens";
 import type { Palette } from "../theme/palette";
 import { useTheme } from "../context/ThemeContext";
@@ -104,9 +106,20 @@ const messageTone = (t: Palette) =>
  */
 function FinFlipbook({ label }: { label: string }) {
   const reduceMotion = useReducedMotion();
+  const paused = useGreetingPaused();
+  // Reduced motion keeps its calm centred pose; the Settings pause holds the closing wave.
+  const still = reduceMotion || paused;
+  const stillFrame = reduceMotion ? GREETING_REST_FRAME : GREETING_PAUSE_FRAME;
   const focused = useIsFocused();
   const t = useTheme();
   const [frame, setFrame] = useState(GREETING_REST_FRAME);
+  /*
+   * The last frame the image has finished drawing. Android blanks an Image
+   * while a new source decodes, and on a fresh open none of the frames are
+   * decoded yet, so Fin flickered on every tick of the first loop. The frame
+   * last drawn is kept underneath until the new one has loaded.
+   */
+  const [painted, setPainted] = useState(GREETING_REST_FRAME);
   const [ready, setReady] = useState(false);
   const [active, setActive] = useState(() => AppState.currentState === "active");
 
@@ -129,7 +142,7 @@ function FinFlipbook({ label }: { label: string }) {
   }, []);
 
   useEffect(() => {
-    if (reduceMotion || ready || failed.current) return;
+    if (still || ready || failed.current) return;
     let cancelled = false;
     // RN web prefetch also decodes; its successful result can be undefined.
     void Promise.all(GREETING_FRAMES.map(async (source) => {
@@ -146,14 +159,15 @@ function FinFlipbook({ label }: { label: string }) {
       else failed.current = true;
     });
     return () => { cancelled = true; };
-  }, [reduceMotion, ready]);
+  }, [still, ready]);
 
   useEffect(() => {
     wrap.stopAnimation();
     wrap.setValue(0);
-    if (reduceMotion || !ready) {
-      position.current = GREETING_REST_FRAME;
-      setFrame(GREETING_REST_FRAME);
+    if (still || !ready) {
+      const hold = still ? stillFrame : GREETING_REST_FRAME;
+      position.current = hold;
+      setFrame(hold);
       return;
     }
     if (!focused || !active) return;
@@ -181,7 +195,7 @@ function FinFlipbook({ label }: { label: string }) {
       wrap.stopAnimation();
       wrap.setValue(0);
     };
-  }, [focused, active, reduceMotion, ready, wrap]);
+  }, [focused, active, still, stillFrame, ready, wrap]);
 
   const holdRestPose = () => {
     failed.current = true;
@@ -194,7 +208,17 @@ function FinFlipbook({ label }: { label: string }) {
     <View style={{ width: MASCOT_BOX, height: MASCOT_BOX, flexShrink: 0, borderRadius: 12, overflow: "hidden" }}>
       <View style={{ pointerEvents: "none", position: "absolute", top: 5, right: 5, bottom: 5, left: 5, borderRadius: radius.full, backgroundColor: t.brandSurface }} />
       <Image
+        testID="fin-underlay"
+        source={GREETING_FRAMES[painted]}
+        resizeMode="contain"
+        fadeDuration={0}
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+        style={{ position: "absolute", width: "100%", height: "100%", opacity: ready && !still && painted !== frame ? 1 : 0 }}
+      />
+      <Image
         source={GREETING_FRAMES[frame]}
+        onLoad={() => setPainted(frame)}
         style={{ width: "100%", height: "100%" }}
         resizeMode="contain"
         fadeDuration={0}
@@ -213,7 +237,7 @@ function FinFlipbook({ label }: { label: string }) {
         accessibilityRole="image"
         accessibilityLabel={label}
       />
-      {ready && !reduceMotion ? <Animated.Image
+      {ready && !still ? <Animated.Image
         source={GREETING_FRAMES[GREETING_FRAMES.length - 1]}
         resizeMode="contain"
         fadeDuration={0}

@@ -152,6 +152,19 @@ export function ThemeProvider({
 }
 
 /**
+ * Paints its children in Light whatever the owner chose. The signed-out
+ * screens use it: the theme is a signed-in preference, and Dark picked on the
+ * dashboard should not follow the owner out to the log-in form. The stored
+ * choice is untouched, so it returns as soon as they sign back in.
+ */
+export function LightTheme({ children }: { children: ReactNode }) {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error("LightTheme must be used inside a ThemeProvider");
+  const value = useMemo<ThemeContextValue>(() => ({ ...ctx, mode: "light", palette: palettes.light }), [ctx]);
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+/**
  * The palette, for painting.
  *
  * Returns the resolved `Palette` directly rather than the context object,

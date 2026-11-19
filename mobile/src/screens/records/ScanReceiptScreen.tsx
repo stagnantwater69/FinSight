@@ -46,7 +46,6 @@ import { businessToday } from "../../lib/businessDate";
 import { ScanBand } from "./scanReceipt/ScanBand";
 import { ReviewNotices } from "./scanReceipt/ReviewNotices";
 import { ReviewSection } from "./scanReceipt/ReviewSection";
-import { EvidenceNote } from "./scanReceipt/EvidenceNote";
 import { ScannedItemRow } from "./scanReceipt/ScannedItemRow";
 import { AddedItemRow } from "./scanReceipt/AddedItemRow";
 import { SaveSummaryCard } from "./scanReceipt/SaveSummaryCard";
@@ -1925,13 +1924,6 @@ export function ScanReceiptScreen({ navigation }: RecordsScreenProps<"ScanReceip
               ) : null}
               <DateField label="Date" value={date} today={businessToday(selected?.timezone)} onChange={setDate} />
               <AvailableFundsBaselineChoice choice={baselineChoice} disabled={busy} />
-              {/*
-                Where the value above came from. Shown under the field it
-                describes rather than in a panel of its own — the question
-                "where did this date come from" is only ever asked while
-                looking at the date.
-              */}
-              <EvidenceNote evidence={scan.fieldEvidence?.date} />
               <Field
                 label="Description"
                 value={description}
@@ -1951,7 +1943,6 @@ export function ScanReceiptScreen({ navigation }: RecordsScreenProps<"ScanReceip
                 submitBehavior="submit"
                 onSubmitEditing={() => amountRef.current?.focus()}
               />
-              <EvidenceNote evidence={scan.fieldEvidence?.vendor} />
               {/*
                 "done" closes the keyboard rather than confirming. Amount is the
                 last thing to TYPE but not the last thing to decide — an itemised
@@ -1967,7 +1958,6 @@ export function ScanReceiptScreen({ navigation }: RecordsScreenProps<"ScanReceip
                 keyboardType="decimal-pad"
                 returnKeyType="done"
               />
-              <EvidenceNote evidence={scan.fieldEvidence?.amount} />
               </ReviewSection>
 
               {isItemised ? (

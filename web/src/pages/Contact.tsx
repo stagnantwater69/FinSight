@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { PublicLayout, PublicPageHead } from "../components/PublicLayout";
-import { SUPPORT_EMAIL } from "../lib/marketingContent";
+import { SUPPORT_EMAIL, SUPPORT_EMAIL_AVAILABLE } from "../lib/marketingContent";
 import { CircleHelp, Mail, MessageSquareWarning } from "lucide-react";
 
 /**
@@ -35,15 +35,24 @@ export function Contact() {
               <Mail className="h-5 w-5" />
             </span>
             <h2 className="mt-4 font-landing-display text-lg font-semibold text-landing-charcoal">Email us</h2>
-            <p className="mt-2 text-sm leading-relaxed text-landing-muted">
-              The most reliable way to reach us. If a receipt was read wrong, saying which shop it came
-              from helps more than anything else.
-            </p>
-            <p className="mt-2.5">
-              <a href={`mailto:${SUPPORT_EMAIL}`} className="inline-flex min-h-tap items-center text-sm font-semibold text-landing-green underline-offset-4 hover:underline">
-                {SUPPORT_EMAIL}
-              </a>
-            </p>
+            {SUPPORT_EMAIL_AVAILABLE ? (
+              <>
+                <p className="mt-2 text-sm leading-relaxed text-landing-muted">
+                  The most reliable way to reach us. If a receipt was read wrong, saying which shop it came
+                  from helps more than anything else.
+                </p>
+                <p className="mt-2.5">
+                  <a href={`mailto:${SUPPORT_EMAIL}`} className="inline-flex min-h-tap items-center text-sm font-semibold text-landing-green underline-offset-4 hover:underline">
+                    {SUPPORT_EMAIL}
+                  </a>
+                </p>
+              </>
+            ) : (
+              <p className="mt-2 text-sm leading-relaxed text-landing-muted">
+                Email support is not available yet. A support address has not been set up for this
+                version of FinSight. You can use the FAQs in the meantime.
+              </p>
+            )}
           </section>
 
           <section className="border-t border-landing-mint-light p-6 sm:border-t-0 lg:p-9">

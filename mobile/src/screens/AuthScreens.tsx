@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type TextInputInstance, KeyboardAvoidingView, Platform, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { type TextInputInstance, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -34,6 +35,8 @@ import { TAP_FLOOR } from "../components/touchTarget";
 import type { Profile } from "../lib/types";
 import { isSavingAccount, savedEmail, setSavedAccount } from "../lib/savedAccountStore";
 import { font, radius, space } from "../theme/tokens";
+import { HERO } from "../theme/hero";
+import { shadowStyle } from "../theme/shadow";
 import { useTheme } from "../context/ThemeContext";
 
 /**
@@ -94,7 +97,29 @@ function BrandMoment({ mascot, showMascot = true }: { mascot: MascotState; showM
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
       {showMascot ? <Mascot state={mascot} size={48} /> : null}
-      <T variant="title" style={{ flex: 1 }}>FinSight</T>
+      <T variant="title" style={{ flex: 1, color: HERO.ink }}>FinSight</T>
+    </View>
+  );
+}
+
+/**
+ * The deep-teal band behind the top of every auth screen: the same fixed
+ * brand panel as the coach heroes, so the first screen already looks like the
+ * app. It stays put while the form scrolls over it.
+ */
+function AuthBackdrop({ height }: { height: number }) {
+  return (
+    <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, height, borderBottomLeftRadius: 36, borderBottomRightRadius: 36, overflow: "hidden", backgroundColor: HERO.mid }}>
+      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 100 100">
+        <Defs>
+          <RadialGradient id="authWash" cx="90" cy="0" r="130" gradientUnits="userSpaceOnUse">
+            <Stop offset="0" stopColor={HERO.from} />
+            <Stop offset="0.45" stopColor={HERO.mid} />
+            <Stop offset="1" stopColor={HERO.to} />
+          </RadialGradient>
+        </Defs>
+        <Rect x={0} y={0} width={100} height={100} fill="url(#authWash)" />
+      </Svg>
     </View>
   );
 }
@@ -143,13 +168,15 @@ function AuthShell({
   const insets = useSafeAreaInsets();
 
   return (
-    <Screen safeTop style={{ backgroundColor: t.brandSurface }}>
-      <StatusBar style={t.mode === "light" ? "dark" : "light"} />
+    <Screen style={{ backgroundColor: t.surfaceSunken }}>
+      <StatusBar style="light" />
+      <AuthBackdrop height={insets.top + 260} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView
           contentContainerStyle={{
             flexGrow: 1,
             padding: space.lg,
+            paddingTop: insets.top + space.lg,
             paddingBottom: Math.max(insets.bottom, space.xxl) + space.lg,
           }}
           keyboardShouldPersistTaps="handled"
@@ -168,17 +195,26 @@ function AuthShell({
                     borderRadius: radius.md,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: pressed ? t.surface : "transparent",
+                    backgroundColor: pressed ? HERO.washStrong : "transparent",
                   })}
                 >
-                  <Ionicons name="arrow-back" size={24} color={t.brandText} accessibilityElementsHidden importantForAccessibility="no" />
+                  <Ionicons name="arrow-back" size={24} color={HERO.ink} accessibilityElementsHidden importantForAccessibility="no" />
                 </Pressable>
               ) : null}
               <View style={{ flex: 1, minWidth: 0 }}>
                 <BrandMoment mascot={mascot} showMascot={showMascot} />
               </View>
             </View>
-            <View style={{ backgroundColor: t.surface, borderRadius: radius.lg, padding: space.xl }}>
+            <View
+              style={{
+                backgroundColor: t.surface,
+                borderRadius: radius.xl,
+                borderWidth: 1,
+                borderColor: t.border,
+                padding: space.xl,
+                ...shadowStyle({ color: t.shadow, offsetY: 14, opacity: 0.14 * t.shadowStrength, blurRadius: 32, elevation: 10 }),
+              }}
+            >
               <View style={{ gap: space.sm, marginBottom: space.xxl }}>
                 <T accessibilityRole="header" variant="titleLg">{title}</T>
                 {subtitle ? <T style={{ color: t.textSecondary }}>{subtitle}</T> : null}

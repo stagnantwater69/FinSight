@@ -31,6 +31,7 @@ import { CategoryFilter } from "../components/CategoryFilter";
 import { useConfirm } from "../components/ConfirmDialog";
 import { useDebounced } from "../lib/hooks";
 import { useToast } from "../components/Toast";
+import { ExportCsvButton } from "../components/ExportCsvButton";
 import { useServerStateRefresh } from "../lib/useServerStateRefresh";
 import { availableFundsBaselineRequest, needsAvailableFundsBaselineDecision } from "../lib/availableFundsBaseline";
 import { AddExpenseModal, type DuplicateExpenseSeed } from "../components/AddExpenseModal";
@@ -1139,6 +1140,13 @@ export function Records() {
                 </div>
               </>
             )}
+            {selected ? (
+              <ExportCsvButton
+                businessProfileId={selected.id}
+                timeZone={selected.timezone}
+                filteredParams={isPristine ? null : { businessProfileId: selected.id, ...Object.fromEntries(filtersToParams(appliedFilters)) }}
+              />
+            ) : null}
           </>
         }
       />

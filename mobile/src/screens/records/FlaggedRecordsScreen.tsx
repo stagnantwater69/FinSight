@@ -613,7 +613,7 @@ export function FlaggedRecordsScreen() {
         ) : visibleRecords.length === 0 ? (
           <EmptyState
             title="Nothing needs your attention"
-            icon="✓"
+            icon="checkmark"
             body="FinSight flags possible duplicates and unusually large expenses here as you record them."
           />
         ) : undefined}

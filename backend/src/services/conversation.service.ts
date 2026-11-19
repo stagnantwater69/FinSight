@@ -5,7 +5,8 @@ import { requireOwnedBusinessProfile } from "../lib/ownership";
 import { dateCursorScope, datePageSize, decodeDateCursor, finishDatePage, invalidDateCursor, type DatePageInput } from "../lib/datePagination";
 import { chatSendIdentity, chatSendKeyHash, checkChatSendReplay, claimChatSendRequest, completeChatSendRequest, deletedChatSend, findChatSendRequest, resolveChatSendFailure, storedChatSendError, type ChatSendError, type ChatSendIdentity } from "../lib/chatSendRequest";
 import { buildModuleContext, type ChatFocus, type InteractionModule } from "./aiContext.service";
-import { askFinSight, HISTORY_TURNS_FOR_CONTEXT, truncateAnswer, type ConversationTurn } from "./ai.service";
+import { logger } from "../config/logger";
+import { askFinSight, HISTORY_TURNS_FOR_CONTEXT, planLookups, truncateAnswer, type ConversationTurn } from "./ai.service";
 import { groundAnswer, type AnswerMetadata } from "./aiAnswer.service";
 import type { ReductionOpportunity } from "./reductionOpportunity.service";
 
@@ -315,7 +316,12 @@ async function askInConversation(
     originModule,
     question,
     originModule === "Expense Insights" ? reductionOpportunity : undefined,
-    { focus: focus?.value ?? null, strictFocus: focus?.strict ?? false },
+    {
+      focus: focus?.value ?? null,
+      strictFocus: focus?.strict ?? false,
+      priorQuestions: priorTurns.map((turn) => turn.question),
+      planLookups,
+    },
   );
   const { answer, provider, metadata } = await groundAnswer(askFinSight, {
     context: built.context,
@@ -324,6 +330,9 @@ async function askInConversation(
     references: built.references,
     actions: built.actions,
     period: built.period,
+    table: built.table,
+    basis: built.basis,
+    intents: built.intents,
   });
   return { answer, provider, metadata, detectedAmount: built.scenario?.amount ?? null };
 }
@@ -584,5 +593,19 @@ export async function setMessageFeedback(
     where: { id: message.id },
     data: { feedback, feedbackAt: feedback ? new Date() : null },
   });
+  if (feedback) {
+    // What kind of question earned the rating, never its words: enough to see
+    // which question types Fin keeps getting wrong.
+    const metadata = (message.metadata ?? {}) as { intents?: unknown; amountCheck?: unknown };
+    logger.info(
+      {
+        feedback,
+        intents: Array.isArray(metadata.intents) ? metadata.intents : [],
+        amountCheck: typeof metadata.amountCheck === "string" ? metadata.amountCheck : null,
+        module: conversation.originModule,
+      },
+      "Ask FinSight answer rated",
+    );
+  }
   return toMessageDTO(updated);
 }

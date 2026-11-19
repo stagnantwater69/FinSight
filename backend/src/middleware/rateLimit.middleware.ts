@@ -478,6 +478,9 @@ export const LIMITS = {
   RECEIPT_CONFIRM_WRITE: { name: "receipt-confirm-write", limit: 30, windowMs: 60_000 },
   // Read once per review screen plus a page per 50 candidates; not polled.
   RECEIPT_DUPLICATE_READ: { name: "receipt-duplicate-read", limit: 60, windowMs: 60_000 },
+  // Each export reads up to MAX_EXPORT_ROWS in one request; an owner exports a few times, not dozens.
+  RECORDS_EXPORT: { name: "records-export", limit: 10, windowMs: 60_000 },
+  RECORDS_EXPORT_HOURLY: { name: "records-export-hourly", limit: 60, windowMs: 60 * 60_000 },
   // Generous relative to SCAN_RECEIPT_BURST: this fires once per SHUTTER
   // PRESS during a multi-page capture session (up to MAX_PAGES photos, plus
   // retakes), not once per submitted receipt — a real session can call this

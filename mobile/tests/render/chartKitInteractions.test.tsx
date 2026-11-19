@@ -63,7 +63,8 @@ describe('Chart kit value exploration', () => {
     expect(name).toContain('350.50'); expect(name).toMatch(/not.*recorded|future/i); expect(name).toMatch(/estimated/i);
     expect(name).not.toContain('Sales: PHP 0.00');
     expect(q.getByRole('image').props.accessibilityLabel).toContain('Recorded sales reach');
-    await fireEvent.press(q.getByRole('button', { name: 'Explore Sales vs. target values' }));
+    expect(q.queryByRole('button', { name: 'Explore Sales vs. target values' })).toBeNull();
+    await tapChart(q, 'Sales vs. target', 0);
     expect(chartReadout(q, 'Sales vs. target').props.accessibilityLabel).toContain('PHP 0.00');
   });
   it('clears a displayed cashflow date when fresh data replaces it', async () => {

@@ -25,9 +25,15 @@ import {
   recordedTransaction,
   recoveryWhatIf,
   reductionWhatIf,
+  breakdownIntent,
+  isFollowUp,
+  LOOKUP_CUE,
+  type BreakdownIntent,
   type RecoveryWhatIf,
 } from "../lib/chatIntents";
-import { extractComparedMonths } from "../lib/questionPeriod";
+import { extractComparedMonths, extractNamedMonths } from "../lib/questionPeriod";
+import { breakdownLines, breakdownTable, bucketDates, loadBreakdown, type AnswerTable, type Breakdown } from "./aiAnalytics.service";
+import type { ToolCall } from "../lib/chatTools";
 import { getDashboardSummary } from "./dashboard.service";
 import {
   getExpenseBehavior,
@@ -44,7 +50,8 @@ import { extractQuestionPeriod, type QuestionPeriod } from "../lib/questionPerio
 import { resolveReportingWindow, windowDateFilter, type PeriodSelection } from "../lib/reportingPeriod";
 import { plainFindingReasons } from "../lib/findingReasons";
 import { ApiError } from "../middleware/error.middleware";
-import { recordTag, tagFinancialFacts, type ChatAction, type RecordReference } from "./aiAnswer.service";
+import { recordTag, tagFinancialFacts, type AnswerBasis, type ChatAction, type RecordReference } from "./aiAnswer.service";
+import { logger } from "../config/logger";
 
 export const INTERACTION_MODULES = [
   "Expense Insights",
@@ -317,6 +324,9 @@ export async function buildFinancialSnapshot(
   lines.push(
     `Current recorded funds: ${peso(availableFunds.calculatedAmount)} as of ${availableFunds.asOfDate}`,
     `Funds calculation: ${peso(availableFunds.baselineAmount)} opening balance + ${peso(availableFunds.confirmedSalesAdded)} confirmed sales - ${peso(availableFunds.confirmedExpensesDeducted)} confirmed expenses.`,
+    // Without this, Fin set all-time profit against funds and invented a reason for the gap.
+    `Current recorded funds count only records dated from the opening balance date, ${availableFunds.baselineDate}, onward. ` +
+      "They are not sales minus expenses for this period or for all time, so never compare them with period totals or explain a difference between the two.",
   );
 
   const totalCurrent = behavior.totals.current;
@@ -374,6 +384,18 @@ export async function buildFinancialSnapshot(
       ? `Sales recorded this period: ${peso(Number(periodSales._sum.amount ?? 0))} across ${periodSales._count._all} sales record(s)`
       : "No sales records are dated in this period."
   );
+  // "Is my business doing well?" turns on sales minus expenses, which Fin may
+  // not work out itself. Computed here so it can be quoted, not estimated.
+  const salesTotal = Number(periodSales._sum.amount ?? 0);
+  if (salesTotal > 0 && totalCurrent > 0) {
+    const left = salesTotal - totalCurrent;
+    lines.push(
+      left >= 0
+        ? `Money left after counted expenses this period (sales minus counted expenses): ${peso(left)}`
+        : `Counted expenses were more than sales this period, by ${peso(-left)}`,
+      `Counted expenses as a share of sales this period: ${((totalCurrent / salesTotal) * 100).toFixed(1)}%`,
+    );
+  }
   const best = bestSalesDay[0];
   const weakest = weakestSalesDay[0];
   if (best && weakest && utcDateKey(best.date) !== utcDateKey(weakest.date)) {
@@ -761,6 +783,11 @@ export interface ModuleContext {
   actions: ChatAction[];
   /** The period the question named, or null when the default window was used. */
   period: string | null;
+  /** A ranked list FinSight computed for this message, for the clients to draw. */
+  table: AnswerTable | null;
+  basis: AnswerBasis;
+  /** What the question was read as, e.g. "breakdown:expense:month" or "tool:find_records". */
+  intents: string[];
 }
 
 // ============================================================
@@ -878,6 +905,9 @@ const SEARCH_STOPWORDS = new Set(
     "is are was were be been my our your i we me us you it its this that these those there here than then " +
     "spend spent spending expense expenses cost costs paid pay payment buy bought purchase purchases total " +
     "record records sale sales money amount amounts peso pesos php month months week weeks year years day days " +
+    // Period words name a time span, not a record: "monthly" matched "Monthly burger stall rent".
+    "monthly weekly daily yearly annual annually quarter quarterly buwanan lingguhan araw-araw taunan " +
+    "rank ranking ranked sort sorted order ordered greatest smallest breakdown group grouped " +
     "last past this next ago today yesterday time all ever show give tell list find link open please can could " +
     "would should will just also more most less much any some every each per vs versus compare compared " +
     "category categories flag flagged unusual usual normal high higher low lower " +
@@ -1451,7 +1481,7 @@ async function recordedTransactionBlock(
       "",
       header,
       `The owner says they ${expense ? "paid" : "sold"} ${peso(said.amount)}${expense && said.description ? ` for "${said.description}"` : ""}. This is NOT in their records yet.`,
-      "A button under this answer opens the form filled in; nothing is saved until the owner saves it. Say so in one short sentence and never say it has been recorded.",
+      "A button under this answer opens the form filled in; nothing is saved until the owner saves it. Say so in one short sentence that repeats the amount and item, and never say it has been recorded.",
     ],
     actions: [{
       kind: "prefill-record",
@@ -1645,6 +1675,313 @@ function steeringLine(module: InteractionModule, hasReductionOpportunity: boolea
   return `The owner is currently looking at the ${module} screen. Stay scoped to that unless they clearly ask about something else in this context.`;
 }
 
+// ============================================================
+// Grouped totals and model-requested lookups
+// ============================================================
+
+type RichBlock = ContextBlock & { table: AnswerTable | null; intents: string[] };
+const EMPTY_RICH: RichBlock = { lines: [], actions: [], table: null, intents: [] };
+const MAX_LOOKUP_ACTIONS = 2;
+
+/**
+ * A month-by-month question that names no period means this year; week-by-week,
+ * the last 8 weeks. A vendor or category ranking keeps the snapshot's default
+ * window, so its list and the snapshot's totals describe the same days.
+ */
+function defaultBreakdownPeriod(intent: BreakdownIntent, today: Date): QuestionPeriod | null {
+  if (intent.groupBy === "month") return extractQuestionPeriod("this year", today);
+  if (intent.groupBy === "week") return { selection: { kind: "rolling", days: 56 }, label: "the last 8 weeks" };
+  return null;
+}
+
+/** A lookup's period argument, read by the same parser as the owner's own words. */
+function periodFromArg(text: string, today: Date): QuestionPeriod | null {
+  const words = text.trim().toLowerCase();
+  return extractQuestionPeriod(/^(19|20)\d{2}$/.test(words) ? `in ${words}` : words, today);
+}
+
+function breakdownActions(data: Breakdown): ChatAction[] {
+  const top = data.rows[0];
+  // A vendor has no Records filter (keyword searches descriptions only).
+  if (!top || data.groupBy === "vendor") return [];
+  const dates = data.groupBy === "category" ? (data.from ? { dateFrom: data.from, dateTo: data.to } : null) : bucketDates(data, top);
+  if (!dates) return [];
+  const noun = data.subject === "sales" ? "sales" : "expenses";
+  return [{
+    kind: "open-records",
+    recordType: data.subject,
+    ...dates,
+    ...(top.categoryId !== undefined ? { categoryId: top.categoryId } : {}),
+    label: `Open ${top.label} ${noun}`.slice(0, 60),
+  }];
+}
+
+function richBlockOf(data: Breakdown, intent: string): RichBlock {
+  const table = breakdownTable(data);
+  const lines = breakdownLines(data);
+  if (table) lines.push("The app shows this full list as a table under the answer.");
+  return { lines, actions: breakdownActions(data), table, intents: [intent] };
+}
+
+async function breakdownBlock(
+  profile: BusinessProfile,
+  today: Date,
+  intent: BreakdownIntent,
+  period: QuestionPeriod,
+  onlyMonths: string[] | undefined,
+): Promise<RichBlock> {
+  const data = await loadBreakdown(profile, today, {
+    subject: intent.subject,
+    groupBy: intent.groupBy,
+    order: intent.order,
+    selection: period.selection,
+    periodLabel: period.label,
+    onlyMonths,
+  });
+  return richBlockOf(data, `breakdown:${intent.subject}:${intent.groupBy}`);
+}
+
+const unreadablePeriod = (name: string, text: string): RichBlock => ({
+  ...EMPTY_RICH,
+  lines: ["", `(FinSight could not read the period "${text}" for the ${name} lookup, so it was skipped.)`],
+});
+
+async function findRecordsBlock(
+  profile: BusinessProfile,
+  today: Date,
+  args: Extract<ToolCall, { name: "find_records" }>["args"],
+  refs: ReferenceRegistry,
+): Promise<RichBlock> {
+  const period = periodFromArg(args.period, today);
+  if (!period) return unreadablePeriod("find_records", args.period);
+  const sales = args.record_type === "sales";
+  let category: { id: number; name: string } | null = null;
+  if (args.category && !sales) {
+    category = await prisma.expenseCategory.findFirst({
+      where: { businessProfileId: profile.id, name: { contains: args.category, mode: "insensitive" } },
+      select: { id: true, name: true },
+    });
+    if (!category) return { ...EMPTY_RICH, lines: ["", `No expense category named "${args.category}" in this business.`] };
+  }
+  const amount = {
+    ...(args.min_amount !== undefined ? { gte: args.min_amount } : {}),
+    ...(args.max_amount !== undefined ? { lte: args.max_amount } : {}),
+  };
+  const where = {
+    businessProfileId: profile.id,
+    date: periodDateFilter(period, today),
+    ...(args.text ? { description: { contains: args.text, mode: "insensitive" as const } } : {}),
+    ...(Object.keys(amount).length > 0 ? { amount } : {}),
+  };
+  const orderBy =
+    args.sort === "largest" ? [{ amount: "desc" as const }, { id: "desc" as const }]
+    : args.sort === "smallest" ? [{ amount: "asc" as const }, { id: "desc" as const }]
+    : [{ date: "desc" as const }, { id: "desc" as const }];
+  const select = { id: true, description: true, amount: true, date: true } as const;
+  const expenseWhere = {
+    ...where,
+    ...COUNTED_EXPENSE,
+    ...(args.vendor ? { vendor: { contains: args.vendor, mode: "insensitive" as const } } : {}),
+    ...(category ? { categoryId: category.id } : {}),
+  };
+  const [aggregate, rows] = sales
+    ? await Promise.all([
+        prisma.salesReferenceRecord.aggregate({ where, _sum: { amount: true }, _count: { _all: true } }),
+        prisma.salesReferenceRecord.findMany({ where, orderBy, take: MAX_MATCHED_RECORDS, select }),
+      ])
+    : await Promise.all([
+        prisma.expenseRecord.aggregate({ where: expenseWhere, _sum: { amount: true }, _count: { _all: true } }),
+        prisma.expenseRecord.findMany({ where: expenseWhere, orderBy, take: MAX_MATCHED_RECORDS, select }),
+      ]);
+
+  const filters = [
+    args.text ? `mentioning "${args.text}"` : null,
+    category ? `in ${category.name}` : null,
+    args.vendor && !sales ? `from a vendor matching "${args.vendor}"` : null,
+    args.min_amount !== undefined ? `of at least ${peso(args.min_amount)}` : null,
+    args.max_amount !== undefined ? `of at most ${peso(args.max_amount)}` : null,
+  ].filter(Boolean).join(", ");
+  const noun = sales ? "sales" : "counted expense";
+  const lines = ["", `=== ${sales ? "SALES" : "EXPENSE"} RECORDS ${filters ? filters.toUpperCase() : "FOUND"} (${period.label}) ===`];
+  const count = aggregate._count._all;
+  if (count === 0) {
+    lines.push(`No ${noun} records ${filters || "at all"} in ${period.label}.`);
+    return { ...EMPTY_RICH, lines, intents: ["tool:find_records"] };
+  }
+  lines.push(`Matching ${noun} records: ${count} record(s) totalling ${peso(Number(aggregate._sum.amount ?? 0))}`);
+  for (const row of rows) {
+    lines.push(`- "${row.description}" ${peso(Number(row.amount))} on ${utcDateKey(row.date)} ${refs.tag(sales ? "sales" : "expense", row)}`);
+  }
+  if (count > rows.length) lines.push(`- (${count - rows.length} more matching record(s) not listed)`);
+  lines.push("These totals were calculated by FinSight. Use them as given; do not add records up yourself.");
+
+  const window = resolveReportingWindow(period.selection, today);
+  const actions: ChatAction[] = window.start
+    ? [{
+        kind: "open-records",
+        recordType: sales ? "sales" : "expense",
+        dateFrom: utcDateKey(window.start),
+        dateTo: utcDateKey(window.end && window.end < today ? window.end : today),
+        ...(category ? { categoryId: category.id } : {}),
+        ...(args.text ? { keyword: args.text } : {}),
+        label: "Open these records",
+      }]
+    : [];
+  return { lines, actions, table: null, intents: ["tool:find_records"] };
+}
+
+async function comparePeriodsBlock(
+  profile: BusinessProfile,
+  today: Date,
+  args: Extract<ToolCall, { name: "compare_periods" }>["args"],
+): Promise<RichBlock> {
+  const first = periodFromArg(args.first, today);
+  const second = periodFromArg(args.second, today);
+  if (!first) return unreadablePeriod("compare_periods", args.first);
+  if (!second) return unreadablePeriod("compare_periods", args.second);
+  const read = async (period: QuestionPeriod) => {
+    const date = periodDateFilter(period, today);
+    const [expenses, sales] = await Promise.all([
+      prisma.expenseRecord.aggregate({ where: { businessProfileId: profile.id, date, ...COUNTED_EXPENSE }, _sum: { amount: true } }),
+      prisma.salesReferenceRecord.aggregate({ where: { businessProfileId: profile.id, date }, _sum: { amount: true } }),
+    ]);
+    return { expenses: Number(expenses._sum.amount ?? 0), sales: Number(sales._sum.amount ?? 0) };
+  };
+  const [a, b] = await Promise.all([read(first), read(second)]);
+  const lines = ["", `=== PERIOD COMPARISON: ${first.label} and ${second.label} ===`];
+  const pair = (subject: string, before: number, after: number) => {
+    lines.push(`- ${subject} in ${first.label}: ${peso(before)}`, `- ${subject} in ${second.label}: ${peso(after)}`);
+    lines.push(
+      Math.abs(after - before) < 0.005
+        ? `- ${subject} is the same in ${first.label} and ${second.label}.`
+        : `- ${subject} change from ${first.label} to ${second.label}: ${after > before ? "up" : "down"} ${peso(Math.abs(after - before))}`,
+    );
+  };
+  pair("Total counted expenses", a.expenses, b.expenses);
+  pair("Total sales recorded", a.sales, b.sales);
+  lines.push("FinSight calculated these totals and differences. Use them as given; do not add or subtract figures yourself.");
+  return { ...EMPTY_RICH, lines, intents: ["tool:compare_periods"] };
+}
+
+async function runLookup(
+  userId: number,
+  profile: BusinessProfile,
+  today: Date,
+  call: ToolCall,
+  refs: ReferenceRegistry,
+  loadRecoveryInsight: () => Promise<RecoveryInsight>,
+): Promise<RichBlock> {
+  switch (call.name) {
+    case "expense_totals":
+    case "sales_totals": {
+      const period = periodFromArg(call.args.period, today);
+      if (!period) return unreadablePeriod(call.name, call.args.period);
+      const data = await loadBreakdown(profile, today, {
+        subject: call.name === "sales_totals" ? "sales" : "expense",
+        groupBy: call.args.group_by,
+        order: call.args.order,
+        selection: period.selection,
+        periodLabel: period.label,
+      });
+      return richBlockOf(data, `tool:${call.name}:${call.args.group_by}`);
+    }
+    case "find_records":
+      return findRecordsBlock(profile, today, call.args, refs);
+    case "compare_periods":
+      return comparePeriodsBlock(profile, today, call.args);
+    case "recovery_status":
+      return { ...EMPTY_RICH, lines: await recoveryLines(userId, profile, loadRecoveryInsight), intents: ["tool:recovery_status"] };
+    case "open_findings":
+      return { ...EMPTY_RICH, lines: await recordsReviewLines(profile, refs), intents: ["tool:open_findings"] };
+  }
+}
+
+/**
+ * The lookups the planner asked for, run for THIS session's business profile.
+ * The planner only chose names and arguments (validated in chatTools.ts); every
+ * query is scoped by `profile.id`, which came from the authenticated session.
+ * One failing lookup is dropped, not fatal: the fixed blocks still answer.
+ */
+async function lookupBlock(
+  userId: number,
+  profile: BusinessProfile,
+  today: Date,
+  question: string,
+  plan: (question: string, today: string) => Promise<ToolCall[]>,
+  refs: ReferenceRegistry,
+  loadRecoveryInsight: () => Promise<RecoveryInsight>,
+): Promise<RichBlock> {
+  const calls = await plan(question, utcDateKey(today));
+  if (calls.length === 0) return EMPTY_RICH;
+  const results = await Promise.all(
+    calls.map((call) =>
+      runLookup(userId, profile, today, call, refs, loadRecoveryInsight).catch((err: unknown) => {
+        logger.warn({ err, lookup: call.name }, "Ask FinSight lookup failed; answering without it");
+        return EMPTY_RICH;
+      }),
+    ),
+  );
+  return {
+    lines: results.flatMap((result) => result.lines),
+    actions: results.flatMap((result) => result.actions).slice(0, MAX_LOOKUP_ACTIONS),
+    table: results.find((result) => result.table)?.table ?? null,
+    intents: results.flatMap((result) => result.intents),
+  };
+}
+
+/** Below this many sales records the ratio is noise, not a pattern. */
+const MIN_SALES_FOR_BALANCE_CHECK = 50;
+/** Sales records per expense record at which expenses may be under-recorded. */
+const SALES_PER_EXPENSE_WARNING = 5;
+
+/**
+ * "Is my business thriving?" was answered from sales of 6.6M against expenses
+ * of 3.6M, with no word that 57,205 sales records sat beside only 7,195
+ * expense records. Missing expenses make profit look bigger than it is, so a
+ * lopsided count is worth naming. It is a prompt to check, not a finding: some
+ * shops log every sale but only their weekly bills.
+ */
+export function recordBalanceLines(basis: AnswerBasis, periodLabel: string): string[] {
+  const { salesRecords, expenseRecords } = basis;
+  if (salesRecords < MIN_SALES_FOR_BALANCE_CHECK) return [];
+  const count = (n: number) => n.toLocaleString("en-US");
+  let finding: string;
+  if (expenseRecords === 0) {
+    finding = `- Records for ${periodLabel}: ${count(salesRecords)} sales records but no counted expense records at all.`;
+  } else {
+    const ratio = salesRecords / expenseRecords;
+    if (ratio < SALES_PER_EXPENSE_WARNING) return [];
+    finding =
+      `- Records for ${periodLabel}: ${count(salesRecords)} sales records but only ${count(expenseRecords)} counted expense records, ` +
+      `about ${Math.round(ratio)} sales records for every expense record.`;
+  }
+  return [
+    "",
+    "=== RECORD BALANCE ===",
+    finding,
+    "- That can be normal (some shops record every sale but only their regular bills), but it can also mean expenses are missing. " +
+      "Missing expenses make profit look bigger than it really is.",
+    "- When the owner asks how the business is doing, whether it is profitable or thriving, or about profit, say this in one sentence " +
+      "and suggest checking that every expense is recorded. Do not call the records wrong.",
+  ];
+}
+
+/** How many records the period's figures were drawn from, for the "Figures from…" line under an answer. */
+async function answerBasis(profile: BusinessProfile, today: Date, period: QuestionPeriod | null): Promise<AnswerBasis> {
+  const window = resolveReportingWindow(period?.selection ?? { kind: "rolling", days: DEFAULT_PERIOD_DAYS }, today);
+  const date = windowDateFilter(window, today);
+  const [expenseRecords, salesRecords] = await Promise.all([
+    prisma.expenseRecord.count({ where: { businessProfileId: profile.id, date, ...COUNTED_EXPENSE } }),
+    prisma.salesReferenceRecord.count({ where: { businessProfileId: profile.id, date } }),
+  ]);
+  return {
+    expenseRecords,
+    salesRecords,
+    from: window.start ? utcDateKey(window.start) : null,
+    to: utcDateKey(window.end && window.end < today ? window.end : today),
+  };
+}
+
 export async function buildModuleContext(
   userId: number,
   profile: BusinessProfile,
@@ -1655,6 +1992,10 @@ export async function buildModuleContext(
     focus?: ChatFocus | null;
     /** A focus that fails to resolve 404s (first message) rather than being dropped (later ones). */
     strictFocus?: boolean;
+    /** Earlier questions in this conversation, oldest first — a short follow-up borrows the last one's topic and period. */
+    priorQuestions?: string[];
+    /** Picks extra lookups for a question the fixed blocks may not cover. Absent = none (tests, old callers). */
+    planLookups?: (question: string, today: string) => Promise<ToolCall[]>;
   } = {}
 ): Promise<ModuleContext> {
   // Business-local, not server-UTC — getRecoveryInsight/simulateRecoveryScenario
@@ -1686,8 +2027,23 @@ export async function buildModuleContext(
   // The period the question names ("January", "last month", "ngayong linggo"),
   // or null for the default rolling window. Recovery figures are month-to-date
   // by definition and deliberately ignore it.
-  const period = extractQuestionPeriod(question, today);
+  //
+  // "What about last year?" names a period but no topic: it borrows the topic
+  // (and, when it names none, the period) of the question before it.
+  const previousQuestion = options.priorQuestions?.at(-1);
+  const followUp = previousQuestion !== undefined && isFollowUp(question);
+  const topicText = followUp ? `${previousQuestion} ${question}` : question;
+  const listedMonths = extractNamedMonths(question, today);
+  const breakdown = askedWhatIf || otherWhatIf || module === "Spending Impact" ? null : breakdownIntent(topicText, listedMonths.length);
+  const period =
+    extractQuestionPeriod(question, today) ??
+    (followUp ? extractQuestionPeriod(previousQuestion, today) : null) ??
+    (breakdown ? defaultBreakdownPeriod(breakdown, today) : null);
   const refs = new ReferenceRegistry();
+  const intents = [
+    ...(followUp ? ["follow-up"] : []),
+    ...(breakdown ? [`breakdown:${breakdown.subject}:${breakdown.groupBy}`] : []),
+  ];
 
   // One expense-behaviour read per message, shared by the snapshot and the
   // Expense Insights block (identical arguments, so a second read could only
@@ -1713,10 +2069,27 @@ export async function buildModuleContext(
 
   const comparedMonths = extractComparedMonths(question, today);
   const checksCompleteness = rendersRecoveryDetail || COMPLETENESS_CUE.test(question);
+  // The planner is a billed model call, so it runs only when a fixed block has
+  // not already answered: no breakdown, no month comparison, no what-if, no
+  // flag in focus, and the question asks for a ranking, filter or comparison.
+  const plansLookups =
+    options.planLookups !== undefined &&
+    !breakdown && !comparedMonths && !askedWhatIf && !otherWhatIf && !options.focus &&
+    module !== "Spending Impact" &&
+    LOOKUP_CUE.test(question);
+  const onlyMonths = listedMonths.length >= 3
+    ? listedMonths.map((month) => (month.selection.kind === "month" ? month.selection.month : "")).filter(Boolean)
+    : undefined;
   const [
+    grouped, lookups, basis,
     snapshot, matches, filtered, whatIf, recoveryScenario, costCut, comparison, vendors, completeness,
     recorded, recurring, activity, alerts, upcoming, ...details
   ] = await Promise.all([
+    breakdown
+      ? breakdownBlock(profile, today, breakdown, period ?? { selection: { kind: "rolling", days: DEFAULT_PERIOD_DAYS }, label: periodLabelOf(null) }, onlyMonths)
+      : Promise.resolve(EMPTY_RICH),
+    plansLookups ? lookupBlock(userId, profile, today, topicText, options.planLookups!, refs, loadRecoveryInsight) : Promise.resolve(EMPTY_RICH),
+    answerBasis(profile, today, period),
     buildFinancialSnapshot(
       userId,
       profile,
@@ -1727,7 +2100,7 @@ export async function buildModuleContext(
       },
       { refs, period }
     ),
-    matchingRecordLines(profile, question, today, period, refs),
+    matchingRecordLines(profile, topicText, today, period, refs),
     // A what-if amount is a plan, not a filter on past records.
     askedWhatIf || otherWhatIf || module === "Spending Impact"
       ? Promise.resolve<string[]>([])
@@ -1747,7 +2120,7 @@ export async function buildModuleContext(
     ...moduleDetailPromises(userId, profile, module, scenario, loadBehavior, loadRecoveryInsight, reductionOpportunity, refs, period),
   ]);
 
-  const actions: ChatAction[] = [...focus.actions, ...recorded.actions, ...recurring.actions];
+  const actions: ChatAction[] = [...focus.actions, ...recorded.actions, ...recurring.actions, ...grouped.actions, ...lookups.actions];
   if (scenario?.amount != null && scenario.amount > 0) {
     actions.push({ kind: "open-spending-impact", amount: scenario.amount, label: "Open this in Spending Impact" });
   }
@@ -1758,6 +2131,9 @@ export async function buildModuleContext(
     ...profileLines(profile),
     ...focus.lines,
     ...snapshot,
+    ...recordBalanceLines(basis, periodLabelOf(period)),
+    ...grouped.lines,
+    ...lookups.lines,
     ...recorded.lines,
     ...matches,
     ...filtered,
@@ -1787,11 +2163,17 @@ export async function buildModuleContext(
   ];
 
   const context = contextWithinBudget(tagFinancialFacts(priorityLines), requiredTailLines);
+  // A table is shown only when its block survived the budget: the answer must
+  // never sit beside a list the model was not given.
+  const tableBlock = [grouped, lookups].find((block) => block.table && context.includes(block.lines[1] ?? " "));
   return {
     context,
     scenario,
     references: new Map([...refs.entries].filter(([tag]) => context.includes(tag))),
     actions,
     period: period?.label ?? null,
+    table: tableBlock?.table ?? null,
+    basis,
+    intents: [...intents, ...lookups.intents],
   };
 }

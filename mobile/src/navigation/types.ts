@@ -28,7 +28,15 @@ export type DashboardStackParamList = {
 };
 
 export type RecordsStackParamList = {
-  RecordsList: { type?: "expense" | "sales"; categoryId?: number; importBatchId?: number } | undefined;
+  /** `dateFrom`/`dateTo`/`keyword` come from an Ask FinSight "Open … records" button. */
+  RecordsList: {
+    type?: "expense" | "sales";
+    categoryId?: number;
+    importBatchId?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    keyword?: string;
+  } | undefined;
   /** `prefill` comes from the payment calendar; `from` says where to return after saving. */
   AddExpense: {
     prefill?: { description: string; vendor: string; categoryId: number | null; amount: number };

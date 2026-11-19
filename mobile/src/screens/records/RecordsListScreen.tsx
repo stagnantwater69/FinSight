@@ -15,10 +15,13 @@ import {
 // scroll stalls. Its RefreshControl keeps pull-to-refresh in that arbitration.
 import { FlatList, RefreshControl } from "react-native-gesture-handler";
 import { useFocusEffect } from "@react-navigation/native";
-import { Button, Callout, Card, EmptyState, ErrorNote, Screen, T } from "../../components/ui";
+import { Button, Callout, EmptyState, ErrorNote, Screen, T } from "../../components/ui";
+import { RecordExportSheet } from "../../components/RecordExportSheet";
+import { businessToday } from "../../lib/businessDate";
 import { FutureDatedNotice } from "../../components/FutureDatedNotice";
 import { useBusinessProfiles } from "../../context/BusinessProfileContext";
-import { api } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
+import { exportRecordsCsv } from "../../lib/recordExport";
 import { ConnectionNotice, FreshnessStatus } from "../../components/ConnectionNotice";
 import {
   describeActionFailure,
@@ -93,6 +96,9 @@ function dayHeading(date: string): string {
   return iso === today ? `Today · ${label}` : label;
 }
 
+/** One shared empty page, so "no records yet" keeps the same identity between renders. */
+const NO_RECORDS: RecordItem[] = [];
+
 export function RecordsScreen({ navigation, route }: RecordsScreenProps<"RecordsList">) {
   const t = useTheme();
   const { width, fontScale } = useWindowDimensions();
@@ -165,6 +171,8 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
    * there is one place a confirmation can appear and one rule for how long.
    */
   const [notice, setNotice] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   /**
    * The search box is a raw TextInput rather than a `Field` — it has no label
    * and sits inside a card with the type switcher — so it does not inherit
@@ -212,6 +220,23 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
   );
 
   const currentQuery = useMemo(() => buildQuery(), [buildQuery]);
+
+  /** The export sheet: what kind, which period. See RecordExportSheet. */
+  const [exportOpen, setExportOpen] = useState(false);
+
+  /** A CSV for `query`, handed to the share sheet. */
+  const exportCsv = useCallback(async (query: Record<string, string | number | boolean | undefined>, name?: string) => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await exportRecordsCsv(query, name);
+      setNotice("Your file is ready.");
+    } catch (err) {
+      setExportError(`Couldn't export. ${errorMessage(err)}`);
+    } finally {
+      setExporting(false);
+    }
+  }, []);
   const currentIdentity = useMemo(
     () => createServerStateIdentity("/records/search", currentQuery),
     [currentQuery],
@@ -222,12 +247,17 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
   const currentPage = loadedIdentity === currentIdentity
     ? { items: records, nextCursor }
     : cachedCurrent?.data ?? null;
-  const loadedRecords = currentPage?.items ?? [];
+  const loadedRecords = currentPage?.items ?? NO_RECORDS;
   const loadedRecordsRef = useRef<RecordItem[]>(loadedRecords);
   loadedRecordsRef.current = loadedRecords;
   const loadedPageCount = Math.max(1, Math.ceil(loadedRecords.length / 10));
   const visiblePageIndex = Math.min(pageIndex, loadedPageCount - 1);
-  const visibleRecords = loadedRecords.slice(visiblePageIndex * 10, (visiblePageIndex + 1) * 10);
+  // Memoised: it is the list's data and extraData, so a fresh slice re-rendered
+  // every swipeable card on each keystroke, load flag and clock tick.
+  const visibleRecords = useMemo(
+    () => loadedRecords.slice(visiblePageIndex * 10, (visiblePageIndex + 1) * 10),
+    [loadedRecords, visiblePageIndex],
+  );
   const visibleRecordsRef = useRef<RecordItem[]>(visibleRecords);
   visibleRecordsRef.current = visibleRecords;
   const visibleNextCursor = currentPage?.nextCursor ?? null;
@@ -458,6 +488,21 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
         navigation.setParams?.({ importBatchId: undefined });
         navigation.getParent?.()?.setParams?.({ screen: undefined, params: undefined });
       }
+      // An Ask FinSight answer's "Open … records": a date span, maybe a category or word.
+      const incomingFrom = route?.params?.dateFrom;
+      const incomingTo = route?.params?.dateTo;
+      if (typeof incomingFrom === "string" && typeof incomingTo === "string" && isCompleteDate(incomingFrom) && isCompleteDate(incomingTo)) {
+        setDateFrom(incomingFrom);
+        setDateTo(incomingTo);
+        setRangeLabel(null);
+        const word = route?.params?.keyword;
+        if (typeof word === "string") setKeyword(word.slice(0, 60));
+        if (route?.params?.type) setType(route.params.type);
+        if (route?.params?.categoryId === undefined) setCategoryId(null);
+        setShowFilters(true);
+        navigation.setParams({ dateFrom: undefined, dateTo: undefined, keyword: undefined, type: undefined });
+        navigation.getParent()?.setParams({ screen: undefined, params: undefined });
+      }
       const incoming = route?.params?.categoryId;
       if (incoming === undefined) return;
       setCategoryId(incoming);
@@ -477,7 +522,7 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
        * category filter they set once from a chart.
        */
       navigation.getParent()?.setParams({ screen: undefined, params: undefined });
-    }, [route?.params?.categoryId, route?.params?.type, route?.params?.importBatchId, navigation]),
+    }, [route?.params?.categoryId, route?.params?.type, route?.params?.importBatchId, route?.params?.dateFrom, route?.params?.dateTo, route?.params?.keyword, navigation]),
   );
 
   // Collected on focus rather than from a route param because the screens that
@@ -800,42 +845,81 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
             </Pressable>
           </View>
 
-          <View style={{ flexDirection: stackedFilters ? "column" : "row", alignItems: stackedFilters ? "stretch" : "center", gap: space.sm }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.sm }}>
-              {RECORD_TYPES.map((option) => {
-                const checked = type === option.value;
-                return (
-                  <Pressable
-                    key={option.value}
-                    accessibilityRole="radio"
-                    accessibilityLabel={option.label}
-                    accessibilityState={{ checked }}
-                    onPress={() => setType(option.value)}
-                    style={({ pressed }) => ({
-                      minHeight: TAP_FLOOR,
-                      justifyContent: "center",
-                      paddingHorizontal: space.md,
-                      borderRadius: radius.full,
-                      borderWidth: checked ? 0 : 1,
-                      borderColor: t.border,
-                      backgroundColor: checked ? t.brandSolid : pressed ? t.surfaceMuted : t.surface,
-                    })}
-                    hitSlop={4}
-                  >
-                    <T style={{ fontSize: typeScale.label, fontFamily: checked ? font.sansSemibold : font.sansMedium, color: checked ? t.onBrandSolid : t.textSecondary }}>{option.label}</T>
-                  </Pressable>
-                );
-              })}
-            </View>
+          {/*
+            One segmented track, not three loose pills: the three are a single
+            choice, and the track reads as one. Same look as SegmentedControl,
+            but kept as radios, which is the right spoken role for a filter.
+            No hitSlop: the segments touch, so slop would overlap a neighbour.
+          */}
+          <View style={{ flexDirection: stackedFilters ? "column" : "row", backgroundColor: t.surfaceMuted, borderRadius: radius.md, padding: 3 }}>
+            {RECORD_TYPES.map((option) => {
+              const checked = type === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityLabel={option.label}
+                  accessibilityState={{ checked }}
+                  onPress={() => setType(option.value)}
+                  style={({ pressed }) => ({
+                    // Large text or a narrow phone stacks the segments, as SegmentedControl does.
+                    flex: stackedFilters ? 0 : 1,
+                    minHeight: TAP_FLOOR,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingHorizontal: space.sm,
+                    borderRadius: radius.sm,
+                    backgroundColor: checked ? t.brandFill : "transparent",
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                >
+                  <T style={{ fontSize: typeScale.label, fontFamily: checked ? font.sansSemibold : font.sansMedium, color: checked ? t.onBrandFill : t.ink[600] }}>{option.label}</T>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/*
+            The count and the export share a line: the export writes exactly
+            the records the count describes, so it reads as an action on them
+            rather than a second big button under the filters.
+          */}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: space.md }}>
             {/*
               How many records the current filters actually leave — the useful
               number is what came back, not how many filters are on.
             */}
-            <T variant="caption" style={{ marginLeft: stackedFilters ? 0 : "auto", alignSelf: stackedFilters ? "flex-end" : undefined, flexShrink: 1 }}>
+            <T variant="caption" style={{ flexShrink: 1 }}>
               {loading || switchingQuery
                 ? ""
-                : `${visiblePageIndex > 0 ? `Page ${visiblePageIndex + 1} · ` : ""}${visibleRecords.length} record${visibleRecords.length === 1 ? "" : "s"}`}
+                : loadedPageCount > 1 || visibleNextCursor
+                  // More pages exist, so this is one page, not everything that matches.
+                  ? `Page ${visiblePageIndex + 1} · ${visibleRecords.length} shown`
+                  : `${visibleRecords.length} record${visibleRecords.length === 1 ? "" : "s"}`}
             </T>
+            {selected && (visibleRecords.length > 0 || filterChips.length > 0) ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Export these records as a CSV file"
+                accessibilityState={{ disabled: exporting, busy: exporting }}
+                disabled={exporting}
+                onPress={() => setExportOpen(true)}
+                style={({ pressed }) => ({
+                  minHeight: TAP_FLOOR,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: space.xs,
+                  marginLeft: "auto",
+                  paddingHorizontal: space.sm,
+                  borderRadius: radius.sm,
+                  backgroundColor: pressed ? t.brandSurface : "transparent",
+                  opacity: exporting ? 0.6 : 1,
+                })}
+              >
+                <Ionicons name="download-outline" size={16} color={t.brandText} />
+                <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.brandText }}>{exporting ? "Exporting…" : "Export CSV"}</T>
+              </Pressable>
+            ) : null}
           </View>
 
           {/* What is filtered, each one removable, only while something is. */}
@@ -875,6 +959,19 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
                 <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.textSecondary }}>Clear all</T>
               </Pressable>
             </View>
+          ) : null}
+
+          {exportError ? <ErrorNote>{exportError}</ErrorNote> : null}
+          {selected ? (
+            <RecordExportSheet
+              visible={exportOpen}
+              onClose={() => setExportOpen(false)}
+              businessProfileId={selected.id}
+              businessName={selected.name}
+              today={businessToday(selected.timezone)}
+              filteredQuery={filterChips.length > 0 || type !== "all" || searchTerm ? { ...currentQuery, limit: undefined, cursor: undefined } : null}
+              onExport={(query, name) => { setExportOpen(false); void exportCsv(query, name); }}
+            />
           ) : null}
         </View>
 
@@ -957,17 +1054,17 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
         }
         ListFooterComponent={
           visibleRecords.length > 0 ? (
-              <Card style={{ marginTop: space.xs, paddingHorizontal: 0 }}>
+              <View style={{ marginTop: space.md, gap: space.sm }}>
                 <T
                   variant="caption"
                   accessibilityLiveRegion="polite"
-                  style={{ textAlign: "center", color: ink[500], marginBottom: space.sm }}
+                  style={{ textAlign: "center", color: t.textMuted }}
                 >
                   Page {visiblePageIndex + 1} of {loadedPageCount} · {loadedRecords.length} records loaded{loadingMore ? " · Loading more…" : ""}
                 </T>
                 <NumberedPagination page={visiblePageIndex} totalPages={loadedPageCount} reachablePages={loadedPageCount} busy={loadingMore || refreshing || revalidating} available={!switchingQuery} hasNext={visiblePageIndex + 1 < loadedPageCount} onPage={changePage} onNext={() => changePage(visiblePageIndex + 1)} />
                 {visibleNextCursor && failedCursor === visibleNextCursor ? <Button title="Try again" accessibilityLabel="Try loading more records again" variant="secondary" loading={loadingMore} disabled={readInFlight} onPress={() => void load(false, visibleNextCursor, true)} style={{ marginTop: space.md }} /> : null}
-              </Card>
+              </View>
           ) : undefined
         }
       />

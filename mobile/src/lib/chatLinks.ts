@@ -1,4 +1,4 @@
-import type { ChatPageKey } from "./types";
+import type { ChatAnswerBasis, ChatPageKey } from "./types";
 import type { TabScreenTarget } from "../navigation/types";
 
 /**
@@ -72,4 +72,16 @@ export function inlineRuns(text: string): { text: string; bold: boolean }[] {
         ? { text: part.slice(2, -2), bold: true }
         : { text: part, bold: false },
     );
+}
+
+const plural = (count: number, noun: string) => `${count.toLocaleString("en-US")} ${noun}${count === 1 ? "" : "s"}`;
+
+/** "Figures from 214 expense records and 30 sales records, 2026-01-01 to 2026-11-19." Same words on web and mobile. */
+export function basisSentence(basis: ChatAnswerBasis): string {
+  const records = [
+    basis.expenseRecords > 0 ? plural(basis.expenseRecords, "expense record") : null,
+    basis.salesRecords > 0 ? plural(basis.salesRecords, "sales record") : null,
+  ].filter(Boolean);
+  const span = basis.from ? `${basis.from} to ${basis.to}` : `all records up to ${basis.to}`;
+  return records.length > 0 ? `Figures from ${records.join(" and ")}, ${span}.` : `No counted records from ${span}.`;
 }

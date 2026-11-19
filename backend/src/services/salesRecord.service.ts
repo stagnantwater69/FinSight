@@ -640,7 +640,7 @@ export async function bulkResolveSalesDuplicates(
   return owned.length;
 }
 
-function searchSalesWhere(filters: SearchFilters): Prisma.SalesReferenceRecordWhereInput {
+export function searchSalesWhere(filters: SearchFilters): Prisma.SalesReferenceRecordWhereInput {
   const cursorWhere = recordCursorWhere(filters.cursor, filters.sort ?? DEFAULT_RECORD_SORT);
   return {
     businessProfileId: filters.businessProfileId,

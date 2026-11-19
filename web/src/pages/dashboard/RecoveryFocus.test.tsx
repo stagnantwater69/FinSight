@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { DashboardSummary } from "../../lib/types";
 import { RecoveryFocus } from "./RecoveryFocus";
 
@@ -17,15 +17,14 @@ const baseRecovery = {
   onTrack: false,
 };
 
-function renderRecovery(recovery: Partial<DashboardSummary["recoveryStatus"]> = {}, needsSetup = false, onAddSale = () => {}) {
+function renderRecovery(recovery: Partial<DashboardSummary["recoveryStatus"]> = {}, needsSetup = false) {
   const summary = { recoveryStatus: { ...baseRecovery, ...recovery } } as DashboardSummary;
-  return render(<MemoryRouter><RecoveryFocus summary={summary} needsSetup={needsSetup} action={{ to: "/insights/recovery", label: "View recovery plan" }} onAddSale={onAddSale} /></MemoryRouter>);
+  return render(<MemoryRouter><RecoveryFocus summary={summary} needsSetup={needsSetup} action={{ to: "/insights/recovery", label: "View recovery plan" }} /></MemoryRouter>);
 }
 
 describe("dashboard today's target", () => {
-  it("turns a negative server gap into the remaining sale amount with an Add sale action", () => {
-    const onAddSale = vi.fn();
-    renderRecovery({}, false, onAddSale);
+  it("turns a negative server gap into the remaining sale amount, with no Add sale button in the card", () => {
+    renderRecovery({}, false);
 
     const target = screen.getByRole("region", { name: "Today’s recovery target" });
     expect(within(target).getByText("PHP 750")).toBeVisible();
@@ -33,9 +32,8 @@ describe("dashboard today's target", () => {
     expect(within(target).getByText("PHP 500")).toBeVisible();
     expect(within(target).getByText("PHP 1,250")).toBeVisible();
     expect(within(target).getByText("Current month · September 2026")).toBeVisible();
-    // Opens the add-sales popup in place, as Records does.
-    fireEvent.click(within(target).getByRole("button", { name: "Add sale" }));
-    expect(onAddSale).toHaveBeenCalledTimes(1);
+    // Adding a sale lives in the dashboard's quick actions, not in this card.
+    expect(within(target).queryByRole("button", { name: "Add sale" })).toBeNull();
   });
 
   it("explains why the catch-up pace is higher than today's target, and only then", () => {
