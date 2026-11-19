@@ -22,7 +22,7 @@ jobs:
       github.event.workflow_run.head_branch == github.event.repository.default_branch ||
       github.event.workflow_run.event == 'schedule'
     steps:
-      - uses: actions/github-script@v8
+      - uses: actions/github-script@v9
         with:
           script: |
             const run = context.payload.workflow_run;
