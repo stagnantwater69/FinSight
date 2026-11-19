@@ -54,6 +54,7 @@ import type {
   RecurringSchedule,
 } from "../lib/types";
 import type { InsightsScreenProps } from "../navigation/types";
+import { Reveal } from "../components/Reveal";
 
 const EMPTY_EXPENSE_BEHAVIOR: ExpenseBehavior = {
   periodDays: 0,
@@ -719,7 +720,7 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
             ) : null}
           </View>
         ) : (
-          <View style={{ gap: space.lg }}>
+          <Reveal style={{ gap: space.lg }}>
             {/*
               OVERVIEW — the figures, in the order the question is asked.
               The shape first, the figures second: the chart answers "is this
@@ -926,7 +927,7 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
               />
             ) : null}
             {activeSection === "recurring" ? <ExpensePagination label="Recurring" page={recurringPage} size={recurringSize} count={recurringRows.length} complete={schedules !== null && patternState.data !== null} available={schedules !== null || patternState.data !== null} busy={false} hasNext={(recurringPage + 1) * recurringSize < recurringRows.length} onPage={setRecurringPage} onNext={() => setRecurringPage((page) => page + 1)} /> : null}
-          </View>
+          </Reveal>
         )}
       </ContentScrollView>
 

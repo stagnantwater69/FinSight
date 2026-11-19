@@ -63,6 +63,7 @@ import type {
   RecoveryStatus,
 } from "../lib/types";
 import type { InsightsScreenProps } from "../navigation/types";
+import { Reveal } from "../components/Reveal";
 
 // ---------------------------------------------------------------- Recovery target
 
@@ -221,7 +222,7 @@ function RecoveryTargetContent({ navigation }: InsightsScreenProps<"RecoveryTarg
             <Button title="Retry" variant="secondary" onPress={load} />
           </View>
         ) : data && period ? (
-          <View style={{ gap: space.lg }}>
+          <Reveal style={{ gap: space.lg }}>
             <RecoveryCoachCard
               data={data}
               period={period}
@@ -411,7 +412,7 @@ function RecoveryTargetContent({ navigation }: InsightsScreenProps<"RecoveryTarg
                 onPress={() => openMonthEndReviewFromRecovery(navigation)}
               />
             ) : null}
-          </View>
+          </Reveal>
         ) : null}
       </ContentScrollView>
 

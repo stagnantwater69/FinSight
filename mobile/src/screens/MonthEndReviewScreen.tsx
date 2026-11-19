@@ -18,6 +18,7 @@ import type { BusinessProfile, RecoveryMonthEndReview } from "../lib/types";
 import { ChartPlotPressArea, ChartValueReadout, useChartSelection, type ChartDatum } from "../components/ChartInteraction";
 import { KpiWatermark } from "../components/KpiWatermark";
 import type { MoreScreenProps } from "../navigation/types";
+import { Reveal } from "../components/Reveal";
 
 /**
  * Month-end review — Recovery Target Improvement Plan §10.9/§11 Phase 7.
@@ -155,7 +156,7 @@ function ReviewContent({
   const coverageSelection = useChartSelection(coverageData, data.month);
 
   return (
-    <View style={{ gap: space.lg }}>
+    <Reveal style={{ gap: space.lg }}>
       <View style={{ backgroundColor: t.brandSolidPressed, borderRadius: radius.xl, padding: space.lg, gap: space.md }}>
         <KpiWatermark name="stats-chart-outline" color={t.onBrandSolid} opacity={0.065} borderRadius={radius.xl} />
         <T accessibilityRole="header" style={{ color: t.onBrandSolid, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>Costs paid by sales</T>
@@ -251,7 +252,7 @@ function ReviewContent({
           <Ionicons name="create-outline" size={20} color={t.brandText} accessible={false} /><T style={{ flexShrink: 1, color: t.brandText, fontFamily: font.sansSemibold, fontSize: typeScale.bodySm, textAlign: "center" }}>Edit business profile</T>
         </Pressable>
       </View>
-    </View>
+    </Reveal>
   );
 }
 

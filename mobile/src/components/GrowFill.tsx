@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Animated, Easing } from "react-native";
-import type { ViewStyle } from "react-native";
+import { Animated, Easing, type ViewStyle } from "react-native";
 import { useReducedMotion } from "../lib/useReducedMotion";
 
 const SETTLE = Easing.bezier(0.16, 1, 0.3, 1);
