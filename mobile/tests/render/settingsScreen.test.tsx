@@ -3,6 +3,8 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { palettes } from '../../src/theme/palette';
+import * as SecureStore from 'expo-secure-store';
+import { resetGreetingMotionForTests } from '../../src/lib/greetingMotion';
 
 const updatePreferences = vi.fn();
 const setPreference = vi.fn();
@@ -40,7 +42,9 @@ async function renderScreen() {
   return { ...queries, navigate, goBack, canGoBack };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  resetGreetingMotionForTests();
+  await SecureStore.deleteItemAsync('finsight.greetingMotion');
   vi.clearAllMocks();
   updatePreferences.mockResolvedValue(undefined);
   setAlwaysShow.mockResolvedValue(undefined);
@@ -108,6 +112,18 @@ describe('SettingsScreen', () => {
     const screen = await renderScreen();
     expect(screen.queryByRole('button', { name: /^Restart/ })).toBeNull();
     expect(screen.getByRole('button', { name: /^Notification settings/ })).toBeTruthy();
-    expect(screen.getAllByRole('switch')).toHaveLength(1);
+    // Fin's daily message, and keeping Fin still: both are not part of the tour.
+    expect(screen.getAllByRole('switch')).toHaveLength(2);
+  });
+
+  it('keeps Fin still on this phone without an account write', async () => {
+    const screen = await renderScreen();
+    const still = () => screen.getByRole('switch', { name: /^Keep Fin still/ });
+    expect(still().props.accessibilityState.checked).toBe(false);
+    await fireEvent.press(still());
+    expect(still().props.accessibilityState.checked).toBe(true);
+    expect(await SecureStore.getItemAsync('finsight.greetingMotion')).toBe('paused');
+    await fireEvent.press(still());
+    expect(still().props.accessibilityState.checked).toBe(false);
   });
 });

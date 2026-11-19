@@ -69,10 +69,11 @@ type Variant = "titleLg" | "title" | "heading" | "body" | "label" | "caption";
  * diffing for no benefit.
  */
 const textVariants = (t: Palette): Record<Variant, TextStyle> => ({
-  titleLg: { fontFamily: font.displayBold, fontSize: typeScale.titleLg, color: t.brandHeading, lineHeight: 34 },
-  title: { fontFamily: font.display, fontSize: typeScale.title, color: t.brandHeading, lineHeight: 24 },
-  heading: { fontFamily: font.sansSemibold, fontSize: typeScale.body, color: t.textSecondary, lineHeight: 20 },
-  body: { fontFamily: font.sans, fontSize: typeScale.body, color: t.textSecondary, lineHeight: 22 },
+  // Large type is tracked slightly tighter, as display faces are set; body keeps the face's own spacing.
+  titleLg: { fontFamily: font.displayBold, fontSize: typeScale.titleLg, color: t.brandHeading, lineHeight: 32, letterSpacing: -0.4 },
+  title: { fontFamily: font.display, fontSize: typeScale.title, color: t.brandHeading, lineHeight: 24, letterSpacing: -0.2 },
+  heading: { fontFamily: font.sansSemibold, fontSize: typeScale.body, color: t.textSecondary, lineHeight: 22 },
+  body: { fontFamily: font.sans, fontSize: typeScale.body, color: t.textSecondary, lineHeight: 24 },
   label: { fontFamily: font.sansMedium, fontSize: typeScale.label, color: t.textMuted, lineHeight: 18 },
   caption: { fontFamily: font.sans, fontSize: typeScale.caption, color: t.textMuted, lineHeight: 16 },
 });
@@ -1258,24 +1259,24 @@ export function StatTile({
  */
 const alertSpec = (
   t: Palette,
-): Record<AlertKind, { label: string; glyph: string; ink: string; solid: string; surface: string }> => ({
+): Record<AlertKind, { label: string; glyph: keyof typeof Ionicons.glyphMap; ink: string; solid: string; surface: string }> => ({
   "needs-review": {
     label: "Needs review",
-    glyph: "!",
+    glyph: "alert",
     ink: t.statusText.critical,
     solid: t.statusSolid.critical,
     surface: t.statusSurface.critical,
   },
   "large-expense": {
     label: "Large expense",
-    glyph: "▲",
+    glyph: "arrow-up",
     ink: t.statusText.serious,
     solid: t.statusSolid.serious,
     surface: t.statusSurface.serious,
   },
   duplicate: {
     label: "Possible duplicate",
-    glyph: "⧉",
+    glyph: "copy-outline",
     ink: t.statusText.warning,
     solid: t.statusSolid.warning,
     surface: t.statusSurface.warning,
@@ -1283,14 +1284,14 @@ const alertSpec = (
   // Serious, not informational — mirrors web's `recurring` spec.
   recurring: {
     label: "Recurring payment",
-    glyph: "↻",
+    glyph: "repeat",
     ink: t.statusText.serious,
     solid: t.statusSolid.serious,
     surface: t.statusSurface.serious,
   },
   info: {
     label: "For your information",
-    glyph: "i",
+    glyph: "information",
     ink: t.brandText,
     solid: t.brandSolid,
     surface: t.brandSurface,
@@ -1321,8 +1322,8 @@ export function Alert({
       <View style={{ width: 4, backgroundColor: spec.solid }} />
       <View style={styles.alertBody}>
         <View style={{ flexDirection: "row", gap: space.sm }}>
-          <View style={[styles.glyph, { backgroundColor: spec.solid }]}>
-            <Text style={{ color: t.textOnFill, fontSize: typeScale.micro, fontFamily: font.sansSemibold }}>{spec.glyph}</Text>
+          <View accessibilityElementsHidden importantForAccessibility="no" style={[styles.glyph, { backgroundColor: spec.solid }]}>
+            <Ionicons name={spec.glyph} size={12} color={t.textOnFill} />
           </View>
           <View style={{ flex: 1 }}>
             <T variant="label" style={{ color: spec.ink, textTransform: "uppercase", letterSpacing: 0.3 }}>
@@ -1342,10 +1343,9 @@ export function AlertBadge({ kind, label }: { kind: AlertKind; label?: string })
   const styles = useStyles();
   const spec = alertSpec(t)[kind];
   return (
-    <View style={[styles.badge, { backgroundColor: spec.solid }]}>
-      <Text style={{ color: t.textOnFill, fontSize: typeScale.micro, fontFamily: font.sansMedium }}>
-        {spec.glyph} {label ?? spec.label}
-      </Text>
+    <View style={[styles.badge, { backgroundColor: spec.solid, flexDirection: "row", alignItems: "center", gap: 3 }]}>
+      <Ionicons name={spec.glyph} size={11} color={t.textOnFill} accessibilityElementsHidden importantForAccessibility="no" />
+      <Text style={{ color: t.textOnFill, fontSize: typeScale.micro, fontFamily: font.sansMedium }}>{label ?? spec.label}</Text>
     </View>
   );
 }
@@ -1356,13 +1356,13 @@ export function EmptyState({
   title,
   body,
   action,
-  icon = "＋",
+  icon = "add",
   image,
 }: {
   title: string;
   body?: string;
   action?: ReactNode;
-  icon?: string;
+  icon?: keyof typeof Ionicons.glyphMap;
   /**
    * A mascot illustration to show instead of the glyph circle, for the
    * states `docs/mascot-scenario-library.md` maps to a specific pose rather
@@ -1383,7 +1383,7 @@ export function EmptyState({
         />
       ) : (
         <View style={styles.emptyIcon}>
-          <Text style={{ fontSize: 20, color: t.brand[600] }}>{icon}</Text>
+          <Ionicons name={icon} size={22} color={t.brand[600]} />
         </View>
       )}
       {/*
@@ -1492,10 +1492,10 @@ export function SetupProgress({ steps }: { steps: { label: string; done: boolean
       </View>
       <View style={{ marginTop: space.md, gap: 6 }}>
         {steps.map((s) => (
-          <T key={s.label} style={{ fontSize: typeScale.label, color: s.done ? t.textFaint : t.textSecondary }}>
-            {s.done ? "✓ " : "○ "}
-            {s.label}
-          </T>
+          <View key={s.label} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Ionicons name={s.done ? "checkmark-circle" : "ellipse-outline"} size={14} color={s.done ? t.brand[500] : t.textFaint} accessibilityElementsHidden importantForAccessibility="no" />
+            <T style={{ fontSize: typeScale.label, color: s.done ? t.textFaint : t.textSecondary }}>{s.label}</T>
+          </View>
         ))}
       </View>
     </View>
@@ -1516,8 +1516,8 @@ export function SetupProgress({ steps }: { steps: { label: string; done: boolean
  */
 const calloutTones = (t: Palette) =>
   ({
-    info: { surface: t.brandSurface, ink: t.brandText, glyph: "ⓘ" },
-    warn: { surface: t.statusSurface.warning, ink: t.statusText.warning, glyph: "⚠" },
+    info: { surface: t.brandSurface, ink: t.brandText, glyph: "information-circle-outline" as const },
+    warn: { surface: t.statusSurface.warning, ink: t.statusText.warning, glyph: "warning-outline" as const },
   }) as const;
 
 export function Callout({
@@ -1541,7 +1541,7 @@ export function Callout({
         padding: space.md,
       }}
     >
-      <Text style={{ color: spec.ink, fontSize: typeScale.label, fontFamily: font.sansSemibold }}>{spec.glyph}</Text>
+      <Ionicons name={spec.glyph} size={16} color={spec.ink} style={{ marginTop: 1 }} accessibilityElementsHidden importantForAccessibility="no" />
       <T style={{ flex: 1, fontSize: typeScale.label, lineHeight: 19, color: spec.ink }}>{children}</T>
     </View>
   );

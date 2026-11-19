@@ -27,7 +27,7 @@ export function SubpageHeader({ title, onBack, disabled = false, right }: {
   return (
     <View style={{ paddingTop: insets.top, backgroundColor: t.surfaceSunken }}>
       {focused ? <StatusBar barStyle={t.statusBarStyle === "dark" ? "dark-content" : "light-content"} /> : null}
-      <View style={{ width: "100%", maxWidth: CONTENT_WIDTH, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm }}>
+      <View style={{ width: "100%", maxWidth: CONTENT_WIDTH, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: space.xl, paddingLeft: space.sm, paddingRight: space.md, paddingVertical: space.sm }}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -40,6 +40,7 @@ export function SubpageHeader({ title, onBack, disabled = false, right }: {
         >
           <Ionicons name="arrow-back" size={24} color={t.brandHeading} accessibilityElementsHidden importantForAccessibility="no" />
         </Pressable>
+        {/* Arrow and title on the same keylines as the stack header (Edit record). */}
         <T accessibilityRole="header" variant="title" style={{ flex: 1, minWidth: 0, fontFamily: font.displayBold, fontSize: typeScale.subpageTitle, lineHeight: 29 }}>{title}</T>
         {right}
       </View>

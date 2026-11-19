@@ -1,5 +1,5 @@
-import { ReactNode, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { ReactNode } from "react";
+import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { CONTENT_WIDTH, ContentScrollView } from "./ContentScrollView";
 import { useReducedMotion } from "../lib/useReducedMotion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -113,9 +113,12 @@ export function RecoveryCoachCard({ data, period, isCurrentMonth, header }: {
   return (
     <TealPanel style={{ borderRadius: radius.xl }} watermarkIcon="stats-chart-outline">
       {header}
-      <PanelStatus tone={noSales ? "warning" : status.tone} glyph={noSales ? "i" : status.glyph} copy={noSales ? isCurrentMonth ? "No sales recorded yet this month" : recoveryPeriodStatusLabel({ ...period, status: "no_data" }) : status.copy} />
       <View style={{ gap: space.xs }}>
-        <T style={{ color: HERO_MUTED, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>Sales recorded</T>
+        {/* The label and the status share a line; they wrap only when large text needs it. */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: space.sm }}>
+          <T style={{ color: HERO_MUTED, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>Sales recorded</T>
+          <PanelStatus tone={noSales ? "warning" : status.tone} glyph={noSales ? "i" : status.glyph} copy={noSales ? isCurrentMonth ? "No sales recorded yet this month" : recoveryPeriodStatusLabel({ ...period, status: "no_data" }) : status.copy} />
+        </View>
         <T style={{ color: HERO_INK, fontFamily: font.sansSemibold, fontSize: typeScale.display, lineHeight: typeScale.display + space.sm, fontVariant: ["tabular-nums"] }}>{formatMoney(period.sales)}</T>
         <T style={{ color: HERO_MUTED, fontSize: typeScale.bodySm }}>{targetReady ? `of ${formatMoney(period.target)} sales coverage target` : "Add a monthly expense estimate to calculate your target."}</T>
       </View>
@@ -137,7 +140,7 @@ export function RecoveryCoachCard({ data, period, isCurrentMonth, header }: {
             </View>
             </ChartPlotPressArea>
           </View>
-          <ChartValueReadout data={coverageData} selection={coverageSelection} chartLabel="Costs paid by sales" />
+          <ChartValueReadout data={coverageData} selection={coverageSelection} chartLabel="Costs paid by sales" explore={false} />
           <View style={{ borderTopWidth: 1, borderTopColor: HERO.hairline, paddingTop: space.md, flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
             <View style={{ flex: 1, minWidth: 120, gap: space.xs }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}><Ionicons name="arrow-up" size={18} color={HERO_AMBER} /><T style={{ color: HERO_MUTED, fontSize: typeScale.caption }}>{period.isComplete ? "Period result" : "Still to sell"}</T></View>
@@ -202,7 +205,7 @@ export function ProgressBar({ percent, color, label, height = 16, detail }: { pe
       <View style={{ width: `${width}%`, height: "100%", borderRadius: height / 2, backgroundColor: color }} />
     </View>
     </ChartPlotPressArea>
-    <ChartValueReadout data={progressData} selection={progressSelection} chartLabel={detail?.label ?? label} />
+    <ChartValueReadout data={progressData} selection={progressSelection} chartLabel={detail?.label ?? label} explore={false} />
     </View>
   );
 }
@@ -282,9 +285,9 @@ export function DayCalendar({
 }) {
   const t = useTheme();
   const { fontScale } = useWindowDimensions();
-  const [calendarWidth, setCalendarWidth] = useState(0);
-  const gridWidth = Math.max(calendarWidth, 7 * (TAP_FLOOR + 4));
-  const cellHeight = Math.max(TAP_FLOOR + 4, (TAP_FLOOR + 4) * fontScale);
+  // Seven columns always share the card's width, so the month never scrolls sideways.
+  // Rows keep the full tap height, and grow with large text.
+  const cellHeight = Math.max(TAP_FLOOR, TAP_FLOOR * fontScale);
   const byDate = new Map(rows.map((r) => [r.date.slice(0, 10), r]));
   const start = period.start.slice(0, 10);
   const end = period.end.slice(0, 10);
@@ -316,9 +319,8 @@ export function DayCalendar({
   const selectedRow = selected ? byDate.get(selected) ?? null : null;
 
   return (
-    <View onLayout={(event) => setCalendarWidth(event.nativeEvent.layout.width)}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={gridWidth > calendarWidth}>
-        <View style={{ width: gridWidth }}>
+    <View>
+        <View>
           <View style={{ flexDirection: "row", marginTop: space.md }}>
             {WEEKDAYS.map((d, i) => (
               <T key={i} style={{ flex: 1, textAlign: "center", fontSize: typeScale.micro, color: t.textMuted, fontFamily: font.sansSemibold }}>
@@ -349,7 +351,7 @@ export function DayCalendar({
               const statusWord =
                 kind === "hit" ? "reached target" : kind === "miss" ? "below target" : kind === "closed" ? "closed" : kind === "today" ? "today" : kind === "future" ? "not yet recorded" : "no record";
               return (
-                <View key={date} style={{ width: `${100 / 7}%`, minHeight: cellHeight, padding: 2 }}
+                <View key={date} style={{ width: `${100 / 7}%`, minHeight: cellHeight, padding: 1.5 }}
                   onPointerEnter={(event) => {
                     if (kind === "future" && (event.nativeEvent.pointerType === "mouse" || event.nativeEvent.pointerType === "pen") && !event.nativeEvent.buttons) calendarSelection.hover(calendarIndex);
                   }}
@@ -371,7 +373,7 @@ export function DayCalendar({
                       flex: 1,
                       borderRadius: radius.sm,
                       borderWidth: 1,
-                      paddingHorizontal: 4,
+                      paddingHorizontal: 3,
                       paddingVertical: 3,
                       justifyContent: "space-between",
                       opacity: pressed ? 0.75 : 1,
@@ -381,7 +383,7 @@ export function DayCalendar({
                   >
                     <T style={{ fontSize: typeScale.micro, fontFamily: font.sansSemibold, color: ink }}>{day}</T>
                     {row && kind !== "closed" && kind !== "future" && row.sales > 0 ? (
-                      <T style={{ fontSize: typeScale.micro, fontFamily: font.monoMedium, color: ink }}>
+                      <T numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ fontSize: typeScale.micro, fontFamily: font.monoMedium, color: ink }}>
                         {compactAmount(row.sales)}
                       </T>
                     ) : kind === "closed" ? (
@@ -393,7 +395,6 @@ export function DayCalendar({
             })}
           </View>
         </View>
-      </ScrollView>
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md, marginTop: space.sm }}>
         <LegendSwatch color={t.brandFill} label="Hit target" />
@@ -401,7 +402,7 @@ export function DayCalendar({
         <LegendSwatch color={t.surfaceMuted} label="Closed day" />
         {!period.isComplete ? <LegendSwatch color={t.brandSurface} border={t.brandFill} label="Today" /> : null}
       </View>
-      <ChartValueReadout data={calendarData} selection={calendarSelection} chartLabel="Each day's sales" />
+      <ChartValueReadout data={calendarData} selection={calendarSelection} chartLabel="Each day's sales" explore={false} />
       <DaySheet row={selectedRow} date={selected} onClose={sheetSelection.clear} />
     </View>
   );
@@ -559,7 +560,7 @@ function DayBar({ label, value, max, color }: { label: string; value: number; ma
         <View style={{ width: `${Math.max(0, Math.min(100, (value / max) * 100))}%`, height: "100%", borderRadius: radius.sm, backgroundColor: color }} />
       </View>
       </ChartPlotPressArea>
-      <ChartValueReadout data={dayData} selection={daySelection} chartLabel={label} />
+      <ChartValueReadout data={dayData} selection={daySelection} chartLabel={label} explore={false} />
     </View>
   );
 }
@@ -649,7 +650,7 @@ export function CheckpointFlags({ checkpoints, today }: { checkpoints: readonly 
           );
         })}
       </View>
-      <ChartValueReadout data={checkpointData} selection={checkpointSelection} chartLabel="Weekly checkpoints" />
+      <ChartValueReadout data={checkpointData} selection={checkpointSelection} chartLabel="Weekly checkpoints" explore={false} />
     </View>
   );
 }
@@ -720,7 +721,7 @@ export function DailyTargetBreakdown({ period }: { period: RecoveryReportingPeri
           </View>
         </>
       ) : null}
-      <ChartValueReadout data={breakdownData} selection={breakdownSelection} chartLabel="Daily target breakdown" />
+      <ChartValueReadout data={breakdownData} selection={breakdownSelection} chartLabel="Daily target breakdown" explore={false} />
     </View>
   );
 }

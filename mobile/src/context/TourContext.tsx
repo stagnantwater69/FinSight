@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useAuth } from "./AuthContext";
@@ -356,7 +356,10 @@ export function TourProvider({ children }: { children: ReactNode }) {
     [userId, updatePreferences, isCurrent],
   );
 
-  const value: TourContextValue = {
+  // Memoised: Home reports focus on every tab switch, and a fresh object here
+  // re-rendered every tour target in every tab each time.
+  const alwaysShow = stored?.alwaysShow === true;
+  const value = useMemo<TourContextValue>(() => ({
     active,
     stepIndex,
     activeStepId: active ? (TOUR_STEPS[stepIndex]?.id ?? null) : null,
@@ -366,10 +369,10 @@ export function TourProvider({ children }: { children: ReactNode }) {
     skipUnavailable,
     stop,
     restart,
-    alwaysShow: stored?.alwaysShow === true,
+    alwaysShow,
     setAlwaysShow,
     reportHomeStage,
-  };
+  }), [active, stepIndex, next, back, unavailableStepIds, skipUnavailable, stop, restart, alwaysShow, setAlwaysShow, reportHomeStage]);
 
   /*
    * The wrapping View is what the overlay is absolutely positioned against.

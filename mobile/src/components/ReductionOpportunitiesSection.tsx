@@ -248,7 +248,7 @@ function OpportunityCard({
               </ChartPlotPressArea>
             </View>
           ))}
-          <ChartValueReadout data={comparisonData} selection={comparisonSelection} chartLabel={`${opportunity.categoryName} opportunity comparison`} />
+          <ChartValueReadout data={comparisonData} selection={comparisonSelection} chartLabel={`${opportunity.categoryName} opportunity comparison`} explore={false} />
           <T variant="caption">{change === 0 ? `${opportunity.categoryName} stayed the same.` : `${opportunity.categoryName} was ${formatMoney(Math.abs(change!), { decimals: true })} ${change! > 0 ? "higher" : "lower"} than the previous period.`}</T>
         </View>
       ) : null}

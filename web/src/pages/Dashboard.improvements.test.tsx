@@ -154,10 +154,16 @@ describe("Dashboard decision-first improvements", () => {
     renderDashboard();
 
     expect(await screen.findByText("PHP 61,000")).toBeVisible();
-    await user.click(screen.getByText("How it’s calculated"));
+    const trigger = screen.getByRole("button", { name: "How it’s calculated" });
+    await user.click(trigger);
     expect(
       screen.getByText(/Starting PHP 50,000; 2 confirmed sales and 1 confirmed expense since Jan 1, 2026/),
     ).toBeVisible();
+    // It opens over the tile, so Escape closes it and focus goes back to the trigger.
+    expect(screen.getByRole("button", { name: "Close how it’s calculated" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "How available funds are calculated" })).toBeNull();
+    expect(trigger).toHaveFocus();
   });
 
   it("uses semantic all-time copy instead of Last 0 days", async () => {

@@ -79,7 +79,7 @@ export function SpendingComparison({ total, previousTotal, period, comparedWith 
           </View>
         </Pressable>
       ))}
-      <ChartValueReadout data={comparisonData} selection={comparisonSelection} chartLabel="Spending comparison" />
+      <ChartValueReadout data={comparisonData} selection={comparisonSelection} chartLabel="Spending comparison" explore={false} />
     </View>
   );
 }
@@ -87,7 +87,6 @@ export function SpendingComparison({ total, previousTotal, period, comparedWith 
 export function DailySpending({ days }: { days: DailyExpenseTotal[] }) {
   const t = useTheme();
   const expense = expenseColors(t);
-  const [showAmounts, setShowAmounts] = useState(false);
   const [mode, setMode] = useState<"daily" | "running">("daily");
   const peakIndex = days.reduce((best, day, i) => day.total > (days[best]?.total ?? 0) ? i : best, 0);
   const peak = days[peakIndex];
@@ -116,10 +115,6 @@ export function DailySpending({ days }: { days: DailyExpenseTotal[] }) {
           ))}
           </View>
         </View>
-        {showAmounts ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md, justifyContent: "space-between" }}>
-          <View style={{ gap: space.xs }}><T variant="caption">Daily average</T><T style={{ fontFamily: font.sansSemibold, fontVariant: ["tabular-nums"] }}>{exact(average)}</T></View>
-          <View style={{ gap: space.xs }}><T variant="caption">{`Highest day · ${shortDate(peak.date)}`}</T><T style={{ fontFamily: font.sansSemibold, fontVariant: ["tabular-nums"] }}>{exact(peak.total)}</T></View>
-        </View> : null}
         <View style={{ flexDirection: "row", gap: space.sm }}>
           <View accessible={false} style={{ width: 40, height: H, justifyContent: "space-between" }}><T variant="caption">{axisAmount(max)}</T><T variant="caption">{axisAmount(max / 2)}</T><T variant="caption">0</T></View>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -141,8 +136,6 @@ export function DailySpending({ days }: { days: DailyExpenseTotal[] }) {
           <Pressable accessibilityRole="button" accessibilityLabel="Next day" accessibilityState={{ disabled: activeIndex === days.length - 1 }} disabled={activeIndex === days.length - 1} onPress={() => daySelection.select(activeIndex + 1)} style={({ pressed }) => ({ ...buttonStyle, opacity: activeIndex === days.length - 1 ? 0.4 : pressed ? 0.6 : 1 })}><Ionicons name="chevron-forward" size={20} color={t.brandText} /></Pressable>
         </View>
         <T variant="caption">{`Spent on ${days.filter((day) => day.total > 0).length} of ${days.length} days · average ${formatMoney(average)} a day · highest ${shortDate(peak.date)} ${formatMoney(peak.total)}`}</T>
-        <Pressable accessibilityRole="button" accessibilityLabel={showAmounts ? (mode === "daily" ? "Hide daily amounts" : "Hide running totals") : (mode === "daily" ? "View daily amounts" : "View running totals")} accessibilityState={{ expanded: showAmounts }} onPress={() => setShowAmounts(!showAmounts)} style={({ pressed }) => ({ minHeight: TAP_FLOOR, flexDirection: "row", alignItems: "center", justifyContent: "space-between", opacity: pressed ? 0.7 : 1 })}><T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodySm, color: t.brandText }}>{showAmounts ? (mode === "daily" ? "Hide daily amounts" : "Hide running totals") : (mode === "daily" ? "View daily amounts" : "View running totals")}</T><Ionicons name={showAmounts ? "chevron-up" : "chevron-down"} size={18} color={t.brandText} /></Pressable>
-        {showAmounts ? days.map((day, i) => <View key={day.date} style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: space.sm, paddingVertical: space.sm, borderTopWidth: 1, borderTopColor: t.border }}><T variant="caption">{shortDate(day.date)}</T><T style={{ fontSize: typeScale.bodySm, fontFamily: font.sansMedium, fontVariant: ["tabular-nums"] }}>{exact(mode === "daily" ? day.total : values[i]!)}</T></View>) : null}
       </>}
     </View>
   );
@@ -217,7 +210,7 @@ export function CategoryBars({ trends, total, previousTotal, comparedWith, onOpe
             </Pressable>)}
           </View>
         </View>
-        <ChartValueReadout data={categoryData} selection={categorySelection} chartLabel="Category distribution" />
+        <ChartValueReadout data={categoryData} selection={categorySelection} chartLabel="Category distribution" explore={false} />
         {ranked.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={showAll ? "Show fewer" : `All ${ranked.length} categor${ranked.length === 1 ? "y" : "ies"}`} accessibilityState={{ expanded: showAll }} aria-expanded={showAll} onPress={() => setShowAll(!showAll)} style={({ pressed }) => ({ minHeight: TAP_FLOOR, flexDirection: "row", alignItems: "center", justifyContent: "space-between", opacity: pressed ? 0.7 : 1 })}><T style={{ fontFamily: font.sansSemibold, fontSize: typeScale.bodySm, color: t.brandText }}>{showAll ? "Show fewer" : `All ${ranked.length} categor${ranked.length === 1 ? "y" : "ies"}`}</T><Ionicons name={showAll ? "chevron-up" : "chevron-down"} size={18} color={t.brandText} /></Pressable> : null}
         {showAll ? <>
           <T variant="caption">{`Current spending by category · comparison with ${comparedWith ?? "the previous period"}`}</T>
@@ -236,7 +229,7 @@ export function CategoryBars({ trends, total, previousTotal, comparedWith, onOpe
             <T style={{ fontSize: typeScale.bodySm, fontFamily: font.sansMedium, color: change === 0 || pct === null ? t.textSecondary : change > 0 ? t.statusText.serious : t.statusText.good }}>{previousTotal === 0 && c.previous === 0 ? "No earlier expenses to compare" : changeText}</T>
           </Pressable>;
         })}
-        {showAll ? <ChartValueReadout data={rankedData} selection={rankedSelection} chartLabel="Category comparison" /> : null}
+        {showAll ? <ChartValueReadout data={rankedData} selection={rankedSelection} chartLabel="Category comparison" explore={false} /> : null}
         {showAll ? (() => {
           const change = total - previousTotal;
           const pct = previousTotal > 0 ? (change / previousTotal) * 100 : null;

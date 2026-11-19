@@ -52,7 +52,7 @@ function Bar({ percent, color, label, detail }: { percent: number; color: string
       <View style={{ width: `${width}%`, height: "100%", borderRadius: radius.full, backgroundColor: color }} />
     </View>
     </ChartPlotPressArea>
-    <ChartValueReadout data={barData} selection={barSelection} chartLabel={detail.label} />
+    <ChartValueReadout data={barData} selection={barSelection} chartLabel={detail.label} explore={false} />
     </View>
   );
 }

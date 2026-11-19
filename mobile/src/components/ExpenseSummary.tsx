@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { T } from "./ui";
@@ -192,7 +192,7 @@ export function ExpenseGlance({
       ) : null}
 
     </View>
-    <ChartValueReadout data={glanceData} selection={glanceSelection} chartLabel="Spending at a glance" />
+    <ChartValueReadout data={glanceData} selection={glanceSelection} chartLabel="Spending at a glance" explore={false} />
     </View>
   );
 }
@@ -233,53 +233,26 @@ function spoken(segments: SummarySegment[]): string {
   return segments.map((segment) => segment.text).join("");
 }
 
-/** A small ring with the share in the middle, for the largest category. */
-function ShareRing({ percent }: { percent: number }) {
-  const t = useTheme();
-  const size = 52;
-  const stroke = 7;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const shown = Math.max(0, Math.min(100, percent));
-  return (
-    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-      <Svg width={size} height={size} style={{ position: "absolute" }}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={t.surfaceStrong} strokeWidth={stroke} fill="none" />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={t.brandFill}
-          strokeWidth={stroke}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={`${(shown / 100) * c} ${c}`}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
-      </Svg>
-      <T style={{ fontFamily: font.monoSemibold, fontSize: typeScale.label, color: t.textPrimary }}>{`${shown.toFixed(0)}%`}</T>
-    </View>
-  );
-}
-
-/** A round icon badge, the visual anchor of a tile that has no chart. */
-function Badge({ icon, color, surface }: { icon: keyof typeof Ionicons.glyphMap; color: string; surface: string }) {
-  return (
-    <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: surface, alignItems: "center", justifyContent: "center" }}>
-      <Ionicons name={icon} size={24} color={color} />
-    </View>
-  );
-}
-
+/**
+ * Every Summary tile has the same three layers, top to bottom: what it is (a
+ * small label with a quiet icon), the one figure, then a line of context.
+ * The tiles used to each pick their own lead (a ring, a big tinted disc, a bare
+ * arrow, a red stripe), which read as four widgets rather than one summary.
+ * Colour now lives only in the figure and the icon, where it carries meaning.
+ */
 function SummaryTile({
   point,
+  label,
+  icon,
+  iconColor,
   onPress,
-  tone = "plain",
   children,
 }: {
   point: SummaryPoint;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor?: string;
   onPress?: () => void;
-  tone?: "plain" | "attention";
   children: ReactNode;
 }) {
   const t = useTheme();
@@ -287,19 +260,25 @@ function SummaryTile({
     flexGrow: 1,
     flexBasis: "46%" as const,
     minWidth: 140,
-    minHeight: 132,
+    minHeight: 124,
     gap: space.sm,
     padding: space.md,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: t.border,
-    backgroundColor: t.surfaceSunken,
-    overflow: "hidden" as const,
+    backgroundColor: t.surface,
   };
+  const header = (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+      <Ionicons name={icon} size={15} color={iconColor ?? t.brandText} />
+      <T numberOfLines={1} style={{ flex: 1, fontSize: typeScale.caption, fontFamily: font.sansMedium, color: t.textMuted }}>{label}</T>
+      {onPress ? <Ionicons name="chevron-forward" size={16} color={t.textMuted} /> : null}
+    </View>
+  );
   if (!onPress) {
     return (
       <View accessible accessibilityLabel={spoken(point.segments)} style={style}>
-        {tone === "attention" ? <AlertBar /> : null}
+        {header}
         {children}
       </View>
     );
@@ -310,11 +289,21 @@ function SummaryTile({
       accessibilityLabel={spoken(point.segments)}
       accessibilityHint="Opens the flagged records"
       onPress={onPress}
-      style={({ pressed }) => ({ ...style, opacity: pressed ? 0.75 : 1 })}
+      style={({ pressed }) => ({ ...style, backgroundColor: pressed ? t.surfaceMuted : t.surface })}
     >
-      {tone === "attention" ? <AlertBar /> : null}
+      {header}
       {children}
     </Pressable>
+  );
+}
+
+/** A thin track for a share or a comparison: quieter than a chart, still exact on tap. */
+function Track({ percent, color }: { percent: number; color: string }) {
+  const t = useTheme();
+  return (
+    <View style={{ height: 6, borderRadius: 3, backgroundColor: t.surfaceStrong }}>
+      <View style={{ width: `${Math.max(2, Math.min(100, percent))}%`, height: 6, borderRadius: 3, backgroundColor: color }} />
+    </View>
   );
 }
 
@@ -322,7 +311,7 @@ function SummaryTile({
 function Figure({ children, color }: { children: string; color?: string }) {
   const t = useTheme();
   return (
-    <T numberOfLines={1} adjustsFontSizeToFit style={{ fontFamily: font.monoSemibold, fontSize: typeScale.title, color: color ?? t.textPrimary, fontVariant: ["tabular-nums"] }}>
+    <T numberOfLines={1} adjustsFontSizeToFit style={{ fontFamily: font.monoSemibold, fontSize: typeScale.subpageTitle, lineHeight: typeScale.subpageTitle + 6, color: color ?? t.textPrimary, fontVariant: ["tabular-nums"] }}>
       {children}
     </T>
   );
@@ -385,16 +374,18 @@ export function ExpenseSummaryCard({
           {points.map((point) => {
             if (point.kind === "top" && summary.top) {
               return (
-                <SummaryTile key={point.kind} point={point}>
-                  <ChartPlotPressArea selection={summarySelection} count={summaryData.length} chartLabel="Largest category share" indexAtPoint={() => summaryData.findIndex((row) => row.key === "top")} style={{ alignSelf: "flex-start" }}><ShareRing percent={summary.topShare} /></ChartPlotPressArea>
-                  <Caption strong={summary.top.categoryName} rest="is your biggest cost" />
+                <SummaryTile key={point.kind} point={point} label="Biggest cost" icon="pie-chart-outline">
+                  <Figure>{`${Math.max(0, Math.min(100, summary.topShare)).toFixed(0)}%`}</Figure>
+                  <ChartPlotPressArea selection={summarySelection} count={summaryData.length} chartLabel="Largest category share" indexAtPoint={() => summaryData.findIndex((row) => row.key === "top")}>
+                    <Track percent={summary.topShare} color={t.brandFill} />
+                  </ChartPlotPressArea>
+                  <Caption strong={summary.top.categoryName} rest="" />
                 </SummaryTile>
               );
             }
             if (point.kind === "increase" && summary.biggestIncrease) {
               return (
-                <SummaryTile key={point.kind} point={point}>
-                  <Badge icon="trending-up" color={t.statusText.serious} surface={t.statusSurface.serious} />
+                <SummaryTile key={point.kind} point={point} label="Biggest rise" icon="trending-up" iconColor={t.statusText.serious}>
                   <Figure color={t.statusText.serious}>{`+${formatMoney(summary.biggestIncrease.change)}`}</Figure>
                   <Caption strong={summary.biggestIncrease.categoryName} rest="went up the most" />
                 </SummaryTile>
@@ -404,32 +395,23 @@ export function ExpenseSummaryCard({
               const up = summary.periodDelta > 0;
               const color = up ? t.statusText.serious : t.statusText.good;
               return (
-                <SummaryTile key={point.kind} point={point}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-                    <Ionicons name={up ? "arrow-up" : "arrow-down"} size={22} color={color} />
-                    <Figure color={color}>{`${Math.abs(summary.periodPercent).toFixed(0)}%`}</Figure>
-                  </View>
-                  {/* Now against before: the same two lengths the hero draws, small. */}
+                <SummaryTile key={point.kind} point={point} label="Total spending" icon={up ? "arrow-up" : "arrow-down"} iconColor={color}>
+                  <Figure color={color}>{`${Math.abs(summary.periodPercent).toFixed(0)}%`}</Figure>
+                  {/* Now against before, on one scale: this period in its tone, the last one in grey. */}
                   <ChartPlotPressArea selection={summarySelection} count={summaryData.length} chartLabel="Summary spending comparison" indexAtPoint={() => summaryData.findIndex((row) => row.key === "total")}>
-                  <View style={{ gap: 4 }}>
-                    {[{ value: summary.total, fill: color }, { value: previous, fill: t.textMuted }].map((bar, i) => (
-                      <View key={i} style={{ height: 8, borderRadius: 4, backgroundColor: t.surfaceStrong }}>
-                        <View style={{ width: `${Math.max(2, (bar.value / barMax) * 100)}%`, height: 8, borderRadius: 4, backgroundColor: bar.fill }} />
-                      </View>
-                    ))}
-                  </View>
+                    <View style={{ gap: 3 }}>
+                      <Track percent={(summary.total / barMax) * 100} color={color} />
+                      <Track percent={(previous / barMax) * 100} color={t.textFaint} />
+                    </View>
                   </ChartPlotPressArea>
                   <Caption rest={`${up ? "more" : "less"} than ${comparedWith ?? "before"}`} />
                 </SummaryTile>
               );
             }
             if (point.kind === "flags") {
+              const reviewable = flaggedCount > 0 && Boolean(onReviewFlags);
               return (
-                <SummaryTile key={point.kind} point={point} tone="attention" onPress={flaggedCount > 0 ? onReviewFlags : undefined}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                    <Badge icon="flag" color={t.statusText.critical} surface={t.statusSurface.critical} />
-                    {flaggedCount > 0 && onReviewFlags ? <Ionicons name="chevron-forward" size={18} color={t.statusText.critical} style={{ marginLeft: "auto" }} /> : null}
-                  </View>
+                <SummaryTile key={point.kind} point={point} label={flaggedCount > 0 ? "Needs a check" : "Unusual"} icon="flag-outline" iconColor={t.statusText.critical} onPress={reviewable ? onReviewFlags : undefined}>
                   <Figure>{String(flaggedCount > 0 ? flaggedCount : unusualCount)}</Figure>
                   <Caption rest={flaggedCount > 0 ? (unusualCount > 0 ? `to review · ${unusualCount} unusual` : "to review") : "unusual for their category"} />
                 </SummaryTile>
@@ -440,15 +422,16 @@ export function ExpenseSummaryCard({
         </View>
       )}
 
-      {points.some((point) => point.kind === "top" || point.kind === "total") ? <ChartValueReadout data={summaryData} selection={summarySelection} chartLabel="Expense summary" /> : null}
+      {points.some((point) => point.kind === "top" || point.kind === "total") ? <ChartValueReadout data={summaryData} selection={summarySelection} chartLabel="Expense summary" explore={false} /> : null}
+      {/*
+        Follow-up questions as a short list at the foot of the card. They were a
+        row of filled pills scrolling sideways, cut off at the screen edge and
+        louder than the figures they ask about.
+      */}
       {questions.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0, marginTop: space.md }}
-          contentContainerStyle={{ alignItems: "center", gap: space.sm }}
-        >
-          {questions.map((q) => (
+        <View style={{ marginTop: space.md }}>
+          <T variant="caption" style={{ marginBottom: space.xs }}>Ask FinSight about this</T>
+          {questions.map((q, index) => (
             <Pressable
               key={q.label}
               accessibilityRole="button"
@@ -456,22 +439,21 @@ export function ExpenseSummaryCard({
               onPress={() => onAsk(q.question)}
               style={({ pressed }) => ({
                 minHeight: TAP_FLOOR,
-                flexShrink: 0,
                 flexDirection: "row",
                 alignItems: "center",
-                gap: 6,
-                paddingHorizontal: space.md,
-                borderRadius: radius.full,
-                borderWidth: 1,
-                borderColor: t.brandBorder,
-                backgroundColor: pressed ? t.brandBorder : t.brandSurface,
+                gap: space.sm,
+                paddingVertical: space.sm,
+                borderTopWidth: index ? 1 : 0,
+                borderTopColor: t.border,
+                opacity: pressed ? 0.7 : 1,
               })}
             >
-              <Ionicons name="chatbubble-outline" size={14} color={t.brandText} />
-              <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.brandText }}>{q.label}</T>
+              <Ionicons name="chatbubble-outline" size={16} color={t.brandText} />
+              <T style={{ flex: 1, fontSize: typeScale.bodySm, fontFamily: font.sansMedium, color: t.brandText }}>{q.label}</T>
+              <Ionicons name="chevron-forward" size={16} color={t.textMuted} />
             </Pressable>
           ))}
-        </ScrollView>
+        </View>
       ) : null}
     </View>
   );

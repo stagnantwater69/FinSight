@@ -27,7 +27,7 @@ describe('T line height', () => {
   });
 
   it('keeps body line height for sizes it already fits', async () => {
-    expect(await lineHeightOf({ fontSize: typeScale.bodySm })).toBe(22);
+    expect(await lineHeightOf({ fontSize: typeScale.bodySm })).toBe(24);
   });
 
   it('lets an explicit line height win', async () => {

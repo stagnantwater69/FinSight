@@ -425,7 +425,7 @@ export function PaymentCalendarScreen({ navigation, route }: DashboardScreenProp
         {actionError ? <ErrorNote>That didn’t save. {actionError}</ErrorNote> : null}
 
         {!selected ? (
-          <EmptyState title="No business selected" icon="↻" body="Choose a business to see its payment calendar." />
+          <EmptyState title="No business selected" icon="refresh" body="Choose a business to see its payment calendar." />
         ) : loading ? (
           <View accessible accessibilityLabel="Loading payment calendar" accessibilityState={{ busy: true }} style={{ gap: space.md }}>
             <SkeletonCard style={{ height: 340 }} />
@@ -434,7 +434,7 @@ export function PaymentCalendarScreen({ navigation, route }: DashboardScreenProp
         ) : !hasAnything && !loadError ? (
           <EmptyState
             title="No payments to show yet"
-            icon="↻"
+            icon="refresh"
             body="Add rent, salaries or bills you pay on a schedule. FinSight will also suggest ones it notices in your expenses for you to check."
             action={<Button title="Add a recurring payment" variant="primary" onPress={() => openSchedule()} />}
           />

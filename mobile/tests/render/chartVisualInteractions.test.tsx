@@ -56,7 +56,9 @@ describe('Expense chart exploration', () => {
   });
   it('explores glance rings and summary comparison bars with named figures', async () => {
     const q = await mount(<><ExpenseGlance summary={summary} availableFunds={2000.5} fundsLoading={false} /><ExpenseSummaryCard summary={summary} points={expenseSummaryPoints(summary, { periodText: 'in October', comparedWith: 'September', allTime: false, flaggedCount: 0, unusualCount: 0 })} comparedWith="September" flaggedCount={0} unusualCount={0} questions={[]} onAsk={vi.fn()} /></>);
-    await fireEvent.press(q.getByRole('button', { name: 'Explore Spending at a glance values' }));
+    // The Expense tab prints these figures as text, so it offers no separate Explore link.
+    expect(q.queryByRole('button', { name: /^Explore / })).toBeNull();
+    await tapChart(q, 'Share of recorded funds');
     expect(chartReadout(q, 'Spending at a glance').props.accessibilityLabel).toContain('Recorded available funds: PHP 2,000.50');
     await tapChart(q, 'Largest spending category');
     expect(chartReadout(q, 'Spending at a glance').props.accessibilityLabel).toContain('Stock');
@@ -68,9 +70,10 @@ describe('Expense chart exploration', () => {
   it('does not present unavailable funds as zero', async () => {
     const missing = expenseSummaryFigures({ totals: { current: 1001, previous: 801 }, categoryTrends: chartTrends, dailyTotals: [] }, null);
     const q = await mount(<ExpenseGlance summary={missing} availableFunds={null} fundsLoading />);
-    await fireEvent.press(q.getByRole('button', { name: 'Explore Spending at a glance values' }));
-    expect(chartReadout(q, 'Spending at a glance').props.accessibilityLabel).toContain('Loading funds');
-    expect(chartReadout(q, 'Spending at a glance').props.accessibilityLabel).not.toContain('PHP 0.00');
+    // With no funds figure there is no ring to tap; the tile says why instead of showing zero.
+    expect(q.queryByLabelText('Share of recorded funds plot', { includeHiddenElements: true })).toBeNull();
+    expect(q.getAllByText('Loading funds…').length).toBeGreaterThan(0);
+    expect(q.queryByText(/PHP 0\.00/)).toBeNull();
   });
 });
 
@@ -118,27 +121,30 @@ describe('Recovery chart exploration', () => {
   });
   it('keeps calendar closed/future days distinct and preserves the existing day modal', async () => {
     const q = await mount(<DayCalendar period={chartPeriod} rows={chartCoverage} />);
-    await fireEvent.press(q.getByRole('button', { name: "Explore Each day's sales values" }));
+    // No Explore link on the Recovery target screen: focusing a day previews it.
+    expect(q.queryByRole('button', { name: /^Explore / })).toBeNull();
+    await fireEvent(q.getByRole('button', { name: /^Thu, Oct 1,/ }), 'focus');
     expect(chartReadout(q, "Each day's sales").props.accessibilityLabel).toContain('Sales recorded: PHP 0.00');
-    await fireEvent.press(q.getByRole('button', { name: "Next value in Each day's sales" }));
+    await fireEvent(q.getByRole('button', { name: /^Fri, Oct 2,/ }), 'focus');
     expect(chartReadout(q, "Each day's sales").props.accessibilityLabel).toContain('Closed day');
-    await fireEvent.press(q.getByRole('button', { name: "Next value in Each day's sales" }));
-    await fireEvent.press(q.getByRole('button', { name: "Next value in Each day's sales" }));
+    // A future day is disabled, so it previews through its cell's pointer handler.
+    let futureCell = q.getByRole('button', { name: /^Sun, Oct 4,/ }).parent;
+    while (futureCell && !futureCell.props.onPointerEnter) futureCell = futureCell.parent;
+    await fireEvent(futureCell!, 'pointerEnter', { nativeEvent: { pointerType: 'mouse', buttons: 0 } });
     expect(chartReadout(q, "Each day's sales").props.accessibilityLabel).toContain('Future day');
     expect(chartReadout(q, "Each day's sales").props.accessibilityLabel).not.toContain('Sales recorded: PHP 0.00');
     await fireEvent.press(q.getByRole('button', { name: /^Thu, Oct 1,/ }));
     expect(q.getByRole('button', { name: 'Done' })).toBeTruthy();
-    await fireEvent.press(q.getByRole('button', { name: 'Explore Sold values' }));
+    await tapChart(q, 'Sold');
     expect(chartReadout(q, 'Sold').props.accessibilityLabel).toContain('Sold: PHP 0.00');
-    await fireEvent.press(q.getByRole('button', { name: 'Explore Target values' }));
+    await tapChart(q, 'Target');
     expect(chartReadout(q, 'Target').props.accessibilityLabel).toContain('PHP 100.05');
     await fireEvent.press(q.getByRole('button', { name: 'Done' }));
     expect(q.queryByRole('button', { name: 'Done' })).toBeNull();
   });
-  it.each(['mouse', 'pen'])('previews a disabled future calendar cell through its parent for %s and restores the pinned day', async (pointerType) => {
+  it.each(['mouse', 'pen'])('previews a disabled future calendar cell through its parent for %s and clears it on leave', async (pointerType) => {
     const rows = [...chartCoverage, { date: '2026-10-04', sales: 0, neededTarget: 200.05, gap: -200.05, status: 'below' as const, isOperatingDay: true }];
     const q = await mount(<DayCalendar period={chartPeriod} rows={rows} />);
-    await fireEvent.press(q.getByRole('button', { name: "Explore Each day's sales values" }));
     const future = q.getByRole('button', { name: 'Sun, Oct 4, not yet recorded' });
     expect(future.props.accessibilityState.disabled).toBe(true);
     expect(future.props.accessibilityLabel).not.toContain('sold');
@@ -154,8 +160,7 @@ describe('Recovery chart exploration', () => {
     await fireEvent.press(future);
     expect(q.queryByRole('button', { name: 'Done' })).toBeNull();
     await fireEvent(cell, 'pointerLeave', { nativeEvent: { pointerType } });
-    expect(chartReadout(q, "Each day's sales").props.accessibilityLabel).toContain('Thu, Oct 1');
-    expect(chartReadout(q, "Each day's sales").props.accessibilityLabel).toContain('Sales recorded: PHP 0.00');
+    expect(queryChartReadout(q, "Each day's sales")).toBeNull();
   });
   it('ignores touch and pressed mouse movement over a future calendar cell', async () => {
     const q = await mount(<DayCalendar period={chartPeriod} rows={chartCoverage} />);
@@ -191,7 +196,9 @@ describe('Recovery chart exploration', () => {
   it('explores legacy meter, pace, today and target breakdown charts', async () => {
     const q = await mount(<><RecoveryMeter data={chartRecovery} /><RecoveryPaceCard period={chartPeriod} /><RecoveryTodayCard data={chartRecovery} /><RecoveryTargetBreakdown sales={400.25} target={1000.50} /></>);
     for (const [label, amount] of [['Costs paid by sales so far', '400.25'], ["Today's progress", '150.75'], ['Costs paid by sales this period', '1,000.50'], ["Today's sales coverage", '150.75'], ['Target breakdown', '600.25']]) {
-      await fireEvent.press(q.getByRole('button', { name: `Explore ${label} values` }));
+      // RecoveryMeter is not on any screen and keeps its link; the Recovery target cards open on a tap.
+      const explore = q.queryByRole('button', { name: `Explore ${label} values` });
+      if (explore) await fireEvent.press(explore); else await tapChart(q, label!);
       expect(chartReadout(q, label!).props.accessibilityLabel).toContain(amount);
     }
   });

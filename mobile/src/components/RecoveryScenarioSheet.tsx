@@ -197,7 +197,7 @@ export function RecoveryScenarioSheet({
                   accessibilityLiveRegion="polite"
                   style={{ flexDirection: "row", gap: 5, marginTop: space.sm, alignItems: "flex-start" }}
                 >
-                  <T style={{ fontSize: typeScale.micro, color: statusText.critical }}>⚠</T>
+                  <Ionicons name="warning-outline" size={14} color={statusText.critical} style={{ marginTop: 1 }} accessibilityElementsHidden importantForAccessibility="no" />
                   <T style={{ flex: 1, fontSize: typeScale.caption, lineHeight: 17, color: statusText.critical }}>
                     {valueError}
                   </T>

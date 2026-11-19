@@ -158,7 +158,12 @@ export function ChartPlotPressArea({ selection, count, chartLabel, children, ind
   );
 }
 
-export function ChartValueReadout({ data, selection, chartLabel }: { data: readonly ChartDatum[]; selection: ChartSelection; chartLabel: string }) {
+/**
+ * `explore={false}` drops the "Explore values" link for charts whose figures
+ * are already printed as text beside them (the Expense tab), where it only
+ * repeated them. Tapping the chart still opens the readout and its stepper.
+ */
+export function ChartValueReadout({ data, selection, chartLabel, explore = true }: { data: readonly ChartDatum[]; selection: ChartSelection; chartLabel: string; explore?: boolean }) {
   const t = useTheme();
   const root = useRef<ViewInstance | null>(null);
   const [exploreFocused, setExploreFocused] = useState(false);
@@ -178,13 +183,13 @@ export function ChartValueReadout({ data, selection, chartLabel }: { data: reado
     document.addEventListener("keydown", explore);
     return () => document.removeEventListener("keydown", explore);
   }, []);
-  if (data.length === 0) return null;
   const active = selection.selected;
+  if (data.length === 0 || (!explore && !active)) return null;
   const valueText = (row: ChartDatum["values"][number]) => row.value === null || !Number.isFinite(row.value)
     ? row.unavailableLabel ?? "Not recorded"
     : row.display ?? formatMoney(row.value, { decimals: true });
   return (
-    <View ref={root} style={{ marginTop: space.md, gap: space.sm }}>
+    <View ref={root} style={{ marginTop: space.sm, gap: space.sm }}>
       {active ? (
         <View accessible accessibilityRole="text" accessibilityLiveRegion="polite" accessibilityLabel={`${chartLabel} selected value. ${active.label}. ${active.values.map((row) => `${row.label}: ${valueText(row)}`).join(". ")}${active.note ? `. ${active.note}` : ""}`} style={{ padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: t.border, backgroundColor: t.surfaceRaised, gap: space.sm }}>
           <T style={{ fontFamily: font.sansSemibold, color: t.textPrimary, maxWidth: "100%", flexShrink: 1 }}>{active.label}</T>
@@ -202,10 +207,12 @@ export function ChartValueReadout({ data, selection, chartLabel }: { data: reado
           {active.note ? <T variant="caption" style={{ maxWidth: "100%", flexShrink: 1 }}>{active.note}</T> : null}
         </View>
       ) : null}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "center" }}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Explore ${chartLabel} values`} onPress={() => selection.select(0)} onFocus={() => setExploreFocused(true)} onBlur={() => setExploreFocused(false)} style={({ pressed }) => ({ minHeight: TAP_FLOOR, justifyContent: "center", paddingHorizontal: space.md, borderRadius: radius.sm, backgroundColor: pressed ? t.brandSurface : t.surfaceMuted, ...(Platform.OS === "web" && exploreFocused ? { outlineColor: t.brandText, outlineWidth: 2, outlineStyle: "solid", outlineOffset: 2 } : {}) })}>
+      {/* At rest the link sits in the chart's bottom-right corner, like a footnote, so it does not compete with the figures. */}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "center", justifyContent: active ? "flex-start" : "flex-end" }}>
+          {explore ? <Pressable accessibilityRole="button" accessibilityLabel={`Explore ${chartLabel} values`} onPress={() => selection.select(0)} onFocus={() => setExploreFocused(true)} onBlur={() => setExploreFocused(false)} style={({ pressed }) => ({ minHeight: TAP_FLOOR, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.xs, borderRadius: radius.sm, backgroundColor: pressed ? t.brandSurface : "transparent", ...(Platform.OS === "web" && exploreFocused ? { outlineColor: t.brandText, outlineWidth: 2, outlineStyle: "solid", outlineOffset: 2 } : {}) })}>
+            <Ionicons name="analytics-outline" size={16} color={t.brandText} />
             <T variant="label" style={{ color: t.brandText }}>Explore values</T>
-          </Pressable>
+          </Pressable> : null}
         {active ? (
           <>
             <ValueControl label={`Previous value in ${chartLabel}`} icon="chevron-back" onPress={selection.previous} disabled={selection.selectedIndex === 0} />

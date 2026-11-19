@@ -2,7 +2,9 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { AppState, Image, Platform, type AppStateStatus } from 'react-native';
-import { GREETING_FPS, GREETING_REST_FRAME } from '../../src/lib/greetingPlayback';
+import { GREETING_FPS, GREETING_PAUSE_FRAME, GREETING_REST_FRAME } from '../../src/lib/greetingPlayback';
+import { resetGreetingMotionForTests, setGreetingPaused } from '../../src/lib/greetingMotion';
+import * as SecureStore from 'expo-secure-store';
 import { lightPalette } from '../../src/theme/palette';
 
 const state = vi.hoisted(() => ({ focused: true, reduced: false }));
@@ -40,9 +42,11 @@ async function finishLoading() {
   await act(async () => { pending.forEach(({ resolve }) => resolve(true)); });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await SecureStore.deleteItemAsync('finsight.greetingMotion');
   state.focused = true;
   state.reduced = false;
+  resetGreetingMotionForTests();
   pending = [];
   appListeners = [];
   removes = [];
@@ -174,5 +178,36 @@ describe('dashboard greeting playback', () => {
     await q.rerender(<GreetingHero summary={null} />);
     await tick(2000);
     expect(source(q)).toEqual(frames[GREETING_REST_FRAME]);
+  });
+
+  it('holds the closing wave without preloading when the owner keeps Fin still', async () => {
+    setGreetingPaused(true);
+    const q = await mount();
+    expect(pending).toHaveLength(0);
+    await tick(2000);
+    expect(source(q)).toEqual(frames[GREETING_PAUSE_FRAME]);
+  });
+
+  it('stops on the closing wave when the setting changes while Home is open, and resumes when turned back on', async () => {
+    const q = await mount();
+    await finishLoading();
+    await tick();
+    await act(async () => { setGreetingPaused(true); });
+    await tick(2000);
+    expect(source(q)).toEqual(frames[GREETING_PAUSE_FRAME]);
+    await act(async () => { setGreetingPaused(false); });
+    await tick();
+    expect(source(q)).toEqual(frames[0]);
+  });
+
+  it('keeps the drawn frame underneath until the next one loads, so a cold first loop does not flash blank', async () => {
+    const q = await mount();
+    await finishLoading();
+    await tick();
+    const under = () => q.getByTestId('fin-underlay', { includeHiddenElements: true });
+    expect(under().props.source).toEqual(frames[GREETING_REST_FRAME]);
+    expect(under().props.style.opacity).toBe(1);
+    await act(async () => { q.getByRole('image', { name: "Fin, FinSight's mascot" }).props.onLoad(); });
+    expect(under().props.style.opacity).toBe(0);
   });
 });

@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { View, type ViewStyle } from "react-native";
 import { Button, T } from "./ui";
 import { useTheme } from "../context/ThemeContext";
@@ -79,13 +80,14 @@ export function ConnectionNotice({
           Decorative: the title says the same thing in words, and a reader
           announcing "warning sign" before it is noise rather than information.
         */}
-        <T
+        <Ionicons
           accessibilityElementsHidden
           importantForAccessibility="no"
-          style={{ color: ink, fontSize: typeScale.label, fontFamily: font.sansSemibold }}
-        >
-          {notice.tone === "error" ? "✕" : "⚠"}
-        </T>
+          name={notice.tone === "error" ? "close-circle-outline" : "warning-outline"}
+          size={16}
+          color={ink}
+          style={{ marginTop: 1 }}
+        />
         <View style={{ flex: 1, gap: 2 }}>
           <T style={{ color: ink, fontSize: typeScale.label, fontFamily: font.sansSemibold }}>{notice.title}</T>
           <T style={{ color: ink, fontSize: typeScale.label, lineHeight: 19 }}>{notice.body}</T>

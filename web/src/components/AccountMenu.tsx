@@ -209,14 +209,10 @@ export function AccountMenu() {
                 Restart product tour
               </button>
             ) : null}
-            <a
-              href="mailto:support@finsight.app?subject=FinSight%20help"
-              onClick={() => setOpen(false)}
-              className={item}
-            >
+            <Link to="/contact" onClick={() => setOpen(false)} className={item}>
               <IconHelp aria-hidden className="h-4 w-4 shrink-0 text-ink-400" />
               Help &amp; support
-            </a>
+            </Link>
             {logoutError ? (
               <p role="alert" className="mx-2.5 my-1.5 text-xs leading-relaxed text-tone-danger">
                 {logoutError}

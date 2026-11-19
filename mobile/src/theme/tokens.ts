@@ -65,8 +65,8 @@ export const typeScale = {
   caption: 12,
   label: 13,
   bodySm: 14,
-  body: 15,
-  bodyLg: 16,
+  body: 16, // Material 3 body-large; iOS body is 17. 15 read cramped on a phone.
+  bodyLg: 17,
   title: 18,
   subpageTitle: 22,
   titleLg: 26,

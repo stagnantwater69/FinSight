@@ -5,7 +5,6 @@ import { useCursorCollection } from "../lib/useCursorCollection";
 import { LargeExpenseFlags } from "../components/LargeExpenseFlags";
 import { AskFinSightFab, FAB_CLEARANCE } from "../components/AskFinSightFab";
 import { type ScrollViewInstance, Pressable, RefreshControl, useWindowDimensions, View } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import * as haptics from "../lib/haptics";
 import { useFocusEffect } from "@react-navigation/native";
 import { Button, Callout, ErrorNote, OptionSheet, Screen, T } from "../components/ui";
@@ -153,8 +152,6 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
   const [section, setSection] = useState<"overview" | "alerts" | "recurring">("overview");
   const scrollRef = useRef<ScrollViewInstance>(null);
   // Where each overview part sits inside the overview container, for the jump chips.
-  const overviewTop = useRef(0);
-  const anchors = useRef<Partial<Record<"summary" | "spending" | "categories" | "savings", number>>>({});
   const overviewState = useInsight<DetailExpenseOverview>(
     "/insights/expense-overview",
     { businessProfileId: selected?.id, ...periodParams(selection), view: "detail" },
@@ -614,19 +611,6 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
       ? ((data.totals.current - data.totals.previous) / data.totals.previous) * 100
       : null;
 
-  const JUMPS: { key: "summary" | "spending" | "categories" | "savings"; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { key: "summary", label: "Summary", icon: "document-text-outline" },
-    { key: "spending", label: "Spending", icon: "bar-chart-outline" },
-    { key: "categories", label: "Categories", icon: "pie-chart-outline" },
-    { key: "savings", label: "Savings", icon: "bulb-outline" },
-  ];
-  const jumpTo = (key: (typeof JUMPS)[number]["key"]) => {
-    const y = anchors.current[key];
-    if (y === undefined) return;
-    haptics.tapped();
-    scrollRef.current?.scrollTo({ y: Math.max(0, overviewTop.current + y - space.md), animated: true });
-  };
-
   const sections = [
     { label: "Overview", value: "overview" as const },
     { label: "Review", value: "alerts" as const, count: openFindings },
@@ -735,7 +719,7 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
             ) : null}
           </View>
         ) : (
-          <View style={{ gap: space.lg }} onLayout={(e) => (overviewTop.current = e.nativeEvent.layout.y)}>
+          <View style={{ gap: space.lg }}>
             {/*
               OVERVIEW — the figures, in the order the question is asked.
               The shape first, the figures second: the chart answers "is this
@@ -802,39 +786,7 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
                 fundsLoading={positionState.loading}
               />
 
-              {/* Web's "Jump to": the overview is long, so each part is one tap away. */}
-              <ContentScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ flexGrow: 0, marginVertical: space.xs }}
-                contentContainerStyle={{ alignItems: "center", gap: space.sm }}
-              >
-                {JUMPS.map((jump) => (
-                  <Pressable
-                    key={jump.key}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Jump to ${jump.label}`}
-                    onPress={() => jumpTo(jump.key)}
-                    style={({ pressed }) => ({
-                      minHeight: TAP_FLOOR,
-                      flexShrink: 0,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                      paddingHorizontal: space.md,
-                      borderRadius: radius.full,
-                      borderWidth: 1,
-                      borderColor: t.border,
-                      backgroundColor: pressed ? t.surfaceMuted : t.surface,
-                    })}
-                  >
-                    <Ionicons name={jump.icon} size={14} color={t.brandText} />
-                    <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.textPrimary }}>{jump.label}</T>
-                  </Pressable>
-                ))}
-              </ContentScrollView>
-
-              <View onLayout={(e) => (anchors.current.summary = e.nativeEvent.layout.y)}>
+              <View>
                 <ExpenseSummaryCard
                   points={expenseSummaryPoints(summaryFigures, summaryContext)}
                   summary={summaryFigures}
@@ -847,14 +799,14 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
                 />
               </View>
 
-              <View onLayout={(e) => (anchors.current.spending = e.nativeEvent.layout.y)}>
+              <View>
                 <DailySpending
                   key={`daily:${selected.id}:${periodKeyValue}`}
                   days={data.dailyTotals ?? []}
                 />
               </View>
 
-              <View onLayout={(e) => (anchors.current.categories = e.nativeEvent.layout.y)}>
+              <View>
                 <CategoryBars
                   key={`categories:${selected.id}:${periodKeyValue}`}
                   trends={data.categoryTrends}
@@ -865,7 +817,7 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
                 />
               </View>
 
-              <View onLayout={(e) => (anchors.current.savings = e.nativeEvent.layout.y)}>
+              <View>
                 <ReductionOpportunitiesSection
                   state={reductionState}
                   businessProfileId={selected.id}

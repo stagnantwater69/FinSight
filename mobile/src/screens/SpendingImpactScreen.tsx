@@ -4,13 +4,11 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, TextInput
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   Alert as AlertBanner,
-  Button,
   Callout,
   Card,
   CategorySelect,
   Disclosure,
   ErrorNote,
-  Field,
   Money,
   Screen,
   SelectChip,
@@ -51,7 +49,6 @@ import {
   percentOfFundsText,
   periodEvidence,
   periodEvidenceNote,
-  expensesPhrase,
   quickAmountValue,
   resetScenario,
   scenarioQuestion,
@@ -77,7 +74,7 @@ export function SpendingImpactScreen(props: InsightsScreenProps<"SpendingImpact"
 
 function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"SpendingImpact">) {
   const t = useTheme();
-  const { ACCENT, brand, ink, paper, statusText } = t;
+  const { ACCENT, ink, paper, statusText } = t;
   const { selected, categories } = useBusinessProfiles();
 
   // ---- the base calculation ----
@@ -501,122 +498,124 @@ function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"Spend
         >
           <InsightHeader navigation={navigation} active="SpendingImpact" title="Spending impact" />
 
-          <View style={{ marginBottom: space.lg }}>
-            <Callout tone="info">
-              A what-if check — nothing is saved, and FinSight won't tell you whether to buy it.
-            </Callout>
-          </View>
+          {/* Web's subtitle, word for word: the page is a what-if, and says so once. */}
+          <T variant="caption" style={{ marginTop: -space.sm, marginBottom: space.lg }}>
+            What-if check. Nothing is saved.
+          </T>
 
+          {/* The question as a sentence, as on web: each input keeps its own label; the sentence is the visual one. */}
           <Card style={{ marginBottom: space.lg }}>
-            <T variant="label" style={{ marginBottom: 4 }}>Planned amount (PHP)</T>
-            <View style={{ flexDirection: "row", gap: space.sm }}>
+            <T style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.brandText, letterSpacing: 1.2, textTransform: "uppercase" }}>
+              Spending scenario
+            </T>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: 6, rowGap: space.xs, marginTop: space.md }}>
+              <T style={[SENTENCE, { color: t.textPrimary }]}>If I buy</T>
               <TextInput
-                value={amount}
-                onChangeText={(v) => {
-                  setAmount(v);
-                  if (amountError) setAmountError(null);
-                }}
-                onSubmitEditing={run}
-                onFocus={() => setAmountFocused(true)}
-                onBlur={() => setAmountFocused(false)}
-                keyboardType="decimal-pad"
-                placeholder="e.g. 11000"
-                placeholderTextColor={ink[400]}
-                accessibilityLabel="Planned amount, in Philippine pesos"
-                style={{
-                  flex: 1,
-                  // The floor, not the 44-point iOS token: the shared Field this
-                  // input is standing in for is laid out to TAP_FLOOR, and a
-                  // hand-rolled input beside it should not be four points shorter
-                  // on the platform most owners are on.
-                  minHeight: TAP_FLOOR,
-                  // Width held at 1 on both states so the row does not reflow
-                  // and shove the Check button sideways when focus lands.
-                  borderWidth: 1,
-                  borderColor: amountError ? statusText.critical : amountFocused ? brand[600] : ink[200],
-                  borderRadius: radius.md,
-                  paddingHorizontal: space.md,
-                  fontFamily: font.sans,
-                  fontSize: typeScale.body,
-                  color: ink[900],
-                }}
+                value={itemDescription}
+                onChangeText={setItemDescription}
+                placeholder="e.g. Display fridge"
+                placeholderTextColor={t.textMuted}
+                accessibilityLabel="What are you planning to buy? (optional)"
+                returnKeyType="done"
+                // The server's own ceiling, so a long name is stopped here rather than refused there.
+                maxLength={MAX_ITEM_LENGTH}
+                style={[SENTENCE, sentenceInput(t.border), { minWidth: 170, color: t.brandText }]}
               />
-              <Pressable
-                onPress={run}
-                disabled={checking}
-                accessibilityRole="button"
-                // "Check" alone says nothing about what is being checked once
-                // the amount field beside it is out of view, which is exactly
-                // the situation of anyone reading this one control at a time.
-                accessibilityLabel={checking ? "Checking this planned amount" : "Check this planned amount"}
-                accessibilityState={{ disabled: checking, busy: checking }}
-                style={{
-                  minHeight: TAP_FLOOR,
-                  minWidth: 84,
-                  paddingHorizontal: space.lg,
-                  borderRadius: radius.md,
-                  backgroundColor: ACCENT.fill,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: checking ? 0.7 : 1,
-                }}
-              >
-                {checking ? (
-                  <ActivityIndicator color={ACCENT.onFill} />
-                ) : (
-                  <T style={{ color: ACCENT.onFill, fontFamily: font.sansSemibold }}>Check</T>
-                )}
-              </Pressable>
+              <T style={[SENTENCE, { color: t.textPrimary }]}>for</T>
+              <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4 }}>
+                <T style={{ fontSize: typeScale.bodySm, color: t.textMuted, fontFamily: font.mono }} accessibilityElementsHidden importantForAccessibility="no">PHP</T>
+                <TextInput
+                  value={amount}
+                  onChangeText={(v) => {
+                    setAmount(v);
+                    if (amountError) setAmountError(null);
+                  }}
+                  onSubmitEditing={run}
+                  onFocus={() => setAmountFocused(true)}
+                  onBlur={() => setAmountFocused(false)}
+                  keyboardType="decimal-pad"
+                  placeholder="11000"
+                  placeholderTextColor={t.textMuted}
+                  accessibilityLabel="Planned amount, in Philippine pesos"
+                  style={[
+                    SENTENCE,
+                    sentenceInput(amountError ? statusText.critical : amountFocused ? t.brandText : t.border),
+                    { minWidth: 110, color: t.brandText, fontFamily: font.monoSemibold },
+                  ]}
+                />
+              </View>
+              <T style={[SENTENCE, { color: t.textPrimary }]}>what is left?</T>
             </View>
-            {/*
-              "Updating…" lives HERE, beside the field, rather than in the
-              result card's header where it started. In the header it only ever
-              existed inside the `data ?` branch, so the very FIRST check — the
-              one with the longest wait and nothing on screen yet — announced
-              nothing at all beyond the button's own busy state.
-            */}
+
+            {/* Explicit, unlike web's live recalculation: a phone keyboard covers the answer, so the owner says when. */}
+            <Pressable
+              onPress={run}
+              disabled={checking}
+              accessibilityRole="button"
+              accessibilityLabel={checking ? "Checking this planned amount" : "Check this planned amount"}
+              accessibilityState={{ disabled: checking, busy: checking }}
+              style={({ pressed }) => ({
+                marginTop: space.lg,
+                minHeight: TAP_FLOOR,
+                borderRadius: radius.md,
+                backgroundColor: ACCENT.fill,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: checking ? 0.7 : pressed ? 0.9 : 1,
+              })}
+            >
+              {checking ? (
+                <ActivityIndicator color={ACCENT.onFill} />
+              ) : (
+                <T style={{ color: ACCENT.onFill, fontFamily: font.sansSemibold }}>Check what is left</T>
+              )}
+            </Pressable>
             {checking ? (
-              <View
-                accessibilityLiveRegion="polite"
-                accessibilityLabel="Updating the estimate"
-                style={{ marginTop: space.sm }}
-              >
-                <T variant="caption" style={{ color: t.brandText, fontFamily: font.sansSemibold }}>
-                  Updating…
-                </T>
+              <View accessibilityLiveRegion="polite" accessibilityLabel="Updating the estimate" style={{ marginTop: space.sm }}>
+                <T variant="caption" style={{ color: t.brandText, fontFamily: font.sansSemibold }}>Updating…</T>
               </View>
             ) : null}
             {amountError ? (
-              <View
-                accessibilityLiveRegion="polite"
-                style={{ flexDirection: "row", gap: 5, marginTop: space.sm, alignItems: "flex-start" }}
-              >
-                <T style={{ fontSize: typeScale.micro, color: statusText.critical }}>⚠</T>
-                <T style={{ flex: 1, fontSize: typeScale.caption, lineHeight: 17, color: statusText.critical }}>
-                  {amountError}
-                </T>
+              <View accessibilityLiveRegion="polite" style={{ flexDirection: "row", gap: 5, marginTop: space.sm, alignItems: "flex-start" }}>
+                <Ionicons name="warning-outline" size={14} color={statusText.critical} style={{ marginTop: 1 }} accessibilityElementsHidden importantForAccessibility="no" />
+                <T style={{ flex: 1, fontSize: typeScale.caption, lineHeight: 17, color: statusText.critical }}>{amountError}</T>
               </View>
             ) : null}
             {error ? <View style={{ marginTop: space.md }}><ErrorNote>{error}</ErrorNote></View> : null}
 
-            {/*
-              Presets, not a slider.
-              Web pairs these with a range input; on a phone a range tuned to
-              ₱500 steps across six figures is tens of pesos per pixel, which is
-              neither precise with a thumb nor operable with a screen reader.
-              These are the accessible half of that pair, so the app ships that
-              half — see QUICK_AMOUNTS for the full argument.
-            */}
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                alignItems: "center",
-                gap: space.sm,
-                marginTop: space.md,
-              }}
-            >
-              <T variant="caption">Try:</T>
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.sm, marginTop: space.md }}>
+              <Pressable
+                onPress={fetchReview}
+                disabled={!reviewReady || reviewing}
+                accessibilityRole="button"
+                accessibilityLabel={reviewing ? "Looking at this item" : review ? "Look at this item again" : "What am I buying? Ask FinSight to describe this item."}
+                accessibilityState={{ disabled: !reviewReady || reviewing, busy: reviewing }}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  minHeight: TAP_FLOOR,
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: t.border,
+                  backgroundColor: t.surface,
+                  opacity: !reviewReady || reviewing ? 0.5 : pressed ? 0.85 : 1,
+                })}
+              >
+                {reviewing ? <ActivityIndicator color={t.brandText} size="small" /> : <Ionicons name="search-outline" size={16} color={t.brandText} accessibilityElementsHidden importantForAccessibility="no" />}
+                <T style={{ fontSize: typeScale.caption, color: t.brandText, fontFamily: font.sansSemibold }}>
+                  {reviewing ? "Looking at it…" : review ? "Look at this item again" : "What am I buying?"}
+                </T>
+              </Pressable>
+              <T variant="caption" style={{ flexShrink: 1 }}>
+                {!reviewReady ? "Name the item first." : "Describes the item. Doesn't decide for you."}
+              </T>
+            </View>
+
+            {/* Presets, not web's slider: PHP 500 steps across six figures are too fine for a thumb or a screen reader. */}
+            <T variant="label" style={{ marginTop: space.lg, marginBottom: space.sm }}>Adjust amount</T>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.sm }}>
               {QUICK_AMOUNTS.map((preset) => (
                 <SelectChip
                   key={preset}
@@ -629,84 +628,24 @@ function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"Spend
                   }}
                 />
               ))}
+              <Pressable
+                onPress={resetAll}
+                accessibilityRole="button"
+                accessibilityLabel="Start a fresh scenario"
+                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 4, minHeight: TAP_FLOOR, paddingHorizontal: space.sm, opacity: pressed ? 0.6 : 1 })}
+              >
+                <Ionicons name="refresh" size={14} color={t.textMuted} accessibilityElementsHidden importantForAccessibility="no" />
+                <T style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.textMuted }}>Reset</T>
+              </Pressable>
             </View>
 
-            {/*
-              The comparison period, shared with Home and Expense Insights.
-              Changing it re-asks the question (see the effect on the period key)
-              instead of quietly relabelling the old answer.
-            */}
+            {/* Shared with Home and Expense Insights; changing it re-asks the question. */}
             <View style={{ marginTop: space.lg }}>
               <T variant="label" style={{ marginBottom: 6 }}>Compare against</T>
               <PeriodSelector />
             </View>
-          </Card>
 
-          <Card style={{ marginBottom: space.lg }}>
-            <Field
-              label="What are you planning to buy? (optional)"
-              value={itemDescription}
-              onChangeText={setItemDescription}
-              placeholder="e.g. Display fridge"
-              returnKeyType="done"
-              // The server's own ceiling. Stopping at 255 here is the difference
-              // between a key that does nothing and a 400 carrying a Zod message
-              // in place of FinSight's own words.
-              maxLength={MAX_ITEM_LENGTH}
-            />
-            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.sm, marginTop: -space.sm }}>
-              <Pressable
-                onPress={fetchReview}
-                disabled={!reviewReady || reviewing}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  reviewing
-                    ? "Looking at this item"
-                    : review
-                      ? "Look at this item again"
-                      : "What am I buying? Ask FinSight to describe this item."
-                }
-                accessibilityState={{ disabled: !reviewReady || reviewing, busy: reviewing }}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  // Was 38. This sits in a wrapping row beside other controls
-                  // with an 8-point gap, so a hitSlop would reach into its
-                  // neighbour and make which one you hit a question of stacking
-                  // order — the same reason the shared chip is laid out to the
-                  // floor rather than slopped.
-                  minHeight: TAP_FLOOR,
-                  paddingHorizontal: space.md,
-                  borderRadius: radius.full,
-                  backgroundColor: t.brandFill,
-                  opacity: !reviewReady || reviewing ? 0.5 : pressed ? 0.85 : 1,
-                })}
-              >
-                {reviewing ? (
-                  <ActivityIndicator color={t.onBrandFill} size="small" />
-                ) : (
-                  <Ionicons name="sparkles-outline" size={16} color={t.onBrandFill} />
-                )}
-                <T style={{ fontSize: typeScale.caption, color: t.onBrandFill, fontFamily: font.sansSemibold }}>
-                  {reviewing ? "Looking…" : review ? "Look at this item again" : "What am I buying?"}
-                </T>
-              </Pressable>
-              <T variant="caption" style={{ flexShrink: 1 }}>
-                {!reviewReady
-                  ? "Name the item above and FinSight will describe it."
-                  : "FinSight describes the item — it won't tell you whether to buy it."}
-              </T>
-            </View>
-
-            {/*
-              SECONDARY, so it is closed by default — the category changes which
-              of the owner's own records the price half is counted from, and
-              nothing else. The summary line carries the current value so the
-              common case (a guess that is right, or no category at all) never
-              costs a tap.
-            */}
-            <View style={{ marginTop: space.md, borderTopWidth: 1, borderTopColor: t.border, paddingTop: space.xs }}>
+            <View style={{ marginTop: space.lg, borderTopWidth: 1, borderTopColor: t.border, paddingTop: space.xs }}>
               <Disclosure
                 title="Reference category"
                 summary={
@@ -714,9 +653,9 @@ function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"Spend
                     ? "Suggesting…"
                     : categoryName
                       ? suggestionStale
-                        ? `${categoryName} — suggested for earlier wording`
+                        ? `${categoryName}, suggested for earlier wording`
                         : `${categoryName}${suggestedFor && !categoryTouched ? " (suggested)" : ""}`
-                      : "No category — compare everything"
+                      : "No category, compare everything"
                 }
               >
                 <View style={{ gap: space.sm, paddingTop: space.xs }}>
@@ -724,261 +663,184 @@ function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"Spend
                     options={categoryOptions}
                     value={categoryId ?? NO_CATEGORY_ID}
                     onChange={(id) => {
-                      // Touching it ends the guessing for this scenario. A
-                      // suggestion that keeps overwriting a deliberate choice is
-                      // not a suggestion.
+                      // Touching it ends the guessing for this scenario.
                       setCategoryTouched(true);
                       setCategoryId(id === NO_CATEGORY_ID ? null : id);
                     }}
                     accessibilityContext="comparing this purchase"
                     sheetTitle="Compare against which category?"
-                    placeholder="No category — compare everything"
+                    placeholder="No category, compare everything"
                   />
-                  {/*
-                    SAYS WHAT IT DOES NOT DO. A category picker on a screen full
-                    of the owner's own figures looks like filing, and filing is
-                    the one thing this cannot do: no record is created, no saved
-                    record moves, and nothing here is written down at all.
-                  */}
+                  {/* Says what it does not do: a picker beside the owner's figures looks like filing. */}
                   <T variant="caption" style={{ lineHeight: 17 }}>
                     Only used to choose which of your own past records this purchase is compared against. It does not
                     file anything and does not change any record you have saved.
                   </T>
                   {suggesting ? (
-                    <T variant="caption" accessibilityLiveRegion="polite" style={{ color: t.brandText }}>
-                      Suggesting a category…
-                    </T>
+                    <T variant="caption" accessibilityLiveRegion="polite" style={{ color: t.brandText }}>Suggesting a category…</T>
                   ) : null}
                   {suggestFailed && !suggesting ? (
-                    <T variant="caption">FinSight couldn't suggest one just now — choose a category yourself if you want one.</T>
+                    <T variant="caption">FinSight couldn't suggest one just now. Choose a category yourself if you want one.</T>
                   ) : null}
                   {suggestionStale && categoryName ? (
-                    <T variant="caption">
-                      Suggested for "{suggestedFor}" — check it still fits what you typed.
-                    </T>
+                    <T variant="caption">Suggested for "{suggestedFor}". Check it still fits what you typed.</T>
                   ) : null}
                 </View>
               </Disclosure>
             </View>
 
-            <View style={{ marginTop: space.sm, alignSelf: "flex-start" }}>
-              <Button title="Start a fresh scenario" variant="ghost" onPress={resetAll} />
-            </View>
-          </Card>
-
-          {data ? (
-            <Card style={{ marginBottom: space.lg }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: space.md, gap: space.sm }}>
-                <View style={{ flex: 1 }}>
-                  <T variant="heading" accessibilityRole="header">Estimated impact</T>
-                  {/*
-                    NAMES THE AMOUNT THESE FIGURES ARE ABOUT. Without it the
-                    card was a set of numbers with nothing tying them to the
-                    input they came from — which is exactly how "High Impact"
-                    for ₱11,000 went on being read as an answer about the ₱200
-                    now in the field.
-                  */}
-                  <T variant="caption" style={{ marginTop: 2 }}>
-                    For a planned <Money value={data.plannedAmount} bare size={typeScale.caption} weight="medium" />
-                    {" "}against {expensesPhrase(selection)}
-                  </T>
+            {/* What the check works against, as web's footer line under the scenario. */}
+            <View style={{ borderTopWidth: 1, borderTopColor: t.border, paddingTop: space.md, marginTop: space.xs }}>
+              {fundsCalculation || data ? (
+                <View style={{ flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", gap: 6 }}>
+                  <T variant="caption">{fundsCalculation ? `${selected.name}'s recorded available funds:` : "Funds used in this check:"}</T>
+                  <Money value={fundsCalculation ? fundsCalculation.calculatedAmount : data!.availableFunds} size={typeScale.caption} weight="semibold" />
                 </View>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 5,
-                    backgroundColor: bandSurface,
-                    borderRadius: radius.full,
-                    paddingHorizontal: space.md,
-                    paddingVertical: 4,
-                  }}
-                >
-                  {/*
-                    The glyph is hidden from the reader, not because it is
-                    decorative but because the words beside it say the same
-                    thing — it exists for the eye that cannot use the tint.
-                  */}
-                  <Ionicons name={bandIcon} size={14} color={bandColor} accessibilityElementsHidden importantForAccessibility="no" />
-                  <T style={{ color: bandColor, fontSize: typeScale.caption }}>{data.impactBand}</T>
-                </View>
-              </View>
-
-              {/*
-                The scenario has moved on since these were computed. Said out
-                loud, and rechecking is one tap — the same treatment, and the
-                same reasoning, as the review card's "Item changed" refresh.
-              */}
-              {staleReason ? (
-                <Pressable
-                  onPress={run}
-                  disabled={checking}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    checking
-                      ? "Rechecking this scenario"
-                      : `${IMPACT_STALE_COPY[staleReason]}. These figures describe the previous scenario.`
-                  }
-                  accessibilityState={{ disabled: checking, busy: checking }}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    alignSelf: "flex-start",
-                    // Was 36. Nothing sits beside it — it is `flex-start` on its
-                    // own line with a margin under it — so there is no dense
-                    // layout to protect and it simply gets the real height.
-                    minHeight: TAP_FLOOR,
-                    paddingHorizontal: space.md,
-                    borderRadius: radius.md,
-                    backgroundColor: t.statusSurface.warning,
-                    marginBottom: space.md,
-                    opacity: checking ? 0.6 : pressed ? 0.85 : 1,
-                  })}
-                >
-                  <Ionicons name="refresh" size={14} color={statusText.warning} />
-                  <T style={{ fontSize: typeScale.caption, color: statusText.warning, fontFamily: font.sansSemibold }}>
-                    {checking ? "Checking…" : IMPACT_STALE_COPY[staleReason]}
-                  </T>
-                </Pressable>
-              ) : null}
-
-              {/*
-                THE HEADLINE, ABOVE THE FOLD. What is left afterwards is the one
-                figure an owner came here for; everything under it explains how
-                this got there. It was previously three cards down inside a
-                before/after pair, which on a 360dp screen meant scrolling past
-                two bars to reach the answer.
-              */}
-              <T variant="caption">After this spending, you may have</T>
-              <Money
-                value={data.funds.after}
-                size={typeScale.titleLg}
-                weight="semibold"
-                color={data.funds.after < 0 ? statusText.critical : ink[900]}
-                style={{ marginTop: 2 }}
-              />
-
-              <ImpactGauge data={data} />
-
-              {/* A warning is never collapsed, and never below the detail. */}
-              {data.exceedsFunds ? (
-                <View style={{ marginTop: space.md }}>
-                  <AlertBanner kind="needs-review" label="Exceeds your funds">
-                    This is more than your recorded available funds.
-                  </AlertBanner>
-                </View>
-              ) : null}
-
-              {/*
-                SECONDARY: the two before/after bars and the threshold sentence.
-                They are the working, not the answer — closed by default so the
-                answer, the gauge and any warning fit one small-phone viewport,
-                and one tap away for anyone who wants to see the movement.
-              */}
-              <View style={{ marginTop: space.sm, borderTopWidth: 1, borderTopColor: t.border }}>
-                <Disclosure
-                  title="Before and after, in detail"
-                  summary="Funds and recorded expenses, before and after"
-                >
-                  <View style={{ paddingTop: space.sm }}>
-                    <BeforeAfter label="Recorded available funds" before={data.funds.before} after={data.funds.after} />
-                    <BeforeAfter
-                      label={`Recorded expenses (${periodLabel(selection)})`}
-                      before={data.periodExpenses.before}
-                      after={data.periodExpenses.after}
-                    />
-                    <T variant="caption">
-                      That uses {percentOfFundsText(data.percentOfFunds)} of your available funds. You treat anything
-                      above {data.thresholdPercent}% as high impact.
-                    </T>
-                  </View>
-                </Disclosure>
-              </View>
-            </Card>
-          ) : (
-            <Card style={{ marginBottom: space.lg }}>
-              {/*
-                A real illustration rather than EmptyState's text glyph. This is
-                the whole screen until an amount is typed, and "◎" rendered at
-                whatever weight the system font happened to give it — the one
-                place the app asks someone to start, drawn in a character that
-                varies by device.
-              */}
-              <View style={{ alignItems: "center", paddingVertical: space.xxl, paddingHorizontal: space.lg }}>
-                <View
-                  style={{
-                    width: 96,
-                    height: 96,
-                    borderRadius: 48,
-                    backgroundColor: brand[50],
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginBottom: space.lg,
-                  }}
-                >
-                  <Ionicons name="locate-outline" size={44} color={brand[600]} />
-                </View>
-                <T variant="title" accessibilityRole="header" style={{ textAlign: "center" }}>
-                  Enter an amount to check
-                </T>
-                <T variant="caption" style={{ textAlign: "center", marginTop: 6, lineHeight: 18, maxWidth: 260 }}>
-                  See what a planned purchase would do to your funds before you spend it.
-                </T>
-              </View>
-            </Card>
-          )}
-
-          <Card style={{ marginBottom: space.lg }}>
-            <T variant="heading" accessibilityRole="header">What this is based on</T>
-            {fundsCalculation ? (
-              <>
-                <View style={{ flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", gap: 6, marginTop: space.sm }}>
-                  <T style={{ fontSize: typeScale.bodySm }}>{selected.name}'s recorded available funds:</T>
-                  <Money value={fundsCalculation.calculatedAmount} size={typeScale.bodySm} weight="semibold" />
-                </View>
-                <T variant="caption" style={{ marginTop: 4, lineHeight: 17 }}>
-                  {availableFundsProvenance(fundsCalculation)}
-                </T>
-              </>
-            ) : data ? (
-              <>
-                <View style={{ flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", gap: 6, marginTop: space.sm }}>
-                  <T style={{ fontSize: typeScale.bodySm }}>Funds used in this check:</T>
-                  <Money value={data.availableFunds} size={typeScale.bodySm} weight="semibold" />
-                </View>
+              ) : (
+                <T variant="caption">Checked against your recorded available funds.</T>
+              )}
+              {fundsCalculation ? (
+                <T variant="caption" style={{ marginTop: 4, lineHeight: 17 }}>{availableFundsProvenance(fundsCalculation)}</T>
+              ) : data ? (
                 <T variant="caption" style={{ marginTop: 4, lineHeight: 17 }}>
                   Source details are not available for this result. Run the check again after FinSight updates.
                 </T>
-              </>
-            ) : (
-              <T variant="caption" style={{ marginTop: space.sm }}>
-                Run a check to see the recorded funds and source used in the result.
-              </T>
-            )}
-
-            {/*
-              Thin evidence, explained rather than left to look like a result.
-              "Recorded expenses PHP 0 → PHP 11,000" is arithmetic over an empty
-              window and looks exactly like arithmetic over a full one.
-            */}
-            {evidenceNote ? (
-              <View style={{ marginTop: space.md }}>
-                <Callout tone="warn">{evidenceNote}</Callout>
-              </View>
-            ) : null}
-
-            <View style={{ marginTop: space.md, alignSelf: "flex-start" }}>
-              <Button
-                title="Edit opening balance"
-                variant="secondary"
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Edit opening balance"
                 onPress={() => {
                   haptics.tapped();
                   navigation.navigate("More", { screen: "BusinessProfileForm", params: { profile: selected } });
                 }}
-              />
+                style={({ pressed }) => ({ minHeight: TAP_FLOOR, justifyContent: "center", alignSelf: "flex-start", opacity: pressed ? 0.6 : 1 })}
+              >
+                <T style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.brandText }}>Edit opening balance</T>
+              </Pressable>
             </View>
           </Card>
+
+          {/* The answer, as a receipt: web's "What-if slip". */}
+          <View style={{ backgroundColor: t.surfaceMuted, borderRadius: radius.lg, padding: space.md, marginBottom: space.lg }}>
+            <View style={{ backgroundColor: t.surface, borderRadius: radius.md, padding: space.lg, borderWidth: 1, borderColor: t.border }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: space.sm }}>
+                <View style={{ flex: 1 }}>
+                  <T accessibilityRole="header" style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.textMuted, letterSpacing: 1.8, textTransform: "uppercase" }}>
+                    What-if slip
+                  </T>
+                  <T variant="caption" style={{ marginTop: 2 }}>{periodLabel(selection)} · not saved</T>
+                </View>
+                {data ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1.5, borderColor: bandColor, backgroundColor: bandSurface, borderRadius: radius.sm, paddingHorizontal: space.sm, paddingVertical: 3, transform: [{ rotate: "-2deg" }] }}>
+                    {/* The glyph repeats the words beside it, for the eye that cannot use the tint. */}
+                    <Ionicons name={bandIcon} size={13} color={bandColor} accessibilityElementsHidden importantForAccessibility="no" />
+                    <T style={{ color: bandColor, fontSize: typeScale.micro, fontFamily: font.sansSemibold, letterSpacing: 0.8, textTransform: "uppercase" }}>{data.impactBand} impact</T>
+                  </View>
+                ) : null}
+              </View>
+
+              {!data ? (
+                <View style={{ alignItems: "center", paddingVertical: space.xxl }}>
+                  <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: t.surfaceMuted, alignItems: "center", justifyContent: "center", marginBottom: space.md }}>
+                    <Ionicons name="cash-outline" size={30} color={t.brandText} accessibilityElementsHidden importantForAccessibility="no" />
+                  </View>
+                  <T variant="title" accessibilityRole="header" style={{ textAlign: "center" }}>Enter a planned amount</T>
+                  <T variant="caption" style={{ textAlign: "center", marginTop: 6, lineHeight: 18, maxWidth: 260 }}>
+                    See what a planned purchase would do to your funds before you spend it.
+                  </T>
+                </View>
+              ) : (
+                <View accessibilityLiveRegion="polite" style={{ opacity: checking ? 0.6 : 1 }}>
+                  {/* The scenario has moved on since these were computed; rechecking is one tap. */}
+                  {staleReason ? (
+                    <Pressable
+                      onPress={run}
+                      disabled={checking}
+                      accessibilityRole="button"
+                      accessibilityLabel={checking ? "Rechecking this scenario" : `${IMPACT_STALE_COPY[staleReason]}. These figures describe the previous scenario.`}
+                      accessibilityState={{ disabled: checking, busy: checking }}
+                      style={({ pressed }) => ({
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        alignSelf: "flex-start",
+                        minHeight: TAP_FLOOR,
+                        paddingHorizontal: space.md,
+                        borderRadius: radius.md,
+                        backgroundColor: t.statusSurface.warning,
+                        marginTop: space.md,
+                        opacity: checking ? 0.6 : pressed ? 0.85 : 1,
+                      })}
+                    >
+                      <Ionicons name="refresh" size={14} color={statusText.warning} accessibilityElementsHidden importantForAccessibility="no" />
+                      <T style={{ fontSize: typeScale.caption, color: statusText.warning, fontFamily: font.sansSemibold }}>
+                        {checking ? "Checking…" : IMPACT_STALE_COPY[staleReason]}
+                      </T>
+                    </Pressable>
+                  ) : null}
+
+                  <SlipRule />
+                  <SlipLine label="Available funds" value={formatMoney(data.funds.before, { decimals: true })} />
+                  <SlipLine label={(reviewedItem ?? itemDescription).trim() || "Planned purchase"} value={`−${formatMoney(data.plannedAmount, { decimals: true })}`} />
+                  {/* The double rule a receipt draws above its total. */}
+                  <View style={{ marginVertical: space.md, height: 4, borderTopWidth: 1, borderBottomWidth: 1, borderColor: t.textMuted }} />
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", columnGap: space.md }}>
+                    <T style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.textSecondary, letterSpacing: 1.4, textTransform: "uppercase", marginBottom: 4 }}>
+                      Funds after
+                    </T>
+                    <Money
+                      value={data.funds.after}
+                      size={typeScale.titleLg + 4}
+                      weight="semibold"
+                      color={data.funds.after < 0 ? statusText.critical : t.textPrimary}
+                    />
+                  </View>
+                  {data.exceedsFunds ? (
+                    <View style={{ marginTop: space.md }}>
+                      <AlertBanner kind="needs-review" label="Exceeds your funds">
+                        This is more than your recorded available funds.
+                      </AlertBanner>
+                    </View>
+                  ) : null}
+
+                  <SlipRule />
+                  <ImpactGauge data={data} />
+
+                  <SlipRule />
+                  <T style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.textSecondary, marginBottom: space.sm }}>
+                    Expenses · {periodLabel(selection)}
+                  </T>
+                  <SlipLine muted label="Now" value={formatMoney(data.periodExpenses.before, { decimals: true })} />
+                  <SlipLine label="With this purchase" value={formatMoney(data.periodExpenses.after, { decimals: true })} />
+                  <T variant="caption" style={{ marginTop: space.sm, lineHeight: 17 }}>
+                    That uses {percentOfFundsText(data.percentOfFunds)} of your available funds. You treat anything
+                    above {data.thresholdPercent}% as high impact.
+                  </T>
+                  {/* Thin evidence, explained rather than left to look like a result. */}
+                  {evidenceNote ? (
+                    <View style={{ marginTop: space.md }}>
+                      <Callout tone="warn">{evidenceNote}</Callout>
+                    </View>
+                  ) : null}
+
+                  {/* Fills the Ask FinSight composer only; the owner sends it, as on web. */}
+                  {preparedQuestion ? (<>
+                  <SlipRule />
+                  <Pressable
+                    onPress={askAboutScenario}
+                    accessibilityRole="button"
+                    accessibilityLabel="Ask FinSight about this scenario"
+                    accessibilityHint="Opens Ask FinSight with this question ready. Nothing is sent until you send it."
+                    style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: TAP_FLOOR, opacity: pressed ? 0.6 : 1 })}
+                  >
+                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={t.brandText} accessibilityElementsHidden importantForAccessibility="no" />
+                    <T style={{ fontSize: typeScale.bodySm, fontFamily: font.sansSemibold, color: t.brandText }}>Ask FinSight about this</T>
+                  </Pressable>
+                  </>) : null}
+                </View>
+              )}
+            </View>
+          </View>
 
           {reviewing && !review ? (
             <Card style={{ marginBottom: space.lg }}>
@@ -1008,38 +870,6 @@ function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"Spend
             <View style={{ marginBottom: space.lg }}>
               <ErrorNote>{reviewError}</ErrorNote>
             </View>
-          ) : null}
-
-          {/*
-            THE NEXT ACTION, AND THE OWNER'S TO TAKE.
-            The question is written out in full BEFORE anything is sent, because
-            a button that quietly composes a sentence in someone's name and fires
-            it at a model is not a shortcut, it is words put in their mouth. This
-            only fills the composer; the send button is theirs.
-          */}
-          {preparedQuestion ? (
-            <Card style={{ marginBottom: space.lg }}>
-              <T variant="heading" accessibilityRole="header">Talk this through</T>
-              <T variant="caption" style={{ marginTop: 2 }}>
-                FinSight will open with this question ready. Nothing is sent until you send it.
-              </T>
-              <View
-                style={{
-                  marginTop: space.md,
-                  backgroundColor: t.surfaceMuted,
-                  borderRadius: radius.md,
-                  padding: space.md,
-                }}
-              >
-                <T style={{ fontSize: typeScale.bodySm, lineHeight: 20 }}>"{preparedQuestion}"</T>
-              </View>
-              <View style={{ marginTop: space.md }}>
-                <Button title="Open this question in Ask FinSight" variant="brand" onPress={askAboutScenario} />
-              </View>
-              <T variant="caption" style={{ marginTop: space.sm, lineHeight: 17 }}>
-                You can edit or delete it before sending.
-              </T>
-            </Card>
           ) : null}
         </ContentScrollView>
       </KeyboardAvoidingView>
@@ -1078,6 +908,31 @@ const GAUGE_HEIGHT = 12;
  * The geometry is web's, unchanged (see `gaugeGeometry`), so the same
  * scenario puts the marker in the same place on both clients.
  */
+/** The sentence's type: web's display question, at a phone's size. */
+const SENTENCE = { fontFamily: font.display, fontSize: typeScale.subpageTitle, lineHeight: 34, letterSpacing: -0.3 } as const;
+
+/** An input set inside the sentence: underlined like a blank on a form, not boxed. */
+function sentenceInput(lineColor: string) {
+  return { borderBottomWidth: 2, borderBottomColor: lineColor, paddingVertical: 0, paddingHorizontal: 2, minHeight: TAP_FLOOR } as const;
+}
+
+/** A dashed rule across the slip, as web's SLIP_RULE. */
+function SlipRule() {
+  const t = useTheme();
+  return <View style={{ height: 1, marginVertical: space.lg, borderWidth: 1, borderStyle: "dashed", borderColor: t.border, borderRadius: 1 }} />;
+}
+
+/** One line of the slip: a name on the left, its figure on the right. */
+function SlipLine({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
+  const t = useTheme();
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: space.md, paddingVertical: 3 }}>
+      <T numberOfLines={2} style={{ flex: 1, fontSize: typeScale.bodySm, color: muted ? t.textMuted : t.textSecondary }}>{label}</T>
+      <T style={{ fontSize: typeScale.bodySm, fontFamily: font.monoMedium, color: muted ? t.textMuted : t.textPrimary }}>{value}</T>
+    </View>
+  );
+}
+
 function ImpactGauge({ data }: { data: SpendingImpact }) {
   const t = useTheme();
   const geometry = gaugeGeometry(data.percentOfFunds, data.thresholdPercent);
@@ -1581,116 +1436,3 @@ function PurchaseReviewCard({
   );
 }
 
-/**
- * One figure before a planned purchase and after it.
- *
- * ONE BAR, NOT TWO. It was drawn as two stacked bars, one per state, which
- * made the reader compare two lengths in two places to answer a question
- * about a single quantity moving.
- *
- * WHAT THE BAR ENCODES: the solid part is the SMALLER of the two figures and
- * the tinted remainder is the change between them. That one rule reads
- * correctly in both directions without the caller having to say which way is
- * good — funds fall, so the solid part is what would be left and the
- * remainder is what the purchase eats; expenses rise, so the solid part is
- * what is already spent and the remainder is what would be added. Either
- * way, the light section is the purchase.
- *
- * The fill stays the brand colour rather than tracking the impact band. The
- * band already has a pill of its own, and colouring the "what remains"
- * section by severity would say the remaining funds were themselves alarming.
- * Only the REMAINDER turns red, and only when the purchase cannot be covered.
- */
-/** Height of the before/after bar; its corner radius is derived from this. */
-const BAR_HEIGHT = 10;
-
-function BeforeAfter({
-  label,
-  before,
-  after,
-}: {
-  label: string;
-  before: number;
-  after: number;
-}) {
-  const t = useTheme();
-  const { brand, ink, paper, statusText } = t;
-  /*
-   * Overspending is the case this has to get right. A negative `after` means
-   * the purchase consumed everything and more, so the solid part is what
-   * existed and the whole remainder is red — there is no such thing as a
-   * negative length, and clamping to zero would draw "nothing left"
-   * identically to "exactly nothing left".
-   */
-  const overspent = after < 0;
-  const span = overspent ? before + Math.abs(after) : Math.max(Math.abs(before), Math.abs(after), 1);
-  const solid = overspent ? before : Math.min(Math.abs(before), Math.abs(after));
-  const ratio = Math.max(0, Math.min(solid / span, 1));
-  const comparisonData: ChartDatum[] = [{ key: label, label, values: [{ label: "Before purchase", value: before }, { label: "After purchase", value: after }], note: "Hypothetical purchase; no records are changed." }];
-  const comparisonSelection = useChartSelection(comparisonData);
-
-  return (
-    <View style={{ marginBottom: space.lg }}>
-      <T variant="label" style={{ color: ink[700], marginBottom: space.sm }}>
-        {label}
-      </T>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-end", gap: space.sm }}>
-        <View>
-          <T variant="caption">Before</T>
-          <Money value={before} size={14} weight="medium" style={{ marginTop: 1 }} />
-        </View>
-        <View style={{ alignItems: "flex-end" }}>
-          <T variant="caption">After</T>
-          <Money
-            value={after}
-            size={14}
-            weight="semibold"
-            color={overspent ? statusText.critical : ink[900]}
-            style={{ marginTop: 1 }}
-          />
-        </View>
-      </View>
-      <ChartPlotPressArea selection={comparisonSelection} count={1} chartLabel={label}>
-      <View
-        // See the gauge above: the role and value are only surfaced if the
-        // view is an accessibility element in its own right.
-        accessible
-        accessibilityRole="progressbar"
-        accessibilityLabel={label}
-        accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }}
-        style={{
-          height: BAR_HEIGHT,
-          // The track IS the change: soft brand normally, alarm red when the
-          // purchase runs past what there is.
-          backgroundColor: overspent ? t.statusSurface.critical : brand[100],
-          // Radius from the height, matching RecoveryMeter's own Bar. A bar
-          // is not a chip, and `radius.full` on a brand-filled pill is the
-          // marker chipConsistency looks for.
-          borderRadius: BAR_HEIGHT / 2,
-          overflow: "hidden",
-          marginTop: space.sm,
-          flexDirection: "row",
-        }}
-      >
-        <View
-          style={{
-            width: `${ratio * 100}%`,
-            height: "100%",
-            borderRadius: BAR_HEIGHT / 2,
-            backgroundColor: brand[600],
-          }}
-        />
-        {/*
-          A hairline at the boundary. Where the two tints are close in value
-          the join is hard to place exactly, and this is a chart whose whole
-          point is where that join falls.
-        */}
-        {ratio > 0.02 && ratio < 0.98 ? (
-          <View style={{ width: 1.5, height: "100%", backgroundColor: paper.DEFAULT, opacity: 0.9 }} />
-        ) : null}
-      </View>
-      </ChartPlotPressArea>
-      <ChartValueReadout data={comparisonData} selection={comparisonSelection} chartLabel={label} />
-    </View>
-  );
-}

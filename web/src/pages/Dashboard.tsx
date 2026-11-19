@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
@@ -43,6 +43,7 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { ArrowLink, IconTile, PanelTitle } from "./dashboard/DashboardBits";
@@ -69,7 +70,10 @@ type KpiTone = "brand" | "info" | "accent" | "danger" | "neutral";
 // The headline amount scales with its own cell (the cell is an inline-size
 // container), so "+PHP 1,128,300" fits a 2-up phone tile without breaking the
 // number apart. It can still wrap at the space after "PHP", never mid-digits.
-const KPI_FIGURE = "figure mt-1 text-[clamp(1rem,12cqi,1.75rem)] font-semibold leading-tight tracking-[-0.02em]";
+const KPI_FIGURE = "figure mt-3 mb-4 text-[clamp(1.125rem,12cqi,1.875rem)] font-semibold leading-none tracking-[-0.02em]";
+/** The tile's footer: pinned to the bottom so a row of tiles lines up, whatever each caption says. */
+const KPI_FOOTER = "mt-auto border-t border-paper-200 pt-3 text-xs leading-relaxed text-ink-500";
+const KPI_LABEL = "text-[13px] font-semibold text-ink-700";
 
 function KpiCell({
   label,
@@ -102,9 +106,9 @@ function KpiCell({
   }
   return (
     <div data-alert={tone === "danger" || undefined} className={`stat-tile [container-type:inline-size] ${className}`}>
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-medium text-ink-600">{label}</p>
-        <IconTile icon={Icon} size="sm" />
+      <div className="flex items-center justify-between gap-3">
+        <p className={KPI_LABEL}>{label}</p>
+        <IconTile icon={Icon} size="md" />
       </div>
       <p
         className={`${KPI_FIGURE} ${
@@ -113,14 +117,14 @@ function KpiCell({
       >
         {value}
       </p>
-      <div className="mt-2 text-xs leading-relaxed text-ink-500">
-        <p>{caption}</p>
-        {delta ? <p className="mt-1">
-          <span className={`figure inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold ${delta.amount === 0 ? "bg-tint-neutral text-tone-neutral" : bad ? "bg-tint-danger text-tone-danger" : "bg-tint-brand text-tone-brand"}`}>
+      <div className={KPI_FOOTER}>
+        {delta ? <p className="mb-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span className={`figure inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold ring-1 ring-inset ${delta.amount === 0 ? "bg-tint-neutral text-tone-neutral ring-edge-neutral" : bad ? "bg-tint-danger text-tone-danger ring-edge-danger" : "bg-tint-brand text-tone-brand ring-edge-brand"}`}>
             {delta.amount === 0 ? <Minus aria-hidden className="h-3 w-3" /> : <Trend aria-hidden className="h-3 w-3" />}
             {changeLabel}
-          </span>{" "}<span className="whitespace-nowrap">vs {delta.against}</span>
+          </span><span className="whitespace-nowrap">vs {delta.against}</span>
         </p> : null}
+        <p>{caption}</p>
       </div>
     </div>
   );
@@ -410,7 +414,7 @@ function DashboardPage() {
             {/* The recovery card spans the row; the two cards under it sit side by
                 side and stretch to the taller of the pair, which differ by little. */}
             <div className="grid gap-5 lg:grid-cols-12">
-              <RecoveryFocus summary={summary} needsSetup={recoveryNeedsSetup} action={recoveryAction} onAddSale={addRecord.openSales} />
+              <RecoveryFocus summary={summary} needsSetup={recoveryNeedsSetup} action={recoveryAction} />
               <div className="grid min-w-0 gap-5 lg:col-span-12 lg:grid-cols-2">
                 <Panel title={<PanelTitle icon={BellRing}>Needs attention</PanelTitle>} className="min-w-0" bodyClassName="!px-0 !pb-1">
                   {/* Capped so a long finding scrolls inside the card instead of stretching the row. */}
@@ -468,20 +472,17 @@ function DashboardPage() {
             className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4 xl:grid-cols-4"
           >
             <div className="stat-tile [container-type:inline-size]">
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-xs font-medium text-ink-600">
-                  <span>Available funds</span>
-                </p>
-                <IconTile icon={Wallet} size="sm" />
+              <div className="flex items-center justify-between gap-3">
+                <p className={KPI_LABEL}>Available funds</p>
+                <IconTile icon={Wallet} size="md" />
               </div>
               <p className={`${KPI_FIGURE} text-ink-900`}>
                 {formatMoney(summary.overview.availableFunds)}
               </p>
-              <p className="mt-1.5 text-xs leading-relaxed text-ink-500">{fundsCalculation ? <>Opening balance + confirmed records since <time dateTime={fundsCalculation.baselineDate.slice(0, 10)}>{formatCalendarDate(fundsCalculation.baselineDate)}</time></> : "From your business profile"}</p>
-              <details className="mt-1 text-xs text-ink-500">
-                <summary className="disclosure">How it’s calculated</summary>
-                <p className="pb-1 leading-relaxed">{fundsProvenance}</p>
-              </details>
+              <div className={KPI_FOOTER}>
+              <p>{fundsCalculation ? <>Opening balance + confirmed records since <time dateTime={fundsCalculation.baselineDate.slice(0, 10)}>{formatCalendarDate(fundsCalculation.baselineDate)}</time></> : "From your business profile"}</p>
+              <FundsExplainer>{fundsProvenance}</FundsExplainer>
+              </div>
             </div>
             <KpiCell
               label="Sales"
@@ -735,5 +736,66 @@ function DashboardPage() {
       {addRecord.popups}
       <AskFinSightButton originModule="Dashboard" />
     </div>
+  );
+}
+
+/**
+ * "How it's calculated" for the funds tile. The answer opens over the tile's
+ * own face rather than below it: the tiles share a grid row, so a panel that
+ * grew this one stretched all four.
+ */
+function FundsExplainer({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const close = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (open) close.current?.focus();
+  }, [open]);
+
+  const shut = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen(true)}
+        className="disclosure mt-1 self-start"
+      >
+        How it’s calculated
+      </button>
+      {open ? (
+        <div
+          id={panelId}
+          role="region"
+          aria-label="How available funds are calculated"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") shut();
+          }}
+          className="absolute inset-0 z-10 flex flex-col overflow-y-auto bg-paper p-4 motion-safe:animate-fade-up sm:p-5 xl:p-6"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-xs font-semibold text-ink-900">How it’s calculated</p>
+            <button
+              ref={close}
+              type="button"
+              onClick={shut}
+              aria-label="Close how it’s calculated"
+              className="-m-2 inline-flex min-h-tap min-w-tap items-center justify-center rounded-lg text-ink-500 transition-colors hover:bg-paper-100 hover:text-ink-900"
+            >
+              <X aria-hidden className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-ink-600">{children}</p>
+        </div>
+      ) : null}
+    </>
   );
 }

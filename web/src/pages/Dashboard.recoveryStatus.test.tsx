@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "../context/ThemeContext";
 import { Dashboard } from "./Dashboard";
@@ -126,8 +126,8 @@ describe("Dashboard recovery-status KPI — status-driven rendering", () => {
     currentSummary = summaryWithStatus("no_current_month_data");
     renderDashboard();
     await waitFor(() => expect(screen.getByText("No sales yet")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Add sale" }));
-    expect(screen.getByRole("dialog", { name: "Add sales" })).toBeInTheDocument();
+    // The card no longer carries its own Add sale button; the greeting's quick actions do.
+    expect(within(screen.getByRole("region", { name: "Today’s recovery target" })).queryByRole("button", { name: "Add sale" })).toBeNull();
   });
 
   it("shows 'Target reached' for covered", async () => {

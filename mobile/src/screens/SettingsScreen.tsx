@@ -9,6 +9,7 @@ import { SubpageCard, SubpageHeader } from "../components/SubpageKit";
 import { useAuth, errorMessage } from "../context/AuthContext";
 import { useTheme, useThemeControl } from "../context/ThemeContext";
 import { useTourOptional } from "../context/TourContext";
+import { setGreetingPaused, useGreetingPaused } from "../lib/greetingMotion";
 import { space, typeScale } from "../theme/tokens";
 import type { MoreScreenProps } from "../navigation/types";
 
@@ -18,6 +19,7 @@ export function SettingsScreen({ navigation }: MoreScreenProps<"Settings">) {
   const { mode, preference, setPreference } = useThemeControl();
   const { textSecondary, textMuted, brandText } = useTheme();
   const tour = useTourOptional();
+  const greetingPaused = useGreetingPaused();
   const insets = useSafeAreaInsets();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -99,6 +101,14 @@ export function SettingsScreen({ navigation }: MoreScreenProps<"Settings">) {
                 }),
               )
             }
+          />
+          <Row
+            focusRingColor={brandText}
+            icon="pause-circle-outline"
+            label="Keep Fin still"
+            detail="Fin holds a wave instead of moving"
+            toggle={{ value: greetingPaused }}
+            onPress={() => setGreetingPaused(!greetingPaused)}
           />
           {tour ? (
             <>
