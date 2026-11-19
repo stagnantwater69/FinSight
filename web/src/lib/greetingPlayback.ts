@@ -12,6 +12,9 @@ export const GREETING_FPS = 12;
 /** A calm, centred pose used when the owner has requested reduced motion. */
 export const GREETING_REST_FRAME = 43;
 
+/** The closing frame (wing raised), held when "Keep Fin still" is on. */
+export const GREETING_PAUSE_FRAME = 102;
+
 /** How long to blend the last frame of the wave into the first. */
 export const GREETING_WRAP_CROSSFADE_MS = 250;
 

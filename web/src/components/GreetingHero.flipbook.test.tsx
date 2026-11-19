@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { GreetingHero } from "./GreetingHero";
 import { GREETING_FRAMES } from "../lib/greetingFrames";
-import { GREETING_FPS, GREETING_REST_FRAME } from "../lib/greetingPlayback";
+import { GREETING_FPS, GREETING_PAUSE_FRAME, GREETING_REST_FRAME } from "../lib/greetingPlayback";
+import { setGreetingPaused } from "../lib/greetingMotion";
 import type { DashboardSummary } from "../lib/types";
 
 /**
@@ -99,6 +100,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  act(() => setGreetingPaused(false));
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -155,5 +157,17 @@ describe("the greeting flipbook's loading order", () => {
     expect(requested).toEqual([]);
     expect(container.querySelectorAll("img")).toHaveLength(1);
     expect(mascot()).toHaveAttribute("src", REST_SRC);
+  });
+
+  it("holds the closing wave without downloading when Keep Fin still is on", async () => {
+    stubMatchMedia(false);
+    setGreetingPaused(true);
+    render(<GreetingHero summary={summary()} />);
+
+    expect(requested).toEqual([]);
+    expect(mascot()).toHaveAttribute("src", GREETING_FRAMES[GREETING_PAUSE_FRAME]);
+
+    act(() => setGreetingPaused(false));
+    expect(new Set(requested)).toEqual(new Set(GREETING_FRAMES));
   });
 });
