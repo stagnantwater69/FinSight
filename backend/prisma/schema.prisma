@@ -106,10 +106,10 @@
 //      field means "has the owner accepted this yet", and a scan can be fully
 //      read but unconfirmed, or still being read and therefore not yet
 //      confirmable. One field for both would make those indistinguishable.
-//      A scan interrupted by a restart stays "Processing" forever — accepted,
-//      since re-scanning is cheap and a durable job store is not warranted at
-//      this scale; see docs/multi-page-receipts-plan.md for where that line
-//      is drawn.
+//      A scan interrupted by a restart is reclaimed by the next worker once
+//      its heartbeat lease goes stale. After three attempts it moves to
+//      "Failed", where the owner can retry or delete it; see claimScan and
+//      failExhaustedScans in backend/src/services/receiptScan/worker.ts.
 //  16. ReceiptFieldCorrection [ADDED] — what FinSight read, against what the
 //      owner confirmed, one row per reviewed field. Not in the dictionary at
 //      all; it exists because the confirm screen is the only place in this
