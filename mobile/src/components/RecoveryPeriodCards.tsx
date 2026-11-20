@@ -1,6 +1,6 @@
 import { View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Button, Card, Money, T } from "./ui";
+import { Card, Money, T } from "./ui";
 import { Medallion } from "./InsightsShared";
 import { useTheme } from "../context/ThemeContext";
 import { formatMoney } from "../lib/money";
@@ -9,13 +9,13 @@ import {
   recoveryHighlights,
   recoveryPeriodLabel,
   recoveryPeriodStatusLabel,
-  recoverySummaryText,
   todayPercent,
   type HighlightKind,
 } from "../lib/recoveryPeriodView";
 import type { DailyCoverageRow, RecoveryInsight, RecoveryReportingPeriod } from "../lib/types";
 import { font, radius, space, typeScale } from "../theme/tokens";
 import { ChartPlotPressArea, ChartValueReadout, useChartSelection, type ChartDatum } from "./ChartInteraction";
+import { GrowFill } from "./GrowFill";
 
 type Tone = "good" | "warning" | "critical" | "neutral";
 
@@ -49,7 +49,7 @@ function Bar({ percent, color, label, detail }: { percent: number; color: string
       accessibilityValue={{ min: 0, max: 100, now: Math.round(width) }}
       style={{ height: 10, borderRadius: radius.full, overflow: "hidden", backgroundColor: t.surfaceStrong }}
     >
-      <View style={{ width: `${width}%`, height: "100%", borderRadius: radius.full, backgroundColor: color }} />
+      <GrowFill percent={width} style={{ height: "100%", borderRadius: radius.full, backgroundColor: color }} />
     </View>
     </ChartPlotPressArea>
     <ChartValueReadout data={barData} selection={barSelection} chartLabel={detail.label} explore={false} />
@@ -239,21 +239,6 @@ export function RecoveryHighlights({ rows }: { rows: readonly DailyCoverageRow[]
           ))}
         </View>
       )}
-    </Card>
-  );
-}
-
-/** The composed reading of the period, and a question that names its figures. */
-export function RecoverySummaryCard({ period, onAsk }: { period: RecoveryReportingPeriod; onAsk?: () => void }) {
-  const t = useTheme();
-  return (
-    <Card style={{ backgroundColor: t.brandSurface, borderColor: t.brandBorder }}>
-      <T variant="heading" accessibilityRole="header" style={{ color: t.brandHeading }}>Summary</T>
-      <T variant="caption" style={{ marginTop: 2 }}>Composed from your records, not AI-written</T>
-      <T style={{ marginTop: space.md, fontSize: typeScale.bodySm, lineHeight: 20, color: t.textPrimary }}>
-        {recoverySummaryText(period)}
-      </T>
-      {onAsk ? <Button title="Ask about this period" variant="ghost" onPress={onAsk} style={{ marginTop: space.sm }} /> : null}
     </Card>
   );
 }

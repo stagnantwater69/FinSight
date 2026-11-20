@@ -203,19 +203,6 @@ export function todayPercent(data: Pick<RecoveryInsight, "todaysSales" | "todays
   return data.todaysSales > 0 ? 100 : 0;
 }
 
-/** The composed summary paragraph, word for word what web shows. */
-export function recoverySummaryText(period: RecoveryReportingPeriod): string {
-  const parts = [
-    `Recorded sales ${recoveryPeriodPhrase(period)} are ${formatMoney(period.sales)} against a ${formatMoney(period.target)} target. ${recoveryPeriodStatusLabel(period)}.`,
-  ];
-  if (!period.isComplete && period.adjustedDailyTarget !== null) {
-    parts.push(
-      `The remaining target is ${formatMoney(period.remainingTarget)}, or about ${formatMoney(period.adjustedDailyTarget)} per open day left.`,
-    );
-  }
-  return parts.join(" ");
-}
-
 export function recoveryAskQuestion(period: RecoveryReportingPeriod): string {
   const variance = period.paceVarianceAmount;
   const position = variance < 0 ? "behind" : variance > 0 ? "ahead of" : "on";

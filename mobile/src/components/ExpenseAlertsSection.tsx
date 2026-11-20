@@ -14,6 +14,7 @@ import type { AnomalyFinding, AnomalyFindingPage, ExpenseBehavior } from "../lib
 import { ConnectionNotice, FreshnessStatus } from "./ConnectionNotice";
 import type { LoadNotice } from "../lib/connectionState";
 import { ChartPlotPressArea, ChartValueReadout, useChartSelection, type ChartDatum } from "./ChartInteraction";
+import { GrowFill } from "./GrowFill";
 
 function FindingReview({ finding, expense, reviewFinding, onOtherAnswers, onExplain }: {
   finding: AnomalyFinding;
@@ -100,7 +101,7 @@ function UnusualComparison({ expense, integrated = false }: { expense: ExpenseBe
           </View>
           <ChartPlotPressArea selection={comparisonSelection} count={1} chartLabel={`${expense.description} comparison`}>
           <View accessible={false} style={{ height: 8, borderRadius: radius.sm, overflow: "hidden", backgroundColor: t.surfaceMuted }}>
-            <View style={{ height: 8, borderRadius: radius.sm, width: `${maximum > 0 ? Math.max(0, row.amount / maximum * 100) : 0}%`, backgroundColor: row.color }} />
+            <GrowFill percent={maximum > 0 ? Math.max(0, row.amount / maximum * 100) : 0} style={{ height: 8, borderRadius: radius.sm, backgroundColor: row.color }} />
           </View>
           </ChartPlotPressArea>
         </View>

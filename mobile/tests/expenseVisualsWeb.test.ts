@@ -28,6 +28,8 @@ vi.mock('../src/components/CoachKit', async () => {
     TealPanel: View,
   };
 });
+// The change pill sits in the collapsed "All categories" rows; its module pulls in native haptics.
+vi.mock('../src/components/InsightsShared', () => ({ DeltaPill: () => null }));
 vi.mock('../src/context/ThemeContext', async () => {
   const { lightPalette } = await import('../src/theme/palette');
   return { useTheme: () => lightPalette };

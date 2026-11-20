@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Pressable, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { T } from "./ui";
+import { GrowFill } from "./GrowFill";
 import { TealPanel } from "./CoachKit";
 import { TAP_FLOOR } from "./touchTarget";
 import { ChartPlotPressArea, ChartValueReadout, useChartSelection, type ChartDatum, type ChartSelection } from "./ChartInteraction";
@@ -43,7 +44,7 @@ function FlowRow({ label, value, max, color, delta, interaction }: { label: stri
         <T style={{ maxWidth: "100%", fontFamily: font.monoSemibold, fontSize: typeScale.bodySm, color: HERO.ink }}>{formatMoney(value)}</T>
       </View>
       <View style={{ height: 14, borderRadius: 6, backgroundColor: HERO.wash, overflow: "hidden" }}>
-        <View style={{ width: `${width}%`, height: "100%", borderRadius: 6, backgroundColor: color }} />
+        <GrowFill percent={width} style={{ borderRadius: 6, backgroundColor: color }} />
       </View>
     </Pressable>
   );
@@ -130,7 +131,7 @@ export function MoneyFlowPanel({
             accessibilityState={{ expanded: showHow }}
             onPress={() => setShowHow((v) => !v)}
             hitSlop={8}
-            style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "flex-end", justifyContent: "center" }}
+            style={({ pressed }) => ({ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "flex-end", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
           >
             <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: HERO.amber }}>{showHow ? "Hide" : "How?"}</T>
           </Pressable>
@@ -180,7 +181,7 @@ export function TodayGoalSummary({
         <T accessibilityRole="header" style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.ACCENT.text }}>
           Today's sales goal
         </T>
-        <Pressable accessibilityRole="link" accessibilityLabel="Open Recovery" onPress={onOpenRecovery} hitSlop={8} style={{ minHeight: TAP_FLOOR, justifyContent: "center" }}>
+        <Pressable accessibilityRole="link" accessibilityLabel="Open Recovery" onPress={onOpenRecovery} hitSlop={8} style={({ pressed }) => ({ minHeight: TAP_FLOOR, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}>
           <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.brandText }}>Recovery ›</T>
         </Pressable>
       </View>
@@ -198,7 +199,7 @@ export function TodayGoalSummary({
         accessibilityValue={{ min: 0, max: 100, now: Math.round(Math.min(100, todayPct)) }}
         style={{ height: 14, borderRadius: 7, backgroundColor: t.surfaceStrong, overflow: "hidden", marginTop: space.md }}
       >
-        <View style={{ width: `${Math.max(0, Math.min(100, todayPct))}%`, height: "100%", borderRadius: 7, backgroundColor: t.ACCENT.fill }} />
+        <GrowFill percent={todayPct} style={{ borderRadius: 7, backgroundColor: t.ACCENT.fill }} />
       </View>
       </ChartPlotPressArea>
       <View style={{ flexDirection: stacked ? "column" : "row", gap: space.xs, justifyContent: "space-between", marginTop: 6 }}>
@@ -215,7 +216,7 @@ export function TodayGoalSummary({
           accessibilityValue={{ min: 0, max: 100, now: Math.round(coverage) }}
           style={{ height: 6, borderRadius: 3, backgroundColor: t.surfaceStrong, overflow: "hidden" }}
         >
-          <View style={{ width: `${coverage}%`, height: "100%", backgroundColor: t.status[tone] }} />
+          <GrowFill percent={coverage} style={{ backgroundColor: t.status[tone] }} />
         </View>
         </ChartPlotPressArea>
         <T style={{ fontFamily: font.monoSemibold, fontSize: typeScale.caption, color: t.textPrimary }}>{`${Math.round(coverage)}%`}</T>
@@ -227,7 +228,7 @@ export function TodayGoalSummary({
             accessibilityState={{ expanded: showBasis }}
             onPress={() => setShowBasis((v) => !v)}
             hitSlop={12}
-            style={{ minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}
+            style={({ pressed }) => ({ minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
           >
             <Ionicons name={showBasis ? "close-circle-outline" : "information-circle-outline"} size={18} color={t.textMuted} />
           </Pressable>
@@ -325,7 +326,7 @@ export function SpendingSplitCard({
           </ChartPlotPressArea>
           <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: space.md, rowGap: space.xs }}>
             {parts.map((p, index) => (
-              <Pressable key={p.key} {...splitSelection.bind(index)} accessibilityRole="button" accessibilityLabel={`${p.name} spending values`} style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%" }}>
+              <Pressable key={p.key} {...splitSelection.bind(index)} accessibilityRole="button" accessibilityLabel={`${p.name} spending values`} style={({ pressed }) => ({ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%", opacity: pressed ? 0.7 : 1 })}>
                 <View style={{ width: 9, height: 9, borderRadius: 2, backgroundColor: p.color }} />
                 <T style={{ fontSize: typeScale.caption, color: t.textSecondary, flexShrink: 1, textDecorationLine: splitSelection.selectedIndex === index ? "underline" : "none" }}>{`${p.name} ${pct(p.amount)}%`}</T>
               </Pressable>

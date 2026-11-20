@@ -128,8 +128,8 @@ function GlanceTile({
 }
 
 /**
- * Spending against recorded funds and the largest category's share.
- * Each tile's spoken label includes its exact figures.
+ * Spending against recorded funds. The largest category's share lives in the
+ * category donut's centre, so it is not repeated here.
  */
 export function ExpenseGlance({
   summary,
@@ -152,7 +152,6 @@ export function ExpenseGlance({
         : "No balance";
   const glanceData: ChartDatum[] = [
     { key: "funds", label: "Spending as a share of recorded funds", values: [{ label: "Spending", value: summary.total }, { label: "Recorded available funds", value: availableFunds, unavailableLabel: fundsLoading ? "Loading funds" : "Funds unavailable" }, { label: "Share of funds", value: summary.fundsShare, display: summary.fundsShare === null ? undefined : `${summary.fundsShare.toFixed(1)}%`, unavailableLabel: fundsCaption }], note: fundsWarn ? "Spending is above 75% of recorded funds" : undefined },
-    ...(summary.top ? [{ key: "top", label: summary.top.categoryName, values: [{ label: "Spending", value: summary.top.current }, { label: "Share of spending", value: summary.topShare, display: `${summary.topShare.toFixed(1)}%` }] }] : []),
   ];
   const glanceSelection = useChartSelection(glanceData);
   return (
@@ -176,54 +175,8 @@ export function ExpenseGlance({
           <View style={{ width: 56, height: 56, borderRadius: 28, borderWidth: 7, borderColor: t.surfaceStrong }} />
         )}
       </GlanceTile>
-      {summary.top ? (
-        <GlanceTile
-          caption={summary.top.categoryName}
-         
-          accessibilityLabel={`Largest category ${summary.top.categoryName}, ${summary.topShare.toFixed(1)}% of spending, ${formatMoney(summary.top.current)}`}
-        >
-          <ChartPlotPressArea selection={glanceSelection} count={glanceData.length} chartLabel="Largest spending category" indexAtPoint={() => 1}>
-          <View style={{ alignItems: "center", minHeight: 56, justifyContent: "center" }}>
-            <T style={{ fontFamily: font.monoSemibold, fontSize: typeScale.title, color: t.textPrimary }}>{`${summary.topShare.toFixed(0)}%`}</T>
-            <T style={{ fontSize: typeScale.micro, color: t.textMuted }}>largest</T>
-          </View>
-          </ChartPlotPressArea>
-        </GlanceTile>
-      ) : null}
-
     </View>
     <ChartValueReadout data={glanceData} selection={glanceSelection} chartLabel="Spending at a glance" explore={false} />
-    </View>
-  );
-}
-
-export function ExpenseCloserLook({ flaggedCount, flaggedLoading, flaggedStale, overdueCount, recurringLoading, recurringStale, onReview, onRecurring }: {
-  flaggedCount: number | null; flaggedLoading: boolean; flaggedStale: boolean;
-  overdueCount: number | null; recurringLoading: boolean; recurringStale: boolean;
-  onReview: () => void; onRecurring: () => void;
-}) {
-  const t = useTheme();
-  const rows = [
-    { label: "Review flagged expenses", icon: "document-text-outline" as const, count: flaggedCount, loading: flaggedLoading, stale: flaggedStale, onPress: onReview, detail: "Business-wide expense flags" },
-    { label: "Recurring expenses", icon: "repeat-outline" as const, count: overdueCount, loading: recurringLoading, stale: recurringStale, onPress: onRecurring, detail: overdueCount === null ? "" : `${overdueCount} overdue` },
-  ];
-  return (
-    <View style={{ gap: space.sm }}>
-      <T variant="heading" accessibilityRole="header">Take a closer look</T>
-      <View style={{ borderWidth: 1, borderColor: t.border, borderRadius: radius.md, backgroundColor: t.surface, paddingHorizontal: space.md }}>
-        {rows.map((row, index) => {
-          const status = row.count === null ? row.loading ? "Loading…" : "Unavailable" : row.stale ? "Saved data" : "";
-          return <Pressable key={row.label} accessibilityRole="button" accessibilityLabel={[row.label, row.detail, row.count !== null && index === 0 ? `${row.count} flags` : "", status].filter(Boolean).join(". ")} onPress={row.onPress} style={({ pressed }) => ({ minHeight: TAP_FLOOR, paddingVertical: space.md, flexDirection: "row", alignItems: "center", gap: space.sm, borderTopWidth: index ? 1 : 0, borderTopColor: t.border, opacity: pressed ? 0.7 : 1 })}>
-            <Ionicons name={row.icon} size={24} color={t.brandText} />
-            <View style={{ flex: 1, gap: space.xs }}>
-              <T style={{ fontFamily: font.sansMedium, fontSize: typeScale.bodySm }}>{row.label}</T>
-              <T variant="caption">{[row.detail, status].filter(Boolean).join(" · ")}</T>
-            </View>
-            {row.count !== null ? <View style={{ paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.sm, backgroundColor: t.brandSurface }}><T style={{ fontFamily: font.sansSemibold, color: t.brandText, fontVariant: ["tabular-nums"] }}>{row.count}</T></View> : null}
-            <Ionicons name="chevron-forward" size={18} color={t.textSecondary} />
-          </Pressable>;
-        })}
-      </View>
     </View>
   );
 }
@@ -297,16 +250,6 @@ function SummaryTile({
   );
 }
 
-/** A thin track for a share or a comparison: quieter than a chart, still exact on tap. */
-function Track({ percent, color }: { percent: number; color: string }) {
-  const t = useTheme();
-  return (
-    <View style={{ height: 6, borderRadius: 3, backgroundColor: t.surfaceStrong }}>
-      <View style={{ width: `${Math.max(2, Math.min(100, percent))}%`, height: 6, borderRadius: 3, backgroundColor: color }} />
-    </View>
-  );
-}
-
 /** The big figure on a tile: mono, because it is a number the eye lands on first. */
 function Figure({ children, color }: { children: string; color?: string }) {
   const t = useTheme();
@@ -337,7 +280,6 @@ function Caption({ strong, rest }: { strong?: string; rest: string }) {
 export function ExpenseSummaryCard({
   points,
   summary,
-  comparedWith,
   flaggedCount,
   unusualCount,
   questions,
@@ -346,7 +288,6 @@ export function ExpenseSummaryCard({
 }: {
   points: SummaryPoint[];
   summary: ExpenseSummaryFigures;
-  comparedWith: string | null;
   flaggedCount: number;
   unusualCount: number;
   questions: SummaryQuestion[];
@@ -355,56 +296,23 @@ export function ExpenseSummaryCard({
   onReviewFlags?: () => void;
 }) {
   const t = useTheme();
-  const summaryData: ChartDatum[] = [
-    ...(summary.top ? [{ key: "top", label: summary.top.categoryName, values: [{ label: "Category spending", value: summary.top.current }, { label: "Share of spending", value: summary.topShare, display: `${summary.topShare.toFixed(1)}%` }] }] : []),
-    { key: "total", label: "Spending comparison", values: [{ label: "Current period", value: summary.total }, { label: comparedWith ?? "Previous period", value: summary.total - summary.periodDelta }, { label: "Change", value: summary.periodDelta, display: formatMoney(summary.periodDelta, { decimals: true, signed: true }) }] },
-  ];
-  const summarySelection = useChartSelection(summaryData, comparedWith);
+  // The top share is the donut's centre and the total change is the hero chip; only new points get a tile.
+  const shown = points.filter((point) => point.kind === "increase" || point.kind === "flags");
   // Nothing beyond what the charts already show, and nothing to ask: no card.
-  if (points.length === 0 && questions.length === 0) return null;
-  const previous = summary.total - summary.periodDelta;
-  const barMax = Math.max(summary.total, previous, 1);
+  if (shown.length === 0 && questions.length === 0) return null;
   return (
     <View style={{ paddingVertical: space.md, borderTopWidth: 1, borderTopColor: t.border }}>
       <T variant="heading" accessibilityRole="header" style={{ color: t.textPrimary }}>Summary</T>
       <T variant="caption">From your records, not AI-written</T>
 
-      {points.length === 0 ? null : (
+      {shown.length === 0 ? null : (
         <View style={{ marginTop: space.md, flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
-          {points.map((point) => {
-            if (point.kind === "top" && summary.top) {
-              return (
-                <SummaryTile key={point.kind} point={point} label="Biggest cost" icon="pie-chart-outline">
-                  <Figure>{`${Math.max(0, Math.min(100, summary.topShare)).toFixed(0)}%`}</Figure>
-                  <ChartPlotPressArea selection={summarySelection} count={summaryData.length} chartLabel="Largest category share" indexAtPoint={() => summaryData.findIndex((row) => row.key === "top")}>
-                    <Track percent={summary.topShare} color={t.brandFill} />
-                  </ChartPlotPressArea>
-                  <Caption strong={summary.top.categoryName} rest="" />
-                </SummaryTile>
-              );
-            }
+          {shown.map((point) => {
             if (point.kind === "increase" && summary.biggestIncrease) {
               return (
                 <SummaryTile key={point.kind} point={point} label="Biggest rise" icon="trending-up" iconColor={t.statusText.serious}>
                   <Figure color={t.statusText.serious}>{`+${formatMoney(summary.biggestIncrease.change)}`}</Figure>
                   <Caption strong={summary.biggestIncrease.categoryName} rest="went up the most" />
-                </SummaryTile>
-              );
-            }
-            if (point.kind === "total" && summary.periodPercent !== null) {
-              const up = summary.periodDelta > 0;
-              const color = up ? t.statusText.serious : t.statusText.good;
-              return (
-                <SummaryTile key={point.kind} point={point} label="Total spending" icon={up ? "arrow-up" : "arrow-down"} iconColor={color}>
-                  <Figure color={color}>{`${Math.abs(summary.periodPercent).toFixed(0)}%`}</Figure>
-                  {/* Now against before, on one scale: this period in its tone, the last one in grey. */}
-                  <ChartPlotPressArea selection={summarySelection} count={summaryData.length} chartLabel="Summary spending comparison" indexAtPoint={() => summaryData.findIndex((row) => row.key === "total")}>
-                    <View style={{ gap: 3 }}>
-                      <Track percent={(summary.total / barMax) * 100} color={color} />
-                      <Track percent={(previous / barMax) * 100} color={t.textFaint} />
-                    </View>
-                  </ChartPlotPressArea>
-                  <Caption rest={`${up ? "more" : "less"} than ${comparedWith ?? "before"}`} />
                 </SummaryTile>
               );
             }
@@ -422,7 +330,6 @@ export function ExpenseSummaryCard({
         </View>
       )}
 
-      {points.some((point) => point.kind === "top" || point.kind === "total") ? <ChartValueReadout data={summaryData} selection={summarySelection} chartLabel="Expense summary" explore={false} /> : null}
       {/*
         Follow-up questions as a short list at the foot of the card. They were a
         row of filled pills scrolling sideways, cut off at the screen edge and

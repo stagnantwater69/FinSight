@@ -118,7 +118,7 @@ describe('Recovery overview', () => {
     </>));
     expect(q.getByText('of PHP 1,000 sales coverage target')).toBeTruthy();
     expect(q.getByText('PHP 350 / day')).toBeTruthy();
-    expect(q.getByText('Sales needed per open day left to reach the weekly target.')).toBeTruthy();
+    expect(q.queryByText(/Sales needed per open day/)).toBeNull();
     expect(q.getByText("PHP 400 behind today's pace")).toBeTruthy();
     expect(q.queryByText('PHP 2,200 / day')).toBeNull();
   });

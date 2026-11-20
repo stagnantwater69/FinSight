@@ -22,6 +22,7 @@ import type {
   RecoveryInsight,
   RecoveryReportingPeriod,
 } from "../lib/types";
+import { GrowFill } from "./GrowFill";
 
 /*
  * The Recovery Target screen's visual pieces. Every figure drawn here is a
@@ -120,7 +121,7 @@ export function RecoveryCoachCard({ data, period, isCurrentMonth, header }: {
           <T style={{ color: HERO_MUTED, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>Sales recorded</T>
           <PanelStatus tone={noSales ? "warning" : status.tone} glyph={noSales ? "i" : status.glyph} copy={noSales ? isCurrentMonth ? "No sales recorded yet this month" : recoveryPeriodStatusLabel({ ...period, status: "no_data" }) : status.copy} />
         </View>
-        <T style={{ color: HERO_INK, fontFamily: font.sansSemibold, fontSize: typeScale.display, lineHeight: typeScale.display + space.sm, fontVariant: ["tabular-nums"] }}>{formatMoney(period.sales)}</T>
+        <T numberOfLines={1} adjustsFontSizeToFit style={{ color: HERO_INK, fontFamily: font.monoSemibold, fontSize: typeScale.display, lineHeight: typeScale.display + space.sm, fontVariant: ["tabular-nums"] }}>{formatMoney(period.sales)}</T>
         <T style={{ color: HERO_MUTED, fontSize: typeScale.bodySm }}>{targetReady ? `of ${formatMoney(period.target)} sales coverage target` : "Add a monthly expense estimate to calculate your target."}</T>
       </View>
       {noSales ? <T style={{ color: HERO_MUTED, fontSize: typeScale.bodySm }}>{`Add a sale to start tracking.${latestSale ? ` Your latest sale was ${latestSale}.` : ""}`}</T> : null}
@@ -134,7 +135,7 @@ export function RecoveryCoachCard({ data, period, isCurrentMonth, header }: {
             <ChartPlotPressArea selection={coverageSelection} count={1} chartLabel="Costs paid by sales">
             <View accessible accessibilityRole="progressbar" accessibilityLabel={`Costs paid by sales: ${formatMoney(period.sales)} recorded against ${formatMoney(period.target)} target${expectedPercent === null ? "" : `. Today's pace: ${formatMoney(period.expectedSalesToDate)}`}`} accessibilityValue={{ min: 0, max: 100, now: Math.round(filled) }} style={{ gap: space.sm }}>
               <View style={{ height: 12, borderRadius: radius.sm, backgroundColor: HERO.washStrong }}>
-                <View style={{ height: 12, width: `${filled}%`, borderRadius: radius.sm, backgroundColor: HERO.goodInk }} />
+                <GrowFill percent={filled} style={{ height: 12, borderRadius: radius.sm, backgroundColor: HERO.goodInk }} />
                 {expectedPercent !== null ? <View style={{ position: "absolute", left: `${expectedPercent}%`, top: -5, bottom: -5, width: 3, marginLeft: -1.5, borderRadius: 2, backgroundColor: HERO_AMBER }} /> : null}
               </View>
               {expectedPercent !== null ? <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}><View style={{ width: 3, height: 12, backgroundColor: HERO_AMBER }} /><T style={{ color: HERO_AMBER, fontSize: typeScale.caption }}>Today's pace · {formatMoney(period.expectedSalesToDate)}</T></View> : null}
@@ -145,7 +146,7 @@ export function RecoveryCoachCard({ data, period, isCurrentMonth, header }: {
           <View style={{ borderTopWidth: 1, borderTopColor: HERO.hairline, paddingTop: space.md, flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
             <View style={{ flex: 1, minWidth: 120, gap: space.xs }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}><Ionicons name="arrow-up" size={18} color={HERO_AMBER} /><T style={{ color: HERO_MUTED, fontSize: typeScale.caption }}>{period.isComplete ? "Period result" : "Still to sell"}</T></View>
-              <T style={{ color: HERO_INK, fontFamily: font.sansSemibold, fontSize: typeScale.title, fontVariant: ["tabular-nums"] }}>{formatMoney(period.isComplete ? Math.abs(period.sales - period.target) : Math.max(0, period.remainingTarget))}</T>
+              <T style={{ color: HERO_INK, fontFamily: font.monoSemibold, fontSize: typeScale.title, fontVariant: ["tabular-nums"] }}>{formatMoney(period.isComplete ? Math.abs(period.sales - period.target) : Math.max(0, period.remainingTarget))}</T>
               {period.isComplete ? <T style={{ color: HERO_MUTED, fontSize: typeScale.caption }}>{period.sales >= period.target ? "above target" : "short of target"}</T> : null}
             </View>
             <View style={{ flex: 1, minWidth: 120, gap: space.xs }}>
@@ -175,7 +176,7 @@ export function RecoveryNextGoal({ period }: { period: RecoveryReportingPeriod }
           <Ionicons name={reached ? "checkmark-circle-outline" : "locate-outline"} size={30} color={t.brandText} />
           <T style={{ flex: 1, color: t.brandHeading, fontFamily: font.sansSemibold, fontSize: typeScale.title, fontVariant: ["tabular-nums"] }}>{reached ? "Sales coverage target reached" : dailyTarget !== null ? `${formatMoney(dailyTarget)} / day` : period.remainingOperatingDays <= 0 ? "No operating days remaining" : "Daily target unavailable"}</T>
         </View>
-        <T style={{ color: t.textSecondary, fontSize: typeScale.bodySm }}>{reached ? "Recorded sales cover this period's costs." : dailyTarget !== null ? `Sales needed per open day left to reach the ${period.kind === "week" ? "weekly" : "monthly"} target.` : "Review your operating schedule and the remaining target below."}</T>
+        {dailyTarget === null ? <T style={{ color: t.textSecondary, fontSize: typeScale.bodySm }}>{reached ? "Recorded sales cover this period's costs." : "Review your operating schedule and the remaining target below."}</T> : null}
       </View>
       {behind ? <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, borderWidth: 1, borderColor: t.statusBorder.warning, backgroundColor: t.statusSurface.warning, borderRadius: radius.md, padding: space.md }}>
         <Ionicons name="alert-circle" size={22} color={t.statusText.warning} />
@@ -203,7 +204,7 @@ export function ProgressBar({ percent, color, label, height = 16, detail }: { pe
       accessibilityValue={{ min: 0, max: 100, now: Math.round(width) }}
       style={{ height, borderRadius: height / 2, backgroundColor: t.surfaceStrong, overflow: "hidden" }}
     >
-      <View style={{ width: `${width}%`, height: "100%", borderRadius: height / 2, backgroundColor: color }} />
+      <GrowFill percent={width} style={{ height: "100%", borderRadius: height / 2, backgroundColor: color }} />
     </View>
     </ChartPlotPressArea>
     <ChartValueReadout data={progressData} selection={progressSelection} chartLabel={detail?.label ?? label} explore={false} />
@@ -560,7 +561,7 @@ function DayBar({ label, value, max, color }: { label: string; value: number; ma
       </View>
       <ChartPlotPressArea selection={daySelection} count={1} chartLabel={label}>
       <View accessible={false} style={{ height: 22, borderRadius: radius.sm, backgroundColor: t.surfaceMuted, overflow: "hidden" }}>
-        <View style={{ width: `${Math.max(0, Math.min(100, (value / max) * 100))}%`, height: "100%", borderRadius: radius.sm, backgroundColor: color }} />
+        <GrowFill percent={Math.max(0, Math.min(100, (value / max) * 100))} style={{ height: "100%", borderRadius: radius.sm, backgroundColor: color }} />
       </View>
       </ChartPlotPressArea>
       <ChartValueReadout data={dayData} selection={daySelection} chartLabel={label} explore={false} />

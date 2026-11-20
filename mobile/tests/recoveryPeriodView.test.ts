@@ -5,7 +5,6 @@ import {
   recoveryAskQuestion,
   recoveryHighlights,
   recoveryPeriodStatusLabel,
-  recoverySummaryText,
   todayPercent,
 } from "../src/lib/recoveryPeriodView";
 import type { DailyCoverageRow, RecoveryCheckpoint, RecoveryReportingPeriod } from "../src/lib/types";
@@ -84,15 +83,6 @@ const week = {
 } as unknown as RecoveryReportingPeriod;
 
 describe("recovery period view", () => {
-  it("states the summary the way web does", () => {
-    expect(recoverySummaryText(week)).toBe(
-      "Recorded sales this week are PHP 300 against a PHP 1,000 target. Behind. The remaining target is PHP 700, or about PHP 175 per open day left.",
-    );
-    expect(recoverySummaryText({ ...week, isComplete: true, status: "on_pace" })).toBe(
-      "Recorded sales this week are PHP 300 against a PHP 1,000 target. Finished on target.",
-    );
-  });
-
   it("names the pace gap in the ask question", () => {
     expect(recoveryAskQuestion(week)).toBe(
       "Why are my recorded sales PHP 120 behind pace this week, and what should I review?",

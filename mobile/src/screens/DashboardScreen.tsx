@@ -1,6 +1,6 @@
 import { ContentScrollView } from "../components/ContentScrollView";
 import { useCallback, useState } from "react";
-import { RefreshControl, useWindowDimensions, View } from "react-native";
+import { RefreshControl, View } from "react-native";
 import { Button, Callout, Card, EmptyState, ErrorNote, Screen, SetupProgress, T } from "../components/ui";
 import { HomeHeader } from "../components/HomeHeader";
 import { RecentRecords, UpcomingExpenses } from "../components/DashboardFeeds";
@@ -30,6 +30,7 @@ import { font, space, typeScale } from "../theme/tokens";
 import { useTheme } from "../context/ThemeContext";
 import type { DashboardSummary } from "../lib/types";
 import type { DashboardScreenProps } from "../navigation/types";
+import { Reveal } from "../components/Reveal";
 
 
 export function DashboardScreen(props: DashboardScreenProps<"DashboardHome">) {
@@ -42,8 +43,6 @@ export function DashboardScreen(props: DashboardScreenProps<"DashboardHome">) {
 
 function DashboardContent({ navigation }: DashboardScreenProps<"DashboardHome">) {
   const t = useTheme();
-  const { width, fontScale } = useWindowDimensions();
-  const stackedActions = width < 390 || fontScale > 1.2;
   const { brand } = t;
   const { preferences } = useAuth();
   const { selected, profiles, categories, error: profilesError, refresh: refreshProfiles, selectProfile } =
@@ -382,7 +381,7 @@ function DashboardContent({ navigation }: DashboardScreenProps<"DashboardHome">)
           */
           null
         ) : (
-          <>
+          <Reveal style={{ gap: space.xl }}>
             <View {...summaryTourTarget}>
               <MoneyFlowPanel
                 sales={summary.overview.totalSalesReference}
@@ -436,7 +435,7 @@ function DashboardContent({ navigation }: DashboardScreenProps<"DashboardHome">)
                   icon="flag-outline"
                   tone="critical"
                   title="Records to review"
-                  detail={summary.recordsNeedingReview > 0 ? "Flagged or pending review" : "All clear"}
+                  detail={summary.recordsNeedingReview > 0 ? null : "All clear"}
                   right={<T style={{ fontFamily: font.monoSemibold, fontSize: typeScale.bodyLg, color: t.textPrimary }}>{summary.recordsNeedingReview}</T>}
                   onPress={summary.recordsNeedingReview > 0 ? () => openFlaggedRecords(navigation, "Dashboard") : undefined}
                   accessibilityLabel={`${summary.recordsNeedingReview} to review`}
@@ -445,7 +444,7 @@ function DashboardContent({ navigation }: DashboardScreenProps<"DashboardHome">)
                   <IconRow
                     icon="bulb-outline"
                     title={topOpportunity.categoryName}
-                    detail="Worth a look: a possible saving"
+                    detail="Possible saving"
                     onPress={() => navigation.navigate("Insights", { screen: "ExpenseBehavior" })}
                     accessibilityLabel={`Save on ${topOpportunity.categoryName}`}
                   />
@@ -461,15 +460,13 @@ function DashboardContent({ navigation }: DashboardScreenProps<"DashboardHome">)
                   />
                 ) : null}
               </View>
-              <View style={{ flexDirection: stackedActions ? "column" : "row", gap: space.sm, marginTop: space.md }}>
-                <Button title="Ask FinSight" variant="secondary" onPress={() => setAskOpen(true)} style={{ flex: 1 }} />
-                <Button
-                  title="Plan a purchase"
-                  variant="secondary"
-                  onPress={() => navigation.navigate("Insights", { screen: "SpendingImpact" })}
-                  style={{ flex: 1 }}
-                />
-              </View>
+              {/* Ask FinSight is the floating button on this screen; a second one here was a duplicate. */}
+              <Button
+                title="Plan a purchase"
+                variant="secondary"
+                onPress={() => navigation.navigate("Insights", { screen: "SpendingImpact" })}
+                style={{ marginTop: space.md }}
+              />
             </Card>
 
             {/*
@@ -518,7 +515,7 @@ function DashboardContent({ navigation }: DashboardScreenProps<"DashboardHome">)
                 }
               />
             ) : null}
-          </>
+          </Reveal>
         )}
       </ContentScrollView>
 

@@ -16,6 +16,7 @@ import type {
   ReductionOpportunityFeedbackRating,
   ReductionOpportunityResponse,
 } from "../lib/types";
+import { GrowFill } from "./GrowFill";
 
 /**
  * The "Reduction opportunities" sub-section of Expense insight — Overview.
@@ -243,7 +244,7 @@ function OpportunityCard({
               </View>
               <ChartPlotPressArea selection={comparisonSelection} count={1} chartLabel={`${opportunity.categoryName} opportunity comparison`}>
               <View accessible={false} style={{ height: 8, borderRadius: radius.sm, backgroundColor: t.surfaceMuted }}>
-                <View style={{ height: 8, borderRadius: radius.sm, width: `${Math.max(0, Math.min(100, row.amount / maximum * 100))}%`, backgroundColor: row.color }} />
+                <GrowFill percent={Math.max(0, Math.min(100, row.amount / maximum * 100))} style={{ height: 8, borderRadius: radius.sm, backgroundColor: row.color }} />
               </View>
               </ChartPlotPressArea>
             </View>

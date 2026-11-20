@@ -66,6 +66,8 @@ describe('MoneyFlowScreen', () => {
     });
     const queries = await mount();
     expect(await queries.findByText('Cashflow points: 2')).toBeTruthy();
+    // (900 - 400) + (1200 - 600)
+    expect(queries.getByLabelText('Net, last 6 months: +PHP 1,100')).toBeTruthy();
 
     fail = true;
     invalidateServerState({ pathPrefixes: ['/dashboard/cashflow'] });

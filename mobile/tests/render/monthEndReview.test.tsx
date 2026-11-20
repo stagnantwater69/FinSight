@@ -175,7 +175,7 @@ describe('MonthEndReviewScreen — reviewable', () => {
     apiGet.mockResolvedValue({ ...REVIEWABLE, coveragePercent: 100, surplusOrShortfall: 0 });
     const queries = await renderScreen();
     expect(await queries.findByText('Monthly costs covered')).toBeTruthy();
-    expect(queries.getByText('Covered')).toBeTruthy();
+    expect(queries.queryByText('Covered')).toBeNull();
     expect(queries.queryByText('still to cover')).toBeNull();
     expect(queries.queryByText('Above monthly costs')).toBeNull();
   });

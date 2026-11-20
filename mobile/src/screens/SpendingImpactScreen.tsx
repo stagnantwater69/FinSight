@@ -608,9 +608,7 @@ function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"Spend
                   {reviewing ? "Looking at it…" : review ? "Look at this item again" : "What am I buying?"}
                 </T>
               </Pressable>
-              <T variant="caption" style={{ flexShrink: 1 }}>
-                {!reviewReady ? "Name the item first." : "Describes the item. Doesn't decide for you."}
-              </T>
+              {!reviewReady ? <T variant="caption" style={{ flexShrink: 1 }}>Name the item first.</T> : null}
             </View>
 
             {/* Presets, not web's slider: PHP 500 steps across six figures are too fine for a thumb or a screen reader. */}
@@ -699,12 +697,12 @@ function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"Spend
               ) : (
                 <T variant="caption">Checked against your recorded available funds.</T>
               )}
-              {fundsCalculation ? (
-                <T variant="caption" style={{ marginTop: 4, lineHeight: 17 }}>{availableFundsProvenance(fundsCalculation)}</T>
-              ) : data ? (
-                <T variant="caption" style={{ marginTop: 4, lineHeight: 17 }}>
-                  Source details are not available for this result. Run the check again after FinSight updates.
-                </T>
+              {fundsCalculation || data ? (
+                <Disclosure title="Where this figure comes from">
+                  <T variant="caption" style={{ lineHeight: 17 }}>
+                    {fundsCalculation ? availableFundsProvenance(fundsCalculation) : "Source details are not available for this result. Run the check again after FinSight updates."}
+                  </T>
+                </Disclosure>
               ) : null}
               <Pressable
                 accessibilityRole="button"
@@ -728,7 +726,7 @@ function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"Spend
                   <T accessibilityRole="header" style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.textMuted, letterSpacing: 1.8, textTransform: "uppercase" }}>
                     What-if slip
                   </T>
-                  <T variant="caption" style={{ marginTop: 2 }}>{periodLabel(selection)} · not saved</T>
+                  <T variant="caption" style={{ marginTop: 2 }}>{periodLabel(selection)}</T>
                 </View>
                 {data ? (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1.5, borderColor: bandColor, backgroundColor: bandSurface, borderRadius: radius.sm, paddingHorizontal: space.sm, paddingVertical: 3, transform: [{ rotate: "-2deg" }] }}>
@@ -812,10 +810,12 @@ function SpendingImpactContent({ navigation, route }: InsightsScreenProps<"Spend
                   </T>
                   <SlipLine muted label="Now" value={formatMoney(data.periodExpenses.before, { decimals: true })} />
                   <SlipLine label="With this purchase" value={formatMoney(data.periodExpenses.after, { decimals: true })} />
-                  <T variant="caption" style={{ marginTop: space.sm, lineHeight: 17 }}>
-                    That uses {percentOfFundsText(data.percentOfFunds)} of your available funds. You treat anything
-                    above {data.thresholdPercent}% as high impact.
-                  </T>
+                  <Disclosure title="How impact is judged">
+                    <T variant="caption" style={{ lineHeight: 17 }}>
+                      That uses {percentOfFundsText(data.percentOfFunds)} of your available funds. You treat anything
+                      above {data.thresholdPercent}% as high impact.
+                    </T>
+                  </Disclosure>
                   {/* Thin evidence, explained rather than left to look like a result. */}
                   {evidenceNote ? (
                     <View style={{ marginTop: space.md }}>
