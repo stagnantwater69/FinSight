@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { Worker } from "node:worker_threads";
-import { ApiError } from "../middleware/error.middleware";
+import { ApiError } from "./apiError";
 
 export type PerspectivePoint = { x: number; y: number };
 export type PerspectiveCorners = {

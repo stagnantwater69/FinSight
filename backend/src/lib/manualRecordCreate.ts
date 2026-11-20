@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ExpenseRecord, ManualRecordKind, Prisma, SalesReferenceRecord } from "@prisma/client";
 import { z } from "zod";
-import { ApiError } from "../middleware/error.middleware";
+import { ApiError } from "./apiError";
 
 export const manualRecordIdempotencyKeySchema = z.string().min(8).max(100).regex(
   /^[A-Za-z0-9_-]+$/,

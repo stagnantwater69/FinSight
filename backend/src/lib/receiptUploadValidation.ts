@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import sharp from "sharp";
-import { ApiError } from "../middleware/error.middleware";
+import { ApiError } from "./apiError";
 import {
   RECEIPT_UPLOAD_ALLOWED_MIME_TYPES,
   RECEIPT_UPLOAD_MAX_OBJECT_BYTES,

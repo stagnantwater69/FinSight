@@ -5,6 +5,9 @@ import { Prisma } from "@prisma/client";
 import { logger } from "../config/logger";
 import { reportError } from "../config/errorReporting";
 import { REFUND_NOT_FOUND, REFUND_VALIDATION_FAILED, refundRateLimitsForError } from "./rateLimit.middleware";
+import { ApiError } from "../lib/apiError";
+
+export { ApiError };
 
 /*
  * Codes for "the database was not reachable", as opposed to "the query was
@@ -87,23 +90,6 @@ function multerErrorResponse(err: MulterError): {
       return { status: 400, error: "Upload contains an unexpected file field", code: "UPLOAD_UNEXPECTED_FILE" };
     default:
       return { status: 400, error: "Invalid multipart upload", code: "UPLOAD_INVALID" };
-  }
-}
-
-export class ApiError extends Error {
-  status: number;
-  code?: string;
-  responseDetails?: Record<string, unknown>;
-
-  constructor(
-    status: number,
-    message: string,
-    options: { code?: string; responseDetails?: Record<string, unknown> } = {},
-  ) {
-    super(message);
-    this.status = status;
-    this.code = options.code;
-    this.responseDetails = options.responseDetails;
   }
 }
 

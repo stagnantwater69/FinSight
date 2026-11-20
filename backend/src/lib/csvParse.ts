@@ -1,5 +1,5 @@
 import { parse } from "csv-parse/sync";
-import { ApiError } from "../middleware/error.middleware";
+import { ApiError } from "./apiError";
 import { CSV_MAX_FILE_BYTES, decodeCsvUploadBytes } from "./csvUploadValidation";
 
 const MAX_CSV_COLUMNS = 256;

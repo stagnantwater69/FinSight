@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { ChatSendRequestStatus, Prisma, type ChatSendRequest } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { logger } from "../config/logger";
-import { ApiError } from "../middleware/error.middleware";
+import { ApiError } from "./apiError";
 import { manualRecordIdempotencyKeySchema } from "./manualRecordCreate";
 
 export const chatSendIdempotencyKeySchema = manualRecordIdempotencyKeySchema;
