@@ -1,5 +1,6 @@
 // Starts the local dev stack: API and receipt worker (through backend/scripts/dev-database.ts),
 // waits for /api/v1/health/live, then starts one client.
+// The client gets the terminal so its key shortcuts work; API and worker output is tagged [api] and [worker].
 //
 //   node scripts/dev.mjs [web|mobile|api]    default web; api starts the backend only
 //
@@ -32,17 +33,19 @@ export function apiPort(env) {
 export function commands(root, mode) {
   const backend = path.join(root, "backend");
   const tsx = path.join(backend, "node_modules", "tsx", "dist", "cli.mjs");
+  const piped = ["ignore", "pipe", "pipe"];
   const list = [
-    { tag: "api", project: "backend", cwd: backend, args: [tsx, "scripts/dev-database.ts", "api"] },
-    { tag: "worker", project: "backend", cwd: backend, args: [tsx, "scripts/dev-database.ts", "worker"] },
+    { tag: "api", project: "backend", cwd: backend, args: [tsx, "scripts/dev-database.ts", "api"], stdio: piped },
+    { tag: "worker", project: "backend", cwd: backend, args: [tsx, "scripts/dev-database.ts", "worker"], stdio: piped },
   ];
+  // Expo and Vite turn their key menus off unless stdin/stdout is a TTY.
   if (mode === "web") {
     const web = path.join(root, "web");
-    list.push({ tag: "web", project: "web", cwd: web, args: [path.join(web, "node_modules", "vite", "bin", "vite.js")] });
+    list.push({ tag: "web", project: "web", cwd: web, args: [path.join(web, "node_modules", "vite", "bin", "vite.js")], stdio: "inherit" });
   }
   if (mode === "mobile") {
     const mobile = path.join(root, "mobile");
-    list.push({ tag: "mobile", project: "mobile", cwd: mobile, args: [path.join(mobile, "node_modules", "expo", "bin", "cli"), "start"] });
+    list.push({ tag: "mobile", project: "mobile", cwd: mobile, args: [path.join(mobile, "node_modules", "expo", "bin", "cli"), "start"], stdio: "inherit" });
   }
   return list;
 }
@@ -89,6 +92,32 @@ function prefix(stream, tag, out) {
   readline.createInterface({ input: stream }).on("line", (line) => out.write(`[${tag}] ${line}\n`));
 }
 
+// stopChildren(code) runs once, for whichever of SIGINT or a child exit comes first.
+// Ctrl-C can reach the children before this script's own SIGINT, so a failing exit waits graceMs for it.
+export function createStopper(stopChildren, graceMs = 500) {
+  const state = {
+    stopping: false,
+    stop(code) {
+      if (state.stopping) return;
+      state.stopping = true;
+      stopChildren(code);
+    },
+    childExited({ tag, stdio }, code, signal) {
+      if (state.stopping) return;
+      if (stdio === "inherit" && code === 0) {
+        console.log(`[dev] ${tag} stopped; stopping the rest.`);
+        return state.stop(0);
+      }
+      setTimeout(() => {
+        if (state.stopping) return;
+        console.error(`[dev] ${tag} exited (${signal ?? `code ${code}`}); stopping the rest.`);
+        state.stop(code || 1);
+      }, graceMs);
+    },
+  };
+  return state;
+}
+
 async function main() {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.help) return console.log(USAGE);
@@ -102,10 +131,7 @@ async function main() {
   if (problems.length) { for (const p of problems) console.error(`[dev] ${p}`); process.exitCode = 1; return; }
 
   const children = new Set();
-  let stopping = false;
-  const stopAll = (code) => {
-    if (stopping) return;
-    stopping = true;
+  const stopper = createStopper((code) => {
     process.exitCode = code;
     for (const child of children) {
       if (child.exitCode !== null || child.signalCode !== null) continue;
@@ -113,21 +139,19 @@ async function main() {
       if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
       else child.kill("SIGTERM");
     }
-  };
-  const start = ({ tag, cwd, args }) => {
-    const child = spawn(process.execPath, args, { cwd, env: process.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  });
+  const stopAll = stopper.stop;
+  const start = (cmd) => {
+    const { tag, cwd, args, stdio } = cmd;
+    const child = spawn(process.execPath, args, { cwd, env: process.env, stdio, windowsHide: true });
     children.add(child);
-    prefix(child.stdout, tag, process.stdout);
-    prefix(child.stderr, tag, process.stderr);
+    if (child.stdout) prefix(child.stdout, tag, process.stdout);
+    if (child.stderr) prefix(child.stderr, tag, process.stderr);
     child.once("error", (err) => { console.error(`[dev] ${tag} could not start: ${err.message}`); stopAll(1); });
-    child.once("exit", (code, signal) => {
-      if (stopping) return;
-      console.error(`[dev] ${tag} exited (${signal ?? `code ${code}`}); stopping the rest.`);
-      stopAll(code || 1);
-    });
+    child.once("exit", (code, signal) => stopper.childExited(cmd, code, signal));
     return child;
   };
-  process.on("SIGINT", () => { console.log("[dev] Stopping."); stopAll(0); });
+  process.on("SIGINT", () => { if (!stopper.stopping) console.log("[dev] Stopping."); stopAll(0); });
   process.on("SIGTERM", () => stopAll(0));
 
   const [api, worker, client] = commands(root, parsed.mode);
@@ -137,7 +161,7 @@ async function main() {
   const base = `http://127.0.0.1:${port}/api/v1`;
   const deadline = Date.now() + LIVE_TIMEOUT_MS;
   while ((await status(`${base}/health/live`)) !== 200) {
-    if (stopping) return;
+    if (stopper.stopping) return;
     if (Date.now() > deadline) {
       console.error(`[dev] ${base}/health/live did not answer 200 within ${LIVE_TIMEOUT_MS / 1000}s; stopping.`);
       return stopAll(1);
@@ -149,7 +173,7 @@ async function main() {
   console.log(`[dev] /health/ready returned ${ready ?? "no response"}${ready === 200 ? "" : " (the API is up but a dependency is not ready)"}`);
   console.log("[dev] Worker is running. Locally that is the only check: its heartbeat file is written only inside the container.");
 
-  if (stopping) return;
+  if (stopper.stopping) return;
   if (client) start(client);
   console.log(`[dev] ${client ? `${client.tag} starting. ` : ""}Press Ctrl-C to stop everything this script started.`);
 }
