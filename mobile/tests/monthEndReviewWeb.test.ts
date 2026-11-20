@@ -22,6 +22,7 @@ vi.mock('../src/components/ui', async () => {
     Money: ({ value, decimals }: { value: number; decimals?: boolean }) => React.createElement(Text, null, formatMoney(value, { decimals })),
   };
 });
+vi.mock('../src/components/InsightsShared', () => ({ DeltaPill: () => null }));
 vi.mock('../src/components/ContentScrollView', async () => {
   const { createRequire } = await import('node:module');
   return { ContentScrollView: createRequire(import.meta.url)('react-native-web').View };

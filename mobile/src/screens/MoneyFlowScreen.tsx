@@ -12,7 +12,8 @@ import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { useTheme } from "../context/ThemeContext";
 import { describeLoadFailure, toLoadFailure } from "../lib/connectionState";
 import { useInsight } from "../lib/useInsight";
-import { radius, space, typeScale } from "../theme/tokens";
+import { font, radius, space, typeScale } from "../theme/tokens";
+import { formatMoney } from "../lib/money";
 import type { CashflowGranularity, DashboardCashflow } from "../lib/types";
 
 /**
@@ -49,6 +50,8 @@ export function MoneyFlowScreen() {
     subject: "money in and out",
   });
   const rangeText = granularity === "monthly" ? "Last 6 months" : "Last 7 days";
+  const net = points.reduce((sum, p) => sum + p.sales - p.expenses, 0);
+  const netFamily = net > 0 ? "good" : net < 0 ? "serious" : null;
 
   return (
     <Screen>
@@ -88,7 +91,7 @@ export function MoneyFlowScreen() {
               </View>
             </View>
           ) : (
-            <Reveal>
+            <Reveal style={{ gap: space.md }}>
               <CashflowChart
                 data={points}
                 granularity={granularity}
@@ -96,6 +99,16 @@ export function MoneyFlowScreen() {
                 subtitle={rangeText}
                 action={<GranularityDropdown value={granularity} onChange={setGranularity} />}
               />
+              {/* The one figure the two lines add up to: money in minus money out over the range. */}
+              <View
+                accessible
+                accessibilityLabel={`Net, ${rangeText.toLowerCase()}: ${formatMoney(net, { signed: true })}`}
+                style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.full, backgroundColor: netFamily ? t.statusSurface[netFamily] : t.surfaceMuted }}
+              >
+                <Ionicons name={net > 0 ? "arrow-up" : net < 0 ? "arrow-down" : "remove"} size={16} color={netFamily ? t.statusText[netFamily] : t.textSecondary} />
+                <T style={{ fontSize: typeScale.bodySm, color: netFamily ? t.statusText[netFamily] : t.textSecondary }}>Net</T>
+                <T style={{ fontFamily: font.monoSemibold, fontSize: typeScale.bodySm, color: netFamily ? t.statusText[netFamily] : t.textSecondary }}>{formatMoney(net, { signed: true })}</T>
+              </View>
             </Reveal>
           )}
         </Card>

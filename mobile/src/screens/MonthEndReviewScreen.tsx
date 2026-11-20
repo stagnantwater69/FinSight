@@ -19,6 +19,7 @@ import { ChartPlotPressArea, ChartValueReadout, useChartSelection, type ChartDat
 import { KpiWatermark } from "../components/KpiWatermark";
 import type { MoreScreenProps } from "../navigation/types";
 import { Reveal } from "../components/Reveal";
+import { DeltaPill } from "../components/InsightsShared";
 
 /**
  * Month-end review — Recovery Target Improvement Plan §10.9/§11 Phase 7.
@@ -173,14 +174,12 @@ function ReviewContent({
           </ChartPlotPressArea>
           <View style={{ flex: stacked ? undefined : 1, width: stacked ? "100%" : undefined, gap: space.sm, alignItems: stacked ? "center" : "flex-start" }}>
             <Money value={Math.abs(data.surplusOrShortfall)} decimals size={typeScale.titleLg} weight="semibold" color={t.onBrandSolid} style={{ alignSelf: "stretch", textAlign: stacked ? "center" : "left" }} />
-            <T style={{ color: t.onBrandSolidMuted, fontFamily: font.sansMedium, fontSize: typeScale.bodyLg, lineHeight: 24, textAlign: stacked ? "center" : "left" }}>{shortfall ? "still to cover" : aboveBasis ? "Above monthly costs" : "Monthly costs covered"}</T>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.full, backgroundColor: shortfall ? t.ACCENT.fill : t.onBrandSolidMuted }}>
-              <Ionicons name={shortfall ? "alert-circle" : "checkmark-circle"} size={16} color={shortfall ? t.ACCENT.onFill : t.brandSolidPressed} accessible={false} />
-              <T style={{ flexShrink: 1, color: shortfall ? t.ACCENT.onFill : t.brandSolidPressed, fontFamily: font.sansMedium, fontSize: typeScale.label }}>{shortfall ? "Below target" : aboveBasis ? "Above basis" : "Covered"}</T>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, alignSelf: stacked ? "center" : "flex-start" }}>
+              <Ionicons name={shortfall ? "alert-circle" : "checkmark-circle"} size={20} color={shortfall ? t.ACCENT.fill : t.onBrandSolidMuted} accessible={false} />
+              <T style={{ flexShrink: 1, color: t.onBrandSolidMuted, fontFamily: font.sansMedium, fontSize: typeScale.bodyLg, lineHeight: 24 }}>{shortfall ? "still to cover" : aboveBasis ? "Above monthly costs" : "Monthly costs covered"}</T>
             </View>
           </View>
         </View>
-        <T style={{ color: t.onBrandSolid, fontSize: typeScale.bodySm, lineHeight: 22, textAlign: "center" }}>Sales compared with monthly costs</T>
         <ChartValueReadout data={coverageData} selection={coverageSelection} chartLabel="Costs paid by sales this month" />
       </View>
 
@@ -227,10 +226,14 @@ function ReviewContent({
             <Ionicons name={stacked ? "arrow-down" : "arrow-forward"} size={22} color={t.textMuted} accessible={false} />
             <View style={{ flex: stacked ? undefined : 1, gap: space.xs }}>
               <T variant="label">Final adjusted</T>
-              {data.finalAdjustedDailyTarget === null ? <T style={{ color: t.textSecondary, fontSize: typeScale.bodySm, lineHeight: 22 }}>Not available because the month's last open day could not produce a meaningful per-day rate.</T> : <Money value={data.finalAdjustedDailyTarget} decimals size={typeScale.title} weight="semibold" />}
+              {data.finalAdjustedDailyTarget === null ? <T style={{ color: t.textSecondary, fontSize: typeScale.bodySm, lineHeight: 22 }}>Not available: no per-day rate on the last open day.</T> : (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.sm }}>
+                  <Money value={data.finalAdjustedDailyTarget} decimals size={typeScale.title} weight="semibold" />
+                  {data.originalDailyTarget > 0 ? <DeltaPill percentChange={(data.finalAdjustedDailyTarget - data.originalDailyTarget) / data.originalDailyTarget * 100} direction={data.finalAdjustedDailyTarget > data.originalDailyTarget ? "up" : data.finalAdjustedDailyTarget < data.originalDailyTarget ? "down" : "flat"} /> : null}
+                </View>
+              )}
             </View>
           </View>
-          <T variant="caption" style={{ textAlign: "center" }}>For this completed month.</T>
         </Card>
       </View>
 
@@ -247,7 +250,7 @@ function ReviewContent({
           ))}
           {data.suggestedQuestionsForNextMonth.length === 0 ? <T variant="caption">No questions provided for this month.</T> : null}
         </Card>
-        <T variant="caption" style={{ lineHeight: 19 }}>These are questions to consider. Nothing here changes your financial settings or records.</T>
+        <T variant="caption" style={{ lineHeight: 19 }}>Suggestions only. Nothing here changes your settings or records.</T>
         <Pressable onPress={() => navigation.navigate("More", { screen: "BusinessProfileForm", params: { profile: businessProfile } })} accessibilityRole="button" accessibilityLabel="Edit business profile" style={({ pressed }) => ({ minHeight: TAP_FLOOR, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, borderWidth: 1, borderColor: t.brandText, borderRadius: radius.md, opacity: pressed ? 0.7 : 1 })}>
           <Ionicons name="create-outline" size={20} color={t.brandText} accessible={false} /><T style={{ flexShrink: 1, color: t.brandText, fontFamily: font.sansSemibold, fontSize: typeScale.bodySm, textAlign: "center" }}>Edit business profile</T>
         </Pressable>
