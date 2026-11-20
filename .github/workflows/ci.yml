@@ -105,6 +105,7 @@ jobs:
       - run: node scripts/check-type-parity.mjs
       - run: node --test scripts/check-type-parity.test.mjs
       - run: node --test scripts/development-checkpoint.test.mjs
+      - run: node --test scripts/dev.test.mjs
       - run: npm run typecheck --prefix backend
       - run: npm run lint --prefix backend
       # Compiles the actual production artifact (dist/) that Dockerfile's
