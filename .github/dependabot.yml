@@ -25,6 +25,10 @@ updates:
       interval: weekly
       timezone: Asia/Manila
     open-pull-requests-limit: 5
+    ignore:
+      # Types must match the Node 22 runtime, or code can call APIs production lacks.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
     groups:
       minor-and-patch:
         update-types: [minor, patch]
