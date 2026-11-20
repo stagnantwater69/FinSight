@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { apiPort, checkPrerequisites, commands, parseArgs, portInUse } from "./dev.mjs";
+import { apiPort, checkPrerequisites, commands, createStopper, parseArgs, portInUse } from "./dev.mjs";
 
 const scratch = mkdtempSync(path.join(os.tmpdir(), "finsight-dev-selftest-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -55,6 +55,48 @@ test("commands start the API and worker through dev-database.ts, then one client
   assert.deepEqual(mobile.args, [path.join(root, "mobile/node_modules/expo/bin/cli"), "start"]);
   const all = [...commands(root, "web"), mobile].flatMap((c) => c.args).join(" ");
   assert.doesNotMatch(all, /migrate|\.cmd\b|npx|npm/);
+});
+
+test("only the client gets the terminal; the API and worker stay piped and tagged", () => {
+  const root = path.join(scratch, "stdio");
+  for (const mode of ["web", "mobile"]) {
+    const [api, worker, client] = commands(root, mode);
+    assert.deepEqual(api.stdio, ["ignore", "pipe", "pipe"]);
+    assert.deepEqual(worker.stdio, ["ignore", "pipe", "pipe"]);
+    assert.equal(client.stdio, "inherit");
+  }
+});
+
+const api = { tag: "api", stdio: ["ignore", "pipe", "pipe"] };
+const client = { tag: "web", stdio: "inherit" };
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function stopperWithLog() {
+  const calls = [];
+  return { calls, stopper: createStopper((code) => calls.push(code), 20) };
+}
+
+test("Ctrl-C stops once with 0 whether SIGINT or the client's own exit comes first", async () => {
+  for (const order of [["sigint", "client"], ["client", "sigint"], ["sigint", "api"], ["api", "sigint"]]) {
+    const { calls, stopper } = stopperWithLog();
+    for (const event of order) {
+      if (event === "sigint") stopper.stop(0);
+      else if (event === "client") stopper.childExited(client, 0, null);
+      else stopper.childExited(api, 3221225786, null);
+    }
+    await wait(50);
+    assert.deepEqual(calls, [0], order.join(" then "));
+  }
+});
+
+test("a crash or a non-zero client exit still stops the rest with a non-zero code", async () => {
+  for (const [cmd, code, signal, expected] of [[api, 1, null, 1], [api, 0, null, 1], [api, null, "SIGKILL", 1], [client, 2, null, 2]]) {
+    const { calls, stopper } = stopperWithLog();
+    stopper.childExited(cmd, code, signal);
+    assert.deepEqual(calls, [], "waits for a possible SIGINT first");
+    await wait(50);
+    assert.deepEqual(calls, [expected]);
+  }
 });
 
 test("checkPrerequisites passes on a complete tree under Node 22", () => {
