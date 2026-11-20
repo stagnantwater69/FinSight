@@ -720,7 +720,7 @@ function ExpenseBehaviorContent({ navigation }: InsightsScreenProps<"ExpenseBeha
             ) : null}
           </View>
         ) : (
-          <Reveal style={{ gap: space.lg }}>
+          <Reveal style={{ gap: space.xl }}>
             {/*
               OVERVIEW — the figures, in the order the question is asked.
               The shape first, the figures second: the chart answers "is this

@@ -131,7 +131,7 @@ export function MoneyFlowPanel({
             accessibilityState={{ expanded: showHow }}
             onPress={() => setShowHow((v) => !v)}
             hitSlop={8}
-            style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "flex-end", justifyContent: "center" }}
+            style={({ pressed }) => ({ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "flex-end", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
           >
             <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: HERO.amber }}>{showHow ? "Hide" : "How?"}</T>
           </Pressable>
@@ -181,7 +181,7 @@ export function TodayGoalSummary({
         <T accessibilityRole="header" style={{ fontSize: typeScale.caption, fontFamily: font.sansSemibold, color: t.ACCENT.text }}>
           Today's sales goal
         </T>
-        <Pressable accessibilityRole="link" accessibilityLabel="Open Recovery" onPress={onOpenRecovery} hitSlop={8} style={{ minHeight: TAP_FLOOR, justifyContent: "center" }}>
+        <Pressable accessibilityRole="link" accessibilityLabel="Open Recovery" onPress={onOpenRecovery} hitSlop={8} style={({ pressed }) => ({ minHeight: TAP_FLOOR, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}>
           <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.brandText }}>Recovery ›</T>
         </Pressable>
       </View>
@@ -228,7 +228,7 @@ export function TodayGoalSummary({
             accessibilityState={{ expanded: showBasis }}
             onPress={() => setShowBasis((v) => !v)}
             hitSlop={12}
-            style={{ minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}
+            style={({ pressed }) => ({ minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
           >
             <Ionicons name={showBasis ? "close-circle-outline" : "information-circle-outline"} size={18} color={t.textMuted} />
           </Pressable>
@@ -326,7 +326,7 @@ export function SpendingSplitCard({
           </ChartPlotPressArea>
           <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: space.md, rowGap: space.xs }}>
             {parts.map((p, index) => (
-              <Pressable key={p.key} {...splitSelection.bind(index)} accessibilityRole="button" accessibilityLabel={`${p.name} spending values`} style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%" }}>
+              <Pressable key={p.key} {...splitSelection.bind(index)} accessibilityRole="button" accessibilityLabel={`${p.name} spending values`} style={({ pressed }) => ({ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%", opacity: pressed ? 0.7 : 1 })}>
                 <View style={{ width: 9, height: 9, borderRadius: 2, backgroundColor: p.color }} />
                 <T style={{ fontSize: typeScale.caption, color: t.textSecondary, flexShrink: 1, textDecorationLine: splitSelection.selectedIndex === index ? "underline" : "none" }}>{`${p.name} ${pct(p.amount)}%`}</T>
               </Pressable>

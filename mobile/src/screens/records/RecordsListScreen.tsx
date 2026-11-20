@@ -807,7 +807,7 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
                   accessibilityRole="button"
                   accessibilityLabel="Clear the search"
                   hitSlop={8}
-                  style={{ padding: 2 }}
+                  style={({ pressed }) => ({ padding: 2, opacity: pressed ? 0.7 : 1 })}
                 >
                   <Ionicons name="close-circle-outline" size={18} color={ink[300]} />
                 </Pressable>
@@ -954,7 +954,7 @@ export function RecordsScreen({ navigation, route }: RecordsScreenProps<"Records
                 accessibilityLabel="Clear all filters"
                 onPress={clearFilters}
                 hitSlop={4}
-                style={{ minHeight: 34, justifyContent: "center", paddingHorizontal: space.xs }}
+                style={({ pressed }) => ({ minHeight: 34, justifyContent: "center", paddingHorizontal: space.xs, opacity: pressed ? 0.7 : 1 })}
               >
                 <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.textSecondary }}>Clear all</T>
               </Pressable>

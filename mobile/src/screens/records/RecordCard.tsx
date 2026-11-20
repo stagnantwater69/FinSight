@@ -54,7 +54,7 @@ function SwipeAction({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={{
+      style={({ pressed }) => ({
         width: 84,
         minHeight: TAP_FLOOR,
         marginBottom,
@@ -62,7 +62,8 @@ function SwipeAction({
         alignItems: "center",
         justifyContent: "center",
         borderRadius: radius.lg,
-      }}
+        opacity: pressed ? 0.7 : 1,
+      })}
     >
       <Ionicons name={icon} size={20} color={onColour} />
       <T style={{ color: onColour, fontSize: typeScale.micro, marginTop: 2 }}>{label}</T>
@@ -168,6 +169,7 @@ export function RecordCard({
       // condition as `disabled` so the three cannot disagree.
       accessibilityRole={onPress ? "button" : undefined}
       accessibilityLabel={onPress ? spoken : undefined}
+      style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
     >
       <Card style={groupStyle}>
         <View style={{ flexDirection: "row", gap: space.md }}>

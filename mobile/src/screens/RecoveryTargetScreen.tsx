@@ -172,7 +172,7 @@ function RecoveryTargetContent({ navigation }: InsightsScreenProps<"RecoveryTarg
               accessibilityRole="button"
               accessibilityLabel="About the recovery target"
               onPress={() => setShowDefinition(true)}
-              style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}
+              style={({ pressed }) => ({ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
             >
               <Ionicons name="information-circle-outline" size={20} color={t.brandText} />
             </Pressable>
@@ -222,7 +222,7 @@ function RecoveryTargetContent({ navigation }: InsightsScreenProps<"RecoveryTarg
             <Button title="Retry" variant="secondary" onPress={load} />
           </View>
         ) : data && period ? (
-          <Reveal style={{ gap: space.lg }}>
+          <Reveal style={{ gap: space.xl }}>
             <RecoveryCoachCard
               data={data}
               period={period}
@@ -324,7 +324,7 @@ function RecoveryTargetContent({ navigation }: InsightsScreenProps<"RecoveryTarg
                         accessibilityRole="link"
                         onPress={() => openOperatingScheduleFromRecovery(navigation)}
                         hitSlop={8}
-                        style={{ minHeight: TAP_FLOOR, flexDirection: "row", alignItems: "center", gap: 2 }}
+                        style={({ pressed }) => ({ minHeight: TAP_FLOOR, flexDirection: "row", alignItems: "center", gap: 2, opacity: pressed ? 0.7 : 1 })}
                       >
                         <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.brandText }}>
                           {daysApproximated && !scheduleConfigured ? "Edit operating schedule" : "Edit schedule"}
@@ -1000,7 +1000,7 @@ function SavedPlanCard({
           accessibilityLabel="Edit"
           onPress={startEditing}
           hitSlop={8}
-          style={{ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "flex-end", justifyContent: "center" }}
+          style={({ pressed }) => ({ minHeight: TAP_FLOOR, minWidth: TAP_FLOOR, alignItems: "flex-end", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
         >
           <T style={{ fontSize: typeScale.label, fontFamily: font.sansSemibold, color: t.brandText }}>Edit</T>
         </Pressable>

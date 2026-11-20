@@ -102,7 +102,7 @@ function MonthPicker({ month, onChange }: { month: string; onChange: (month: str
         onPress={() => onChange(shiftMonthKey(month, -1))}
         accessibilityRole="button"
         accessibilityLabel="Previous month"
-        style={{ padding: space.sm, minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}
+        style={({ pressed }) => ({ padding: space.sm, minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
       >
         <Ionicons name="chevron-back" size={20} color={t.textPrimary} />
       </Pressable>
@@ -114,7 +114,7 @@ function MonthPicker({ month, onChange }: { month: string; onChange: (month: str
         onPress={() => onChange(shiftMonthKey(month, 1))}
         accessibilityRole="button"
         accessibilityLabel="Next month"
-        style={{ padding: space.sm, minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center" }}
+        style={({ pressed }) => ({ padding: space.sm, minWidth: TAP_FLOOR, minHeight: TAP_FLOOR, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
       >
         <Ionicons name="chevron-forward" size={20} color={t.textPrimary} />
       </Pressable>
@@ -157,7 +157,7 @@ function ReviewContent({
   const coverageSelection = useChartSelection(coverageData, data.month);
 
   return (
-    <Reveal style={{ gap: space.lg }}>
+    <Reveal style={{ gap: space.xl }}>
       <View style={{ backgroundColor: t.brandSolidPressed, borderRadius: radius.xl, padding: space.lg, gap: space.md }}>
         <KpiWatermark name="stats-chart-outline" color={t.onBrandSolid} opacity={0.065} borderRadius={radius.xl} />
         <T accessibilityRole="header" style={{ color: t.onBrandSolid, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>Costs paid by sales</T>

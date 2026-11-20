@@ -476,7 +476,7 @@ export function ScheduleRow({ schedule, onPress }: { schedule: RecurringSchedule
     .join(", ");
 
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${spoken}. Edit this payment.`}>
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${spoken}. Edit this payment.`} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
       <Card style={{ marginBottom: space.sm }}>
         <View style={{ flexDirection: "row", gap: space.md, alignItems: "center" }}>
           <Medallion icon={look.icon} tint={look.tint} surface={look.surface} size={38} />

@@ -121,7 +121,7 @@ export function RecoveryCoachCard({ data, period, isCurrentMonth, header }: {
           <T style={{ color: HERO_MUTED, fontFamily: font.sansSemibold, fontSize: typeScale.bodyLg }}>Sales recorded</T>
           <PanelStatus tone={noSales ? "warning" : status.tone} glyph={noSales ? "i" : status.glyph} copy={noSales ? isCurrentMonth ? "No sales recorded yet this month" : recoveryPeriodStatusLabel({ ...period, status: "no_data" }) : status.copy} />
         </View>
-        <T style={{ color: HERO_INK, fontFamily: font.sansSemibold, fontSize: typeScale.display, lineHeight: typeScale.display + space.sm, fontVariant: ["tabular-nums"] }}>{formatMoney(period.sales)}</T>
+        <T numberOfLines={1} adjustsFontSizeToFit style={{ color: HERO_INK, fontFamily: font.monoSemibold, fontSize: typeScale.display, lineHeight: typeScale.display + space.sm, fontVariant: ["tabular-nums"] }}>{formatMoney(period.sales)}</T>
         <T style={{ color: HERO_MUTED, fontSize: typeScale.bodySm }}>{targetReady ? `of ${formatMoney(period.target)} sales coverage target` : "Add a monthly expense estimate to calculate your target."}</T>
       </View>
       {noSales ? <T style={{ color: HERO_MUTED, fontSize: typeScale.bodySm }}>{`Add a sale to start tracking.${latestSale ? ` Your latest sale was ${latestSale}.` : ""}`}</T> : null}
@@ -146,7 +146,7 @@ export function RecoveryCoachCard({ data, period, isCurrentMonth, header }: {
           <View style={{ borderTopWidth: 1, borderTopColor: HERO.hairline, paddingTop: space.md, flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
             <View style={{ flex: 1, minWidth: 120, gap: space.xs }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}><Ionicons name="arrow-up" size={18} color={HERO_AMBER} /><T style={{ color: HERO_MUTED, fontSize: typeScale.caption }}>{period.isComplete ? "Period result" : "Still to sell"}</T></View>
-              <T style={{ color: HERO_INK, fontFamily: font.sansSemibold, fontSize: typeScale.title, fontVariant: ["tabular-nums"] }}>{formatMoney(period.isComplete ? Math.abs(period.sales - period.target) : Math.max(0, period.remainingTarget))}</T>
+              <T style={{ color: HERO_INK, fontFamily: font.monoSemibold, fontSize: typeScale.title, fontVariant: ["tabular-nums"] }}>{formatMoney(period.isComplete ? Math.abs(period.sales - period.target) : Math.max(0, period.remainingTarget))}</T>
               {period.isComplete ? <T style={{ color: HERO_MUTED, fontSize: typeScale.caption }}>{period.sales >= period.target ? "above target" : "short of target"}</T> : null}
             </View>
             <View style={{ flex: 1, minWidth: 120, gap: space.xs }}>
