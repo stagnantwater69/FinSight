@@ -14,7 +14,6 @@ import type {
 import { font, radius, space, typeScale } from "../theme/tokens";
 import { TAP_FLOOR } from "./touchTarget";
 import { ChartPlotPressArea, ChartValueReadout, useChartSelection, type ChartDatum } from "./ChartInteraction";
-import { GrowFill } from "./GrowFill";
 
 /** Above this share of recorded funds, spending is drawn as a warning. */
 export const FUNDS_SHARE_WARNING = 75;

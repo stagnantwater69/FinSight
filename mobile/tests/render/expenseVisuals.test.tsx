@@ -158,9 +158,9 @@ describe('Expense figures', () => {
 
 describe('Spending comparisons', () => {
   it.each([
-    { total: 1250, previousTotal: 1000, percentage: 25, difference: 250, description: 'higher', direction: 'more' },
-    { total: 750, previousTotal: 1000, percentage: -25, difference: -250, description: 'lower', direction: 'less' },
-  ])('names a $description total with exact period amounts', async ({ total, previousTotal, percentage, difference, description, direction }) => {
+    { total: 1250, previousTotal: 1000, percentage: 25, difference: 250, description: 'higher' },
+    { total: 750, previousTotal: 1000, percentage: -25, difference: -250, description: 'lower' },
+  ])('names a $description total with exact period amounts', async ({ total, previousTotal, percentage, difference, description }) => {
     const q = await render(withTheme(<>
       <SpendHero total={total} recordCount={4} categoryCount={2} changePercent={percentage} changeAmount={difference} comparedWith="August 2026" />
       <SpendingComparison total={total} previousTotal={previousTotal} period="September 2026" comparedWith="August 2026" />
