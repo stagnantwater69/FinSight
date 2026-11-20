@@ -1,4 +1,4 @@
-import { ApiError } from "../middleware/error.middleware";
+import { ApiError } from "./apiError";
 import { resolveBusinessToday, utcAddDays, utcDateKey, utcEndOfDay } from "./dates";
 
 /**

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ApiError } from "../middleware/error.middleware";
+import { ApiError } from "./apiError";
 import { utcAddDays, utcDateKey, utcDaysInMonth, utcEndOfDay, utcIsoWeekday } from "./dates";
 
 /**

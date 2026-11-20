@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma";
-import { ApiError } from "../middleware/error.middleware";
+import { ApiError } from "./apiError";
 
 type OwnershipDb = typeof prisma | Prisma.TransactionClient;
 

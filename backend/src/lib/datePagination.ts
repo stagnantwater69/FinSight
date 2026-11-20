@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { ApiError } from "../middleware/error.middleware";
+import { ApiError } from "./apiError";
 
 export const datePageQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
