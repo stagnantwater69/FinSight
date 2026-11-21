@@ -356,8 +356,11 @@ describe("ExpenseInsight resilience", () => {
     getFinancialPosition.mockResolvedValue(financialPosition(24_000));
     renderPage();
 
+    // First render in this file pays cold JIT: ~150ms idle, 963ms under 2x CPU load locally, >1s once in CI.
     const label = await screen.findByText(
       "Share of recorded available funds",
+      undefined,
+      { timeout: 3000 },
     );
     const tile = label.parentElement;
     expect(tile).not.toBeNull();
