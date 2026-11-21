@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseCsv } from "../../src/lib/csvParse";
 import { CSV_MAX_FILE_BYTES } from "../../src/lib/csvUploadValidation";
-import { ApiError } from "../../src/middleware/error.middleware";
+import { ApiError } from "../../src/lib/apiError";
 
 /**
  * Characterization tests for the CSV parser's delimiter choice, limits and
