@@ -1802,16 +1802,6 @@ function RecoveryHero({
       aria-labelledby="recovery-hero-title"
       className="relative flex min-w-0 flex-col overflow-hidden rounded-2xl bg-gradient-to-br from-brand-800 via-brand-900 to-brand-950 p-5 text-white shadow-md sm:p-6"
     >
-      <svg
-        aria-hidden
-        viewBox="0 0 200 200"
-        className="pointer-events-none absolute -right-14 -top-14 h-56 w-56 text-white/[0.06]"
-      >
-        <circle cx="100" cy="100" r="92" fill="none" stroke="currentColor" strokeWidth="14" />
-        <circle cx="100" cy="100" r="58" fill="none" stroke="currentColor" strokeWidth="14" />
-        <circle cx="100" cy="100" r="22" fill="currentColor" />
-      </svg>
-
       <div className="relative flex items-start gap-4">
         <IconTile icon={Target} size="lg" className="hidden sm:inline-flex" />
         <div className="min-w-0">
@@ -2954,7 +2944,7 @@ function RecoveryInsightContent() {
             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
               <h2
                 id="recovery-inputs-title"
-                className="text-base font-semibold text-ink-900"
+                className="text-lg font-semibold text-ink-900"
               >
                 Inputs
               </h2>
@@ -3281,7 +3271,7 @@ function RecoveryInsightContent() {
               <h2
                 id="daily-coverage"
                 tabIndex={-1}
-                className="scroll-mt-6 text-base font-semibold text-ink-900 focus:outline-none"
+                className="scroll-mt-6 text-lg font-semibold text-ink-900 focus:outline-none"
               >
                 Each day's sales
               </h2>

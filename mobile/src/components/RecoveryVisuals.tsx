@@ -113,7 +113,7 @@ export function RecoveryCoachCard({ data, period, isCurrentMonth, header }: {
   const coverageData = [periodCoverageDatum(period)];
   const coverageSelection = useChartSelection(coverageData);
   return (
-    <TealPanel style={{ borderRadius: radius.xl }} watermarkIcon="stats-chart-outline">
+    <TealPanel style={{ borderRadius: radius.xl }}>
       {header}
       <View style={{ gap: space.xs }}>
         {/* The label and the status share a line; they wrap only when large text needs it. */}
@@ -173,7 +173,7 @@ export function RecoveryNextGoal({ period }: { period: RecoveryReportingPeriod }
       <T variant="heading" accessibilityRole="header">What to aim for next</T>
       <View style={{ backgroundColor: t.brandSurface, borderRadius: radius.md, padding: space.lg, gap: space.sm }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-          <Ionicons name={reached ? "checkmark-circle-outline" : "locate-outline"} size={30} color={t.brandText} />
+          <Ionicons name={reached ? "checkmark-circle-outline" : "locate-outline"} size={30} color={t.textMuted} />
           <T style={{ flex: 1, color: t.brandHeading, fontFamily: font.sansSemibold, fontSize: typeScale.title, fontVariant: ["tabular-nums"] }}>{reached ? "Sales coverage target reached" : dailyTarget !== null ? `${formatMoney(dailyTarget)} / day` : period.remainingOperatingDays <= 0 ? "No operating days remaining" : "Daily target unavailable"}</T>
         </View>
         {dailyTarget === null ? <T style={{ color: t.textSecondary, fontSize: typeScale.bodySm }}>{reached ? "Recorded sales cover this period's costs." : "Review your operating schedule and the remaining target below."}</T> : null}

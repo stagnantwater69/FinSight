@@ -20,7 +20,6 @@ import {
   ThumbsDown,
   ThumbsUp,
   TrendingUp,
-  WalletCards,
 } from "lucide-react";
 import { useBusinessProfiles } from "../context/BusinessProfileContext";
 import { useExpenseCategories } from "../context/ExpenseCategoryContext";
@@ -198,16 +197,19 @@ function ChangeFigure({
     // an expense screen, so up is bad. Colour is never the only signal: the
     // arrow and the sign say the same thing.
     <span
-      className="figure inline-flex items-center font-semibold"
+      className="figure inline-flex flex-wrap items-center justify-end font-semibold"
       style={{ color: up ? STATUS_INK.serious : STATUS_INK.good }}
     >
-      {up ? (
-        <ArrowUpRight aria-hidden className="mr-1 size-3.5" />
-      ) : (
-        <ArrowDownRight aria-hidden className="mr-1 size-3.5" />
-      )}
-      {up ? "+" : "−"}
-      {formatMoney(Math.abs(change))}
+      {/* Sign and amount never split ("+PHP" over "5,000"); only the percent may wrap. */}
+      <span className="inline-flex items-center whitespace-nowrap">
+        {up ? (
+          <ArrowUpRight aria-hidden className="mr-1 size-3.5" />
+        ) : (
+          <ArrowDownRight aria-hidden className="mr-1 size-3.5" />
+        )}
+        {up ? "+" : "−"}
+        {formatMoney(Math.abs(change))}
+      </span>
       {percent !== null && percent !== 0 ? (
         <span className="ml-1 text-xs font-medium opacity-80">
           {Math.abs(percent).toFixed(0)}%
@@ -548,7 +550,7 @@ function OpportunityCard({
         <div className="flex items-start gap-3">
           <span
             aria-hidden
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-paper-100 text-brand-700 ring-1 ring-paper-200"
+            className="flex size-8 shrink-0 items-center justify-center text-ink-500"
           >
             <TrendingUp className="size-4" />
           </span>
@@ -1528,6 +1530,7 @@ function ExpenseInsightPage() {
 
     return {
       total,
+      expenseCount: data.categoryTrends.reduce((sum, trend) => sum + trend.recordCount, 0),
       categoryCount: spending.length,
       top,
       topShare: top && total > 0 ? (top.current / total) * 100 : 0,
@@ -1718,10 +1721,6 @@ function ExpenseInsightPage() {
           >
             <h2 className="sr-only">Total expenses</h2>
             <div className="relative isolate flex min-w-0 flex-col overflow-hidden rounded-2xl bg-gradient-to-br from-brand-800 via-brand-900 to-brand-950 p-5 text-white shadow-md sm:col-span-2 xl:col-span-1">
-              <WalletCards
-                aria-hidden
-                className="pointer-events-none absolute -right-8 -top-8 -z-10 size-40 -rotate-12 text-white/[0.06]"
-              />
               <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-200">
                 Total spent
               </p>
@@ -1729,12 +1728,8 @@ function ExpenseInsightPage() {
                 {formatMoney(summary.total)}
               </p>
               <p className="mt-1 text-xs text-brand-100">
-                {data.categoryTrends.reduce(
-                  (sum, trend) => sum + trend.recordCount,
-                  0,
-                )}{" "}
-                expenses · {summary.categoryCount} categor
-                {summary.categoryCount === 1 ? "y" : "ies"}
+                {summary.expenseCount} {summary.expenseCount === 1 ? "expense" : "expenses"} · {summary.categoryCount}{" "}
+                {summary.categoryCount === 1 ? "category" : "categories"}
               </p>
               <div className="mt-auto pt-4 text-brand-300">
                 <Sparkline
