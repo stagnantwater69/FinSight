@@ -46,6 +46,7 @@ import { api } from "../lib/api";
 import { cachedApiGet, peekCachedApiData } from "../lib/serverStateApi";
 import { recoveryInsightRequest } from "../lib/screenRequests";
 import { getErrorMessage } from "../lib/errors";
+import { formatCalendarDate } from "../lib/dates";
 import { InsightsTabs } from "../components/AppShell";
 import {
   AskFinSightButton,
@@ -354,15 +355,6 @@ const CHECKPOINT_LOOK: Record<
   },
 };
 
-function formatCheckpointDate(date: string): string {
-  return new Date(date).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
-
 /**
  * One checkpoint, shown prominently — plan §10.4: "Show at most the current
  * and next checkpoint prominently." A `pending` checkpoint (its `endDate` is
@@ -397,7 +389,7 @@ function CheckpointCard({
               {label}
             </p>
             <p className="text-sm font-semibold text-ink-900">
-              {formatCheckpointDate(checkpoint.endDate)}
+              {formatCalendarDate(checkpoint.endDate)}
             </p>
           </div>
         </div>
@@ -468,7 +460,7 @@ const checkpointColumns = (isFinished: (c: RecoveryCheckpoint) => boolean): Colu
     sortValue: (c) => c.endDate,
     cell: (c) => (
       <span className="whitespace-nowrap font-medium text-ink-700">
-        {formatCheckpointDate(c.endDate)}
+        {formatCalendarDate(c.endDate)}
       </span>
     ),
   },
@@ -631,7 +623,7 @@ function RecoveryCheckpoints({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-medium text-ink-900">
-                    {formatCheckpointDate(c.endDate)}
+                    {formatCalendarDate(c.endDate)}
                   </p>
                   <p className="mt-0.5 text-xs text-ink-500">
                     {c.recordedAmount === null ? (
@@ -1081,14 +1073,6 @@ function ScenarioCompareCard({
   );
 }
 
-function formatMonthLabel(monthKey: string): string {
-  const [year, month] = monthKey.split("-").map(Number);
-  return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "long",
-  });
-}
-
 /**
  * A small, optional form for the fields a `RecoveryPlan` can hold — plan
  * §7.5/§10.7. Shared between "Save this as a plan" (seeded from the
@@ -1213,7 +1197,7 @@ function SavedRecoveryPlanPanel({
 
   async function handleDelete() {
     const ok = await confirm({
-      title: `Remove your saved plan for ${formatMonthLabel(monthKey)}?`,
+      title: `Remove your saved plan for ${monthLabel(monthKey)}?`,
       body: "This only removes your reference notes — it never affected your actual Recovery Target.",
       confirmLabel: "Remove plan",
       tone: "danger",
@@ -1233,7 +1217,7 @@ function SavedRecoveryPlanPanel({
   return (
     <Panel
       eyebrow="For your reference only"
-      title={`This month's saved plan — ${formatMonthLabel(monthKey)}`}
+      title={`This month's saved plan — ${monthLabel(monthKey)}`}
       action={
         !editing ? (
           <div className="flex gap-2">

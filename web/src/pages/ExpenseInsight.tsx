@@ -61,9 +61,11 @@ import {
   CANDIDATES_PREVIEW_COUNT,
   EXPENSE_RECURRING_PATH,
   SCHEDULES_PREVIEW_COUNT,
+  dismissRecurringPattern,
   openFindingsRequest,
   recurringPatternsRequest,
   recurringSchedulesRequest,
+  watchRecurringPattern,
 } from "./expenseInsight/reviewRequests";
 import { ReportingPeriodScope, useReportingPeriod } from "../context/ReportingPeriodContext";
 import {
@@ -94,7 +96,7 @@ import {
   PairBars,
   ShareBar,
   Sparkline,
-  UsualBar,
+  UnusualExpenseRow,
 } from "./expenseInsight/ExpenseVisuals";
 import { ExpenseSummaryCard } from "./expenseInsight/ExpenseSummaryCard";
 import { ListDisclosureControl, useListDisclosure } from "../components/ListDisclosure";
@@ -1225,9 +1227,7 @@ function ExpenseInsightPage() {
     const requestScopeKey = expenseScopeKey;
     setError(null);
     try {
-      await api.post(`/insights/recurring-patterns/${id}/confirm`, undefined, {
-        serverStateScope: { businessProfileId: selected!.id },
-      });
+      await watchRecurringPattern(selected!.id, id);
       if (activeExpenseScopeRef.current !== requestScopeKey) return;
       // Both lists move: the candidate leaves this panel and a schedule appears
       // in the agenda. Refetched rather than patched in state because the new
@@ -1246,11 +1246,7 @@ function ExpenseInsightPage() {
     const requestScopeKey = expenseScopeKey;
     setError(null);
     try {
-      await api.patch(
-        `/insights/recurring-patterns/${id}`,
-        { status: "DISMISSED" },
-        { serverStateScope: { businessProfileId: selected!.id } },
-      );
+      await dismissRecurringPattern(selected!.id, id);
       if (activeExpenseScopeRef.current !== requestScopeKey) return;
       setRecurringPatterns((current) =>
         current.map((pattern) =>
@@ -2389,48 +2385,9 @@ function ExpenseInsightPage() {
               ) : (
                 <>
                   <ul className="space-y-2">
-                    {data.unusualExpenses.slice(0, UNUSUAL_PREVIEW_COUNT).map((u) => {
-                      const times =
-                        u.categoryMean > 0 ? u.amount / u.categoryMean : null;
-                      return (
-                        <li
-                          key={u.id}
-                          className="rounded-xl border border-paper-200 bg-paper-50 px-3.5 py-3"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-ink-900">
-                                {u.description}
-                              </p>
-                              <p className="mt-0.5 text-xs text-ink-500">
-                                {u.categoryName} · {u.date.slice(0, 10)}
-                              </p>
-                            </div>
-                            <div className="shrink-0 text-right">
-                              <p className="figure text-sm font-bold text-ink-900">
-                                {formatMoney(u.amount)}
-                              </p>
-                              {/* Said in multiples of the usual, not in standard
-                                  deviations. "4.2× usual" lands; "z-score 3.2"
-                                  does not. */}
-                              {times && times >= 1.5 ? (
-                                <span className="figure mt-0.5 inline-block rounded-full bg-tint-danger px-1.5 py-0.5 text-xs font-semibold text-tone-danger">
-                                  {times.toFixed(1)}× usual
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                          <UsualBar amount={u.amount} usual={u.categoryMean} />
-                          <p className="mt-1.5 text-xs text-ink-500">
-                            Usual{" "}
-                            <span className="figure font-medium text-ink-700">
-                              {formatMoney(u.categoryMean)}
-                            </span>{" "}
-                            (the line)
-                          </p>
-                        </li>
-                      );
-                    })}
+                    {data.unusualExpenses.slice(0, UNUSUAL_PREVIEW_COUNT).map((u) => (
+                      <UnusualExpenseRow key={u.id} expense={u} />
+                    ))}
                   </ul>
                   {/* The full list opens on its own page rather than growing
                       this panel past the flags panel beside it. */}
