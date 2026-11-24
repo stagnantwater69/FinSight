@@ -13,6 +13,7 @@ import * as haptics from "../lib/haptics";
 import { compactAmount, formatMoney } from "../lib/money";
 import { formatOperatingDays, recoveryPeriodLabel, recoveryPeriodStatusLabel } from "../lib/recoveryPeriodView";
 import { useTheme } from "../context/ThemeContext";
+import { addDays } from "../lib/paymentCalendar";
 import { HERO } from "../theme/hero";
 import { PanelStatus, TealPanel } from "./CoachKit";
 import { font, radius, space, typeScale } from "../theme/tokens";
@@ -268,12 +269,6 @@ export function TodayGoalCard({ data, children }: { data: RecoveryInsight; child
 // ---------------------------------------------------------------- calendar
 
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
-
-function addDays(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 type CellKind = "hit" | "miss" | "closed" | "today" | "future" | "empty";
 
